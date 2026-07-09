@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # security-checker: 汎用セキュリティ評価CLI
-# 使い方: ./check.sh [対象ディレクトリ] [--url <URL>] [--min-score N]
+# 使い方: ./check.sh [対象ディレクトリ] [--url <URL>] [--min-score N] [--check-updates]
+# --check-updates: 使用ツール(gitleaks/semgrep/osv-scanner/trivy)の最新版チェックを追加実行
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,11 +11,13 @@ REPORT_DIR="$SCRIPT_DIR/reports"
 TARGET="."
 URL=""
 MIN_SCORE=""
+CHECK_UPDATES=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="$2"; shift 2 ;;
     --min-score) MIN_SCORE="$2"; shift 2 ;;
+    --check-updates) CHECK_UPDATES=1; shift ;;
     -h|--help)
       sed -n '2,3p' "$0"; exit 0 ;;
     *) TARGET="$1"; shift ;;
@@ -62,6 +65,12 @@ run_scan "設定ファイル検査 (trivy)"      scan_config.sh
 if [[ -n "$URL" ]]; then
   export URL
   run_scan "Webサービス検査 (curl)" scan_web.sh
+fi
+
+if [[ "$CHECK_UPDATES" -eq 1 ]]; then
+  echo "--- ツール更新チェック ---"
+  bash "$LIB_DIR/check_tool_updates.sh"
+  echo ""
 fi
 
 # --- スコア集計 ---
