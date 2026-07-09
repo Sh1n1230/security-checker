@@ -29,11 +29,15 @@ run() { # 名前 コマンド...
   fi
 }
 
-run "macOS設定監査"        bash "$DIR/audit_macos.sh"
+if [[ "$(uname)" == "Darwin" ]]; then
+  run "macOS設定監査"        bash "$DIR/audit_macos.sh"
+fi
 run "開放ポート"           bash "$DIR/check_ports.sh"
 run "ファイル権限"         bash "$DIR/check_permissions.sh" ${PROJECT:+"$PROJECT"}
 run "シェル履歴/環境変数"  bash "$DIR/check_shell_env.sh"
-run "更新/バックアップ"    bash "$DIR/check_updates.sh"
+if [[ "$(uname)" == "Darwin" ]]; then
+  run "更新/バックアップ"    bash "$DIR/check_updates.sh"
+fi
 if [[ -n "$PROJECT" && -d "$PROJECT/.git" ]]; then
   run "git履歴の漏洩"      bash "$DIR/check_git_history.sh" "$PROJECT"
 fi

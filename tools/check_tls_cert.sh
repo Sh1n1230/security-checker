@@ -16,7 +16,11 @@ if [[ -z "$cert" ]]; then
 fi
 
 end_date=$(grep '^notAfter=' <<< "$cert" | cut -d= -f2-)
-end_epoch=$(date -j -f '%b %e %T %Y %Z' "$end_date" +%s 2>/dev/null)
+if [[ "$(uname)" == "Darwin" ]]; then
+  end_epoch=$(date -j -f '%b %e %T %Y %Z' "$end_date" +%s 2>/dev/null)
+else
+  end_epoch=$(date -d "$end_date" +%s 2>/dev/null)
+fi
 now_epoch=$(date +%s)
 days_left=$(( (end_epoch - now_epoch) / 86400 ))
 
