@@ -36,3 +36,80 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           cat result.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  security-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 全 .ps1 の構文リント
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $files = Get-ChildItem -Path . -Filter *.ps1 -Recurse -File
+          $hasError = $false
+          foreach ($f in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $hasError = $true
+              Write-Host "::error file=$($f.FullName)::構文エラーが $($errors.Count) 件あります"
+              foreach ($e in $errors) { Write-Host "  $($e.Message) (line $($e.Extent.StartLineNumber))" }
+            }
+          }
+          if ($hasError) { exit 1 }
+          Write-Host "OK: $($files.Count) 個の .ps1 に構文エラーはありません"
+
+      - name: ツールをインストール (GitHub releasesから直接取得)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bin = Join-Path $env:RUNNER_TEMP "bin"
+          New-Item -ItemType Directory -Force -Path $bin | Out-Null
+
+          # gitleaks
+          $ver = (Invoke-RestMethod "https://api.github.com/repos/gitleaks/gitleaks/releases/latest").tag_name.TrimStart("v")
+          $zip = Join-Path $env:RUNNER_TEMP "gitleaks.zip"
+          Invoke-WebRequest -Uri "https://github.com/gitleaks/gitleaks/releases/download/v$ver/gitleaks_${ver}_windows_x64.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $bin -Force
+
+          # trivy
+          $ver = (Invoke-RestMethod "https://api.github.com/repos/aquasecurity/trivy/releases/latest").tag_name.TrimStart("v")
+          $zip = Join-Path $env:RUNNER_TEMP "trivy.zip"
+          Invoke-WebRequest -Uri "https://github.com/aquasecurity/trivy/releases/download/v$ver/trivy_${ver}_windows-64bit.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $bin -Force
+
+          # osv-scanner
+          Invoke-WebRequest -Uri "https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_windows_amd64.exe" -OutFile (Join-Path $bin "osv-scanner.exe")
+
+          # semgrep
+          pip install semgrep
+
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+
+      - name: セキュリティ検査を実行 (windows)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          pwsh ./check.ps1 . | Tee-Object -FilePath result.txt
+
+          # ubuntuジョブでスコア判定は担保済みのため、ここでは結果ファイルの整合性のみ検証する
+          $summaryPath = "reports/summary.json"
+          if (-not (Test-Path $summaryPath)) {
+            Write-Error "エラー: reports/summary.json が生成されていません"
+            exit 1
+          }
+          $summary = Get-Content -Raw -Path $summaryPath | ConvertFrom-Json
+          foreach ($key in @("total_score", "rank", "categories")) {
+            if (-not ($summary.PSObject.Properties.Name -contains $key)) {
+              Write-Error "エラー: summary.json に $key キーがありません"
+              exit 1
+            }
+          }
+          Write-Host "OK: summary.json に total_score=$($summary.total_score) rank=$($summary.rank) categories を確認"
+
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## Security Check 結果 (Windows)"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
+          Get-Content result.txt | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
