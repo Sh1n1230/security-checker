@@ -11,7 +11,8 @@ if ! command -v semgrep >/dev/null 2>&1; then
 fi
 
 RAW="$REPORT_DIR/code_raw.json"
-semgrep scan --config auto --json --quiet --metrics=off "$TARGET" > "$RAW" 2>/dev/null || true
+# 注: --config auto は近年の semgrep では --metrics=off と併用不可のため p/default を使う
+semgrep scan --config p/default --json --quiet --metrics=off "$TARGET" > "$RAW" 2>/dev/null || true
 
 if [[ ! -s "$RAW" ]]; then echo '{"results":[]}' > "$RAW"; fi
 
