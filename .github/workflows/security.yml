@@ -1,0 +1,43 @@
+# このファイルを検査したいリポジトリの .github/workflows/ にコピーして使う。
+# security-checker 本体もリポジトリに含めるか、checkout で取得すること。
+name: Security Check
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: security-checker を取得
+        uses: actions/checkout@v4
+        with:
+          repository: Sh1n1230/security-checker # 自分のリポジトリ名に変更
+          path: .security-checker
+
+      - name: ツールをインストール
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq
+          # gitleaks
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_8.24.3_linux_x64.tar.gz | tar xz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+          # semgrep
+          pipx install semgrep
+          # osv-scanner
+          curl -sSL -o osv-scanner https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64
+          chmod +x osv-scanner && sudo mv osv-scanner /usr/local/bin/
+          # trivy
+          curl -sSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+
+      - name: セキュリティ検査を実行
+        run: |
+          bash .security-checker/check.sh . --min-score 70 | tee result.txt
+          echo '## Security Check 結果' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat result.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
