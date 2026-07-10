@@ -26,7 +26,7 @@ jq '{
       elif $s == "MODERATE" or $s == "MEDIUM" then "MEDIUM"
       else "LOW" end),
     message: (($p.package.name // "?") + ": " + .id),
-    location: ($p.package.name + "@" + ($p.package.version // "?"))
+    location: (($p.package.name // "?") + "@" + ($p.package.version // "?"))
   } ]
 }' "$RAW" > "$OUT"
 
