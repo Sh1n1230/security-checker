@@ -11,9 +11,12 @@ if ! command -v semgrep >/dev/null 2>&1; then
 fi
 
 RAW="$REPORT_DIR/code_raw.json"
-semgrep scan --config auto --json --quiet --metrics=off "$TARGET" > "$RAW" 2>/dev/null || true
-
-if [[ ! -s "$RAW" ]]; then echo '{"results":[]}' > "$RAW"; fi
+# --config auto は --metrics=off と併用不可のため、明示的にルールセットを指定する
+if ! semgrep scan --config p/default --json --quiet --metrics=off "$TARGET" > "$RAW" 2> "$REPORT_DIR/code_err.log"; then
+  echo "エラー: semgrep の実行に失敗 ($REPORT_DIR/code_err.log を確認)"
+  echo '{"category":"code","skipped":true,"findings":[]}' > "$OUT"
+  exit 1
+fi
 
 jq '{
   category: "code",
