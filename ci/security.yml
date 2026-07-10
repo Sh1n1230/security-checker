@@ -37,6 +37,8 @@ jobs:
 
       - name: セキュリティ検査を実行
         run: |
+          # デフォルトshellは pipefail 無しのため、check.sh の失敗が tee に隠れないようにする
+          set -o pipefail
           bash .security-checker/check.sh . --min-score 70 | tee result.txt
           echo '## Security Check 結果' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
