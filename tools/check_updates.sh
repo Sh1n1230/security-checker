@@ -4,6 +4,11 @@
 # 使い方: ./check_updates.sh
 set -uo pipefail
 
+if [[ "$(uname)" != "Darwin" ]]; then
+  echo "macOS 専用のためスキップします"
+  exit 0
+fi
+
 issues=0
 echo "=== 更新・バックアップ状態の検査 ==="
 

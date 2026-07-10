@@ -9,15 +9,24 @@ issues=0
 section() { echo ""; echo "--- $1 ---"; }
 report() { echo "  ❌ $1"; issues=$((issues+1)); }
 
+# GNU/BSD 両対応のファイル権限取得
+file_perm() {
+  if stat -f '%Lp' "$1" >/dev/null 2>&1; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
+
 echo "=== ファイル権限検査 ==="
 
 # ~/.ssh の権限 (秘密鍵は 600、ディレクトリは 700 が原則)
 section "~/.ssh"
 if [[ -d "$HOME/.ssh" ]]; then
-  perm=$(stat -f '%Lp' "$HOME/.ssh")
+  perm=$(file_perm "$HOME/.ssh")
   [[ "$perm" != "700" ]] && report "~/.ssh の権限が $perm (700 にすべき): chmod 700 ~/.ssh"
   while IFS= read -r key; do
-    kperm=$(stat -f '%Lp' "$key")
+    kperm=$(file_perm "$key")
     if [[ "$kperm" != "600" && "$kperm" != "400" ]]; then
       report "秘密鍵 $key の権限が $kperm (600 にすべき): chmod 600 '$key'"
     fi
@@ -33,7 +42,7 @@ found=0
 for f in "$HOME/.aws/credentials" "$HOME/.netrc" "$HOME/.npmrc" "$HOME/.pgpass" "$HOME/.docker/config.json"; do
   [[ -f "$f" ]] || continue
   found=1
-  perm=$(stat -f '%Lp' "$f")
+  perm=$(file_perm "$f")
   if [[ "$perm" =~ [1-7]$ || "$perm" =~ [1-7].$ ]]; then
     report "$f が他ユーザーから読める権限 $perm: chmod 600 '$f'"
   else

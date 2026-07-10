@@ -44,3 +44,39 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           cat result.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+# --- Windows でも検査したい場合は下記のジョブを有効化する ---
+# (コメントアウトを外し、上の `.security-checker を取得` ステップで security-checker 本体を
+#  取得している前提。check.ps1 は PowerShell 7 (pwsh) で動作する)
+#
+#   security-windows:
+#     runs-on: windows-latest
+#     steps:
+#       - uses: actions/checkout@v5
+#
+#       - name: security-checker を取得
+#         uses: actions/checkout@v5
+#         with:
+#           repository: Sh1n1230/security-checker # 自分のリポジトリ名に変更
+#           path: .security-checker
+#
+#       - name: ツールをインストール (winget)
+#         shell: pwsh
+#         run: |
+#           winget install --accept-source-agreements --accept-package-agreements jqlang.jq
+#           winget install --accept-source-agreements --accept-package-agreements Gitleaks.Gitleaks
+#           winget install --accept-source-agreements --accept-package-agreements AquaSecurity.Trivy
+#           winget install --accept-source-agreements --accept-package-agreements Google.OSVScanner
+#           pip install semgrep
+#           # 注: winget install は CI ランナー上で不安定なことがある。
+#           # 安定させたい場合は本体リポジトリの .github/workflows/security.yml の
+#           # security-windows ジョブ(GitHub releasesから直接ダウンロード)を参考にすること。
+#
+#       - name: セキュリティ検査を実行
+#         shell: pwsh
+#         run: |
+#           pwsh .security-checker/check.ps1 . -MinScore 70 | Tee-Object -FilePath result.txt
+#           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## Security Check 結果 (Windows)"
+#           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
+#           Get-Content result.txt | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+#           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'

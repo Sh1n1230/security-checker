@@ -3,6 +3,11 @@
 # 使い方: ./check_ports.sh
 set -uo pipefail
 
+if ! command -v lsof >/dev/null 2>&1; then
+  echo "lsof がないためスキップします"
+  exit 0
+fi
+
 echo "=== 開いているポートの棚卸し ==="
 echo ""
 

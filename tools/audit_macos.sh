@@ -3,6 +3,11 @@
 # 使い方: ./audit_macos.sh
 set -uo pipefail
 
+if [[ "$(uname)" != "Darwin" ]]; then
+  echo "macOS 専用のためスキップします"
+  exit 0
+fi
+
 pass=0; fail=0; warn=0
 
 ok()   { echo "  ✅ $1"; pass=$((pass+1)); }
