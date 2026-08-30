@@ -90,7 +90,7 @@ v2 は目的そのものを変える。
 
 | # | 原則 | 設計上の意味 |
 |---|---|---|
-| P1 | **Provider Agnostic** | 特定 LLM がコードに現れない。全 Provider は同一 Protocol の実装 |
+| P1 | **Vendor Agnostic** | **コードにベンダー名・製品名が一切現れない。** 分類軸は transport と方言であり、ベンダー知識は同梱 YAML データにのみ存在する(§9) |
 | P2 | **Configurable** | LLM の追加・削除は YAML 1 ブロックで完結。1 個でも N 個でも動く |
 | P3 | **No Automatic Modification** | Reviewer は書き込み系ツールを一切持たない。**不変条件**として型・テストで担保 |
 | P4 | **Auditable** | 全 Finding は「どのモデルが・どのプロンプトで・何を返したか」まで追跡できる |
@@ -106,6 +106,10 @@ v2 は目的そのものを変える。
 - **能動的な攻撃 / Pentest**(Strix 等の領域)。v2 は静的レビューに限定する。§28 で拡張点だけ用意する。
 - **独自 SAST ルールエンジンの開発**。検出は既存 OSS に委ね、v2 は「検証と文脈化」に集中する。
 - **スコアの単一数値化を主目的にすること**。v1 の 100 点満点は補助指標に格下げする(§17 で理由を述べる)。
+- **特定の LLM・特定の組み合わせを推奨すること**。「開発に使う AI とレビューする AI を分ける」は
+  一般命題として支持するが、**どのベンダーをどちらに置くかについて、このプロジェクトは立場を持たない。**
+  既定設定に Reviewer を 1 つも入れず、プリセット一覧に順位づけをせず、
+  ドキュメントに「おすすめ」を書かない(§9.8)。利用者が既に持っているものが正解である。
 
 ---
 
@@ -134,8 +138,8 @@ v2 は目的そのものを変える。
         ▼                             ▼                             ▼
   ┌───────────┐               ┌───────────┐                 ┌───────────┐
   │ Reviewer  │               │ Reviewer  │                 │ Reviewer  │   互いの出力を見ない
-  │  gemini   │               │  ollama   │                 │claude-code│
-  │  (HTTP)   │               │  (HTTP)   │                 │  (CLI) ★  │
+  │ Reviewer  │               │ Reviewer  │                 │ Reviewer  │
+  │  (http)   │               │  (http)   │                 │ (process) │
   └─────┬─────┘               └─────┬─────┘                 └─────┬─────┘
         │ ReviewVerdict             │                             │
         └─────────────────────────┬─┴─────────────────────────────┘
@@ -192,7 +196,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# 公式 SDK は「あれば使う」程度。内蔵 Provider はどれも SDK なしで動く
+# 公式 SDK は「入っていればバックエンドに使う」だけ。内蔵アダプタはどれも SDK なしで動く
+# (ここに現れるパッケージ名は PyPI 上の実名であり、優遇を意味しない)
 openai    = ["openai>=1.40"]
 google    = ["google-genai"]
 anthropic = ["anthropic"]
@@ -200,7 +205,7 @@ tiktoken  = ["tiktoken"]          # トークン見積りの精度向上
 all       = ["security-checker[openai,google,anthropic,tiktoken]"]
 ```
 
-**内蔵 Provider(`openai_compatible` / `anthropic` / `google` / `ollama` / `cli`)はすべて
+**内蔵アダプタ(`http` transport の 4 方言 + `process` transport)はすべて
 httpx と標準ライブラリのみで実装し、SDK なしで常に利用可能にする。**
 
 各社の API は結局のところ「JSON を POST して JSON を受け取る」だけであり、
@@ -246,7 +251,7 @@ security-checker/
 │   ├── config/
 │   │   ├── schema.py          # pydantic 設定モデル
 │   │   ├── loader.py          # YAML 読み込み / env 展開 / 検証 / プリセット合成
-│   │   └── presets/           # gemini-free.yml, local-ollama.yml, ci-cheap.yml …
+│   │   └── presets/           # minimal.yml, thorough.yml, frugal.yml, ci.yml (構成の形のみ)
 │   │
 │   ├── models/                # ドメインモデル (すべて pydantic, frozen)
 │   │   ├── candidate.py       # Scanner 出力の正規化形
@@ -268,13 +273,18 @@ security-checker/
 │   │
 │   ├── providers/
 │   │   ├── base.py            # LLMProvider Protocol, Capabilities, Completion*
-│   │   ├── http/              # HTTP 系 (すべて httpx のみ・SDK 不要)
-│   │   │   ├── openai_compatible.py   anthropic.py
-│   │   │   ├── google.py              ollama.py
-│   │   │   └── presets.py     # 既知エンドポイントの capability プリセット表
-│   │   ├── cli_provider.py    # ★ CLI 系: subprocess で外部コマンドを起動
-│   │   ├── cli_presets.py     # claude_code / codex / gemini_cli / ollama_cli
-│   │   ├── sandbox.py         # ★ CLI 起動時の隔離 (一時 cwd / argv / killpg / 書込検知)
+│   │   ├── http/              # transport: http (すべて httpx のみ・SDK 不要)
+│   │   │   ├── transport.py   # 共通の HTTP 送受信・エラー正規化
+│   │   │   └── dialects/      # 形の変換のみ。ベンダー名は現れない
+│   │   │       ├── openai_chat.py       anthropic_messages.py
+│   │   │       └── gemini_generate.py   ollama_chat.py
+│   │   ├── process/           # transport: process (任意コマンドの起動)
+│   │   │   ├── runner.py      # argv 起動 / stdin 供給 / stdout 回収
+│   │   │   └── sandbox.py     # ★ 隔離 (一時 cwd / shell 不使用 / killpg / 書込検知)
+│   │   ├── presets/           # ★ ベンダー知識はここにだけ存在する (YAML データ)
+│   │   │   ├── http/*.yml     #   名前 → dialect + base_url + capability
+│   │   │   └── process/*.yml  #   名前 → command + parse + capability
+│   │   ├── detect.py          # `init` 用: 環境で使えるものを検出 (§9.8)
 │   │   └── registry.py
 │   │
 │   ├── review/
@@ -421,7 +431,7 @@ id = sha256(
 class ReviewVerdict(BaseModel, frozen=True):
     # --- メタ(LLM は生成しない。実行系が付与) ---
     candidate_id: str
-    reviewer: str                 # 設定ファイル上の名前 ("gemini" など)
+    reviewer: str                 # 設定ファイル上の名前(利用者が命名する)
     model: str
     attempt: int
     usage: Usage
@@ -624,37 +634,70 @@ LLM が過信しないようにする。
 
 ## 9. LLM Provider Interface
 
-### Provider の 3 系統
+### 分類の軸は「ベンダー」ではなく「トランスポート × 方言」
 
-「OpenAI 互換なら足せます」だけでは拡張性の説明として不十分である。Anthropic は OpenAI 互換ではないし、
-そもそも **API キーを持たず、手元の CLI(Claude Code / Codex CLI / Gemini CLI)のサブスクリプションで
-レビューさせたい利用者が確実に存在する**。Provider は次の 3 系統に整理し、**どれも一級市民として扱う**。
+**設計にベンダー名を持ち込まない。** これは P1(Vendor Agnostic)の具体化であり、
+本プロジェクトで最も強く守るべき構造上の制約である。
 
-| 系統 | 実体 | 追加のしかた | 認証 |
-|---|---|---|---|
-| **HTTP** | REST API を叩く。`openai_compatible` / `anthropic` / `google` / `ollama` | 設定 1 ブロック(既存 Provider)または プラグイン(独自 API 形式) | API キー |
-| **CLI** ★ | ローカルのコマンドを subprocess で起動する。`claude` / `codex` / `gemini` / 任意のコマンド | 設定 1 ブロック(`command:` を書くだけ) | **CLI 側の既存ログイン**(サブスクリプションを含む) |
-| **Plugin** | 上記で表現できない独自実装 | 外部パッケージ + entry_points(§29) | 実装依存 |
+「OpenAI 互換なら足せます」だけでは拡張性の説明として不十分だった。理由は 2 つある。
 
-CLI 系を一級市民にすることには、コスト以上の意味がある。要件メモ §4 の**第三者性**——
-「Developer が使う Coding Agent と、Security Auditor は別であるべき」——を、
-**利用者が既に持っているツールだけで、追加コストゼロで実現できる**ようになる。
+1. **OpenAI 互換ではない API 形式が現に存在する。** 互換性を前提にすると、そこで詰まる。
+2. **API キーを持たない利用者が存在する。** 手元の CLI に既にログインしていて、
+   その認証のままレビューさせたい、という需要は無視できない。
 
-```yaml
-# Codex で書いたコードを、Claude Code にレビューさせる
-reviewers:
-  - name: claude-code
-    provider: cli
-    preset: claude_code
+そこで Provider を、**ベンダーではなく次の 2 軸**で分類する。
+
+| 軸 | 値 | 意味 |
+|---|---|---|
+| **Transport** | `http` / `process` | どうやってモデルに到達するか |
+| **Dialect** | `openai_chat` / `anthropic_messages` / `gemini_generate` / `ollama_chat` / `text_io` | リクエストとレスポンスの形 |
+
+ベンダー名は**どの分類にも現れない**。`anthropic_messages` は「Anthropic 社の」ではなく
+「Messages API という形の」という意味であり、その形を話すエンドポイント(自社ホスト、
+クラウドベンダーのゲートウェイ、互換プロキシ)なら何でも同じアダプタで扱える。
+`openai_chat` を話すサービスが十数種あるのと同じ構図である。
+
+| Transport | 追加のしかた | 認証 |
+|---|---|---|
+| **`http`** | 設定 1 ブロック(`dialect` + `base_url` + `model`) | API キー(環境変数) |
+| **`process`** | 設定 1 ブロック(`command:` を書くだけ) | **そのコマンド側の既存ログイン** |
+| **Plugin** | 上記で表現できない形のみ。外部パッケージ + entry_points(§29) | 実装依存 |
+
+### ベンダー知識はコードではなくデータに置く
+
+「どのベンダーのどのエンドポイントが、どの方言を、どの capability で話すか」という知識は、
+**同梱の YAML データ**(`providers/presets/*.yml`)にのみ存在し、**コードには一切現れない**。
+
+```text
+コード     : transport(http / process)と dialect(形の変換)だけを知っている
+データ     : 「この名前 = この dialect + この base_url + この capability」の対応表
+ユーザー   : データを追加・上書きできる。PR を出さなくても、コードを書かなくてもよい
 ```
 
-この構成は API キーを 1 つも必要としない。README の目玉に置く(§30)。
+この分離により、次が構造的に保証される。
+
+- **新しいベンダーの登場でコードが変わらない。** 同梱プリセットに載っていなくても、
+  利用者が自分で 5 行書けば動く。プロジェクトが「対応」を宣言するまで待つ必要がない。
+- **プロジェクトが特定ベンダーを優遇できない。** 既定設定に特定のモデルを埋め込まず、
+  プリセット一覧はアルファベット順で、順位づけをしない(§9.8)。
+- **プリセットが古くなっても詰まらない。** `dialect` と `command` を直接書けば必ず動く逃げ道が常にある。
+
+### 第三者性との関係
+
+要件メモ §4 の主張は「**開発に使った AI と、レビューする AI は別であるべき**」という一般命題であり、
+特定の組み合わせを推奨するものではない。利用者がどの組み合わせを選ぶかは、
+その人が既に何を持っているかで決まる。設計側がすべきことは、
+**どの組み合わせでも等しく成立させること**であって、望ましい組み合わせを提示することではない。
+
+したがって v2 は「開発側の AI」を一切前提にしない。設定に現れるのは Reviewer だけであり、
+「あなたが何で開発しているか」を尋ねる項目も、それに応じて挙動を変える分岐も存在しない。
 
 ### 9.1 Protocol
 
 ```python
 class LLMProvider(Protocol):
-    name: str                                   # プラグイン識別子 ("openai_compatible")
+    transport: Literal["http", "process"]
+    dialect: str                                # "openai_chat" など。process では "text_io"
 
     @property
     def capabilities(self) -> Capabilities: ...
@@ -709,60 +752,65 @@ ProviderBadRequestError  # 400 (スキーマ非対応など) → 降格して再
 ProviderResponseError    # パース不能 → 修復リトライ
 ```
 
-### 9.3 `openai_compatible` — HTTP 系の汎用実装
+### 9.3 `openai_chat` 方言 — 最も守備範囲の広いアダプタ
 
 `POST {base_url}/chat/completions` を叩くだけの薄い実装。**HTTP 系の中で最も守備範囲が広い** Provider である。
 
 ```yaml
 reviewers:
-  - name: qwen
-    provider: openai_compatible
-    base_url: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-    model: qwen3-coder-plus
-    api_key_env: DASHSCOPE_API_KEY
-    headers:                      # 任意の追加ヘッダ (OpenRouter の Referer など)
-      HTTP-Referer: https://github.com/Sh1n1230/security-checker
+  - name: r1
+    transport: http
+    dialect: openai_chat
+    base_url: https://<your-endpoint>/v1
+    model: <model-id>
+    api_key_env: <ENV_VAR_NAME>
+    headers:                      # 任意の追加ヘッダ(サービスが要求する場合)
+      X-Some-Header: value
     capabilities:                 # 自動判定の上書き(任意)
       structured_output: json_mode
       max_context_tokens: 128000
 ```
+
+この形を話すサービスは多数あり、**そのどれも本体の変更なしに使える**のが
+このアダプタの価値である。特定のサービスを想定した分岐はコードに持たない。
 
 #### Capability の決定順序
 
 エンドポイントを叩いても capability は分からない(`/models` は情報が薄い)。次の優先順で決める。
 
 1. **ユーザーの `capabilities` 明示指定**(最優先)
-2. **プリセット表**(`providers/http/presets.py`): base_url のホスト名 + モデル名パターンで既知の組み合わせを引く。
-   例: `api.openai.com` + `gpt-*` → `json_schema` / `generativelanguage.googleapis.com` → `json_schema` /
-   `localhost:11434` → `json_schema`(Ollama)/ 不明 → `json_mode`
+2. **プリセットデータ**(`providers/presets/http/*.yml`): base_url のホスト名 + モデル名パターンで
+   既知の組み合わせを引く。**この対応表は YAML データであり、利用者が追加・上書きできる**(§9.7)。
+   一致するエントリがなければ、最も互換性の高い `json_mode` にフォールバックする。
 3. **実行時フォールバック**(§10.2): `json_schema` で 400 が返れば `json_mode` に降格し、
    その事実を warning ログと `degraded_to` に記録。同一 Reviewer 内では以降そのモードを使い続ける。
 
-この 3 段構えにより、**未知の OpenAI 互換サービスでも「まず動く」** ことを保証する。
+この 3 段構えにより、**プリセットに載っていない未知のエンドポイントでも「まず動く」** ことを保証する。
 
-### 9.4 Ollama Provider
+### 9.4 `ollama_chat` 方言
 
-- 既定は native API `POST /api/chat` + `format: <JSON Schema>`(Ollama の structured outputs)。
+- `POST {base_url}/api/chat` + `format: <JSON Schema>` によるスキーマ指定に対応する。
 - `options.num_ctx` を**明示指定**する。既定の 2048 のままだと文脈が黙って切れて精度が壊滅するため、
   設定値(既定 8192)を必ず送る。これは実運用上ハマりやすい罠として docs にも書く。
 - `keep_alive` を設定可能にし、連続レビューでのモデル再ロードを防ぐ。
 - モデル未 pull 時は `ProviderBadRequestError` を「`ollama pull <model>` を実行してください」という
   **実行可能なメッセージ**に変換する。
-- OpenAI 互換 `/v1` でも動くが、native の方が `num_ctx` を制御できるため既定は native。
+- 同エンドポイントは `openai_chat` 方言でも話せるが、`num_ctx` を制御できないため既定はこちら。
 
-### 9.5 Google (Gemini) Provider
+### 9.5 `gemini_generate` 方言
 
-- **既定の推奨は OpenAI 互換エンドポイント**(`https://generativelanguage.googleapis.com/v1beta/openai/`)。
-  追加依存なしで動き、無料枠ユーザーの導入摩擦が最小になる。プリセットに登録済みとする。
-- native provider(`google-genai` extra)は `responseMimeType: application/json` + `responseSchema` を使う。
+- このサービスは `openai_chat` 方言でも話せるため、**そちらで足りるならアダプタは不要**である。
+  専用アダプタが要るのは、この方言でしか使えない機能(後述のスキーマ指定)を使う場合に限る。
+- `responseMimeType: application/json` + `responseSchema` を使う。
   `responseSchema` は OpenAPI サブセットで JSON Schema 全機能を通さないため、
   **スキーマ変換層**(`$ref` 展開、`additionalProperties` 除去、未対応キーワードの削除)を持つ。
 - 無料枠の RPM / RPD 制限を設定で宣言でき、スケジューラがそれを尊重する(§22)。
 
-### 9.6 Anthropic Provider (native)
+### 9.6 `anthropic_messages` 方言
 
-Anthropic の Messages API は OpenAI 互換ではないため、`openai_compatible` では扱えない。
-**内蔵の一級 Provider として httpx で実装する**(SDK 不要)。
+Messages API 形式は `openai_chat` と互換性がないため、別アダプタが要る。
+**内蔵の方言アダプタとして httpx で実装する**(SDK 不要)。
+この形を話すエンドポイントであれば、提供元がどこであっても同じアダプタで扱える。
 
 - `POST {base_url}/v1/messages`、ヘッダは `x-api-key` と `anthropic-version`。
 - `system` はメッセージ配列ではなく**独立フィールド**。この差異を Provider が吸収する。
@@ -786,63 +834,89 @@ Anthropic の Messages API は OpenAI 互換ではないため、`openai_compati
 - 拡張思考(extended thinking)対応モデルでは `reasoning: true` を立て、
   思考トークンを出力予算に加算する(でないと `max_tokens` 不足で切れる)。
 
-### 9.7 CLI Provider ★
+### 9.7 `process` transport — 任意のコマンドを Reviewer にする
 
-**手元の CLI コマンドを subprocess で起動し、その標準出力を LLM 応答として扱う Provider。**
+**外部コマンドを subprocess で起動し、その標準出力を LLM 応答として扱う。**
+特定の CLI を対象にした機能ではなく、**「標準入力を受け取り標準出力にテキストを返すコマンド」という
+契約を満たすもの全て**を Reviewer にできる、という汎用機構である。
 
-これにより次が可能になる。
+契約はこれだけ:
 
-- **API キーなしでレビューできる。** Claude Code / Codex CLI / Gemini CLI に既にログインしていれば、
-  そのサブスクリプションのままレビューが走る。要件メモ §8「無料利用を重視」への最も現実的な答えでもある。
-- **Coding Agent と Security Auditor を確実に分離できる。** Codex で書いて Claude Code にレビューさせる、
-  Claude Code で書いて Codex にレビューさせる、という運用が設定 3 行で成立する。
-- 将来 CLI 側が新モデルに対応すれば、**こちらは何もしなくても追随する。**
+```text
+起動   : argv で指定されたコマンドを、非対話モードで実行する
+入力   : プロンプトを stdin(または一時ファイル)で渡す
+出力   : stdout にテキストを返す。そこから JSON を抽出する(§10.2)
+終了   : exit code 0 を成功とみなす
+```
 
-#### 設定
+この契約を満たしさえすれば、対象が何であるかを本体は知る必要がない。
+自作のシェルスクリプト、社内の推論ゲートウェイ、ローカルモデルのランナー、
+コーディングエージェントの CLI — すべて同じ経路で扱われる。
+
+#### 設定 — プリセットなしで完結する
 
 ```yaml
 reviewers:
-  - name: claude-code
-    provider: cli
-    preset: claude_code          # 引数・出力形式・安全設定をまとめて適用
-    timeout_s: 300
-    weight: 1.0
-
-  - name: codex
-    provider: cli
-    preset: codex
-
-  - name: custom
-    provider: cli                # プリセットなしで直接指定することもできる
-    command: ["my-llm-cli", "--non-interactive", "--json"]
-    prompt_via: stdin            # stdin | arg | file
+  - name: my-reviewer
+    transport: process
+    command: ["<your-command>", "--non-interactive"]
+    prompt_via: stdin            # stdin | file
     parse: json_in_stdout        # stdout から最初の JSON オブジェクトを抽出
+    timeout_s: 300
+    concurrency: 1
 ```
 
-#### プリセット
+**これが基本形であり、プリセットは省略記法にすぎない。**
+`preset: <name>` を書くと、同梱データから `command` などの既定値が埋まる。
+プリセットが存在しない対象でも、`command` を直接書けば同じように動く。
 
-`providers/cli_presets.py` に既知 CLI の起動方法を持つ。**CLI のフラグはバージョンで変わるため、
-プリセットはコード側に閉じ込め、`security-checker providers check <name>` で実地検証する。**
-プリセットが古くなった場合でも `command:` を直接書けば動く、という逃げ道を必ず残す。
+#### プリセットはコードではなくデータ
 
-| preset | 概要 | 認証 |
-|---|---|---|
-| `claude_code` | Claude Code CLI を非対話・ツール無効で起動 | CLI 側の既存ログイン |
-| `codex` | Codex CLI を非対話・読み取り専用サンドボックスで起動 | 同上 |
-| `gemini_cli` | Gemini CLI を非対話で起動 | 同上 |
-| `ollama_cli` | `ollama run` 経由(HTTP を使いたくない場合) | 不要 |
+同梱プリセットは `providers/presets/process/*.yml` に置く。**コードには一切のコマンド名が現れない。**
+
+```yaml
+# providers/presets/process/<name>.yml
+name: <name>
+command: ["<binary>", "<non-interactive-flag>", "<disable-tools-flag>"]
+prompt_via: stdin
+parse: json_in_stdout
+capabilities:
+  structured_output: prompt_only
+  max_context_tokens: 200000
+requires_readonly_flags: true      # §9.7 の安全要件を満たしていることの申告
+```
+
+利用者は `~/.config/security-checker/presets/` に同名ファイルを置けば**同梱分を上書きでき**、
+新しい名前のファイルを置けば**自分のプリセットを追加できる**。PR は不要で、コードも書かない。
+
+#### 同梱プリセットの採否基準(OSS としての中立性)
+
+どのコマンドを同梱するかは、**人気や提供元ではなく、次の客観的条件のみ**で決める。
+
+1. 非対話モードがあり、スクリプトから起動できる
+2. **ツール実行・ファイル書き込みを無効化する手段がある**(§9.7 の安全要件・必須)
+3. 出力を標準出力から取得できる
+4. 自動化利用が、その提供元の利用規約で明示的に禁止されていない
+
+条件を満たす提案は**先着順で受け入れ、一覧はアルファベット順で表示する**。
+順位づけ・推奨マーク・「おすすめ」表記は付けない。特定の 1 つを既定値にもしない(§9.8)。
+プリセットの陳腐化は `security-checker providers check <name>` で検出でき、
+壊れていても `command` 直書きで回避できる。
 
 #### ★ 安全性 — ここを間違えると設計原則 P3 が崩れる
 
-**これらの CLI は本来コードを書き換えるためのエージェントである。** 何も考えずに起動すると、
-Security Reviewer がレビュー対象リポジトリを勝手に編集しうる。P3(No Automatic Modification)は
-このツールの根幹なので、次を**すべて**強制する。
+**起動対象は任意のコマンドであり、その中にはファイルを書き換える能力を持つものが含まれる。**
+何も考えずに起動すると、Security Reviewer がレビュー対象リポジトリを勝手に編集しうる。
+P3(No Automatic Modification)はこのツールの根幹なので、
+**対象が何であるかによらず**次を一律に強制する。
 
 1. **リポジトリの外で起動する。** cwd は毎回作り直す空の一時ディレクトリ。
-   CLI にリポジトリのパスを渡さない。コードはプロンプトとして stdin から渡す。
-2. **ツールを無効化する / 読み取り専用モードで起動する。** 各プリセットは
-   非対話 + ツール無効(または読み取り専用サンドボックス)のフラグを**必ず**含む。
-   プリセットからこれらを外す設定は許可しない(`command:` で完全上書きした場合は起動時に警告)。
+   コマンドにリポジトリのパスを渡さない。コードはプロンプトとして stdin から渡す。
+2. **書き込み能力を無効化した状態で起動する。** 同梱プリセットは
+   非対話 + ツール無効(または読み取り専用サンドボックス)の指定を**必ず**含み、
+   `requires_readonly_flags: true` を申告する(§9.7)。
+   利用者が `command` を直接書いた場合、本体はその中身を検証できないため、
+   **起動時に「書き込み能力の無効化は利用者の責任である」旨を警告する。**
 3. **シェルを経由しない。** `subprocess` は argv のリストで起動し `shell=False` 固定。
    プロンプトは**必ず stdin か一時ファイル**で渡し、コマンドライン引数に埋め込まない。
    引数に入れると、長さ制限に当たるうえ `ps` で他ユーザーにコードが見え、
@@ -856,41 +930,73 @@ Security Reviewer がレビュー対象リポジトリを勝手に編集しう�
 
 #### 制約(正直に書く)
 
-| 項目 | HTTP 系 | CLI 系 |
+| 項目 | `http` | `process` |
 |---|---|---|
 | Structured Output | `json_schema` / `json_mode` | **`prompt_only` のみ**(§10.2 の抽出+修復パスに依存) |
-| トークン / コスト計測 | 正確 | **不可**。`cost: subscription`、tokens は推定値を参考表示 |
+| トークン / コスト計測 | 正確 | **不可**。`cost: unknown`、tokens は推定値を参考表示 |
 | レイテンシ | 数秒 | 数十秒〜数分(既定 timeout 300s) |
-| 並列度 | 数〜十数 | **既定 1**(プロセスが重く、CLI 側にもレート制限がある) |
-| 決定性 | temperature 0 / seed | 制御不可。揺れる前提で扱う |
-| 安定性 | API バージョンで担保 | **CLI のバージョン差異で壊れうる**。起動時にバージョンを記録し trace に残す |
-| 利用規約 | API 利用規約 | **各 CLI の利用規約に従う。自動化利用の可否は利用者の責任**と docs に明記する |
+| 並列度 | 数〜十数 | **既定 1**(プロセス起動が重く、対象側にも制限があることが多い) |
+| 決定性 | temperature 0 / seed | 対象に依存。制御できない前提で扱う |
+| 安定性 | API バージョンで担保 | **対象コマンドのバージョン差異で壊れうる**。起動時にバージョン取得を試み trace に残す |
+| 利用規約 | エンドポイントの利用規約 | **対象コマンドの利用規約に従う。自動化利用の可否は利用者の責任**と docs に明記する |
 
-CLI 系は「安いが荒い」。したがって既定の推奨構成では
-**CLI 系 1 つ + HTTP 系 1 つ**を組み合わせ、CLI 側の揺れを consensus で吸収する形を勧める。
+`process` は一般に「安価だが荒い」。ただしこれは transport の性質であって、
+特定の対象の優劣ではない。組み合わせ方の一般則としては、
+**性質の異なる transport を混ぜると agreement が情報量を持ちやすい**(§15)。
 
 #### 監査証跡
 
-CLI 呼び出しも §24.2 のトレースに同形式で残す。`params` にはコマンド行(argv)と CLI バージョン、
+`process` 呼び出しも §24.2 のトレースに同形式で残す。`params` には argv と取得できたバージョン、
 `response.raw` には stdout 全文、加えて `stderr` と `exit_code` を保存する。
 
-### 9.8 プリセットによる導入摩擦の削減
+### 9.8 導入摩擦の削減 — 既定値を持たずに、環境から生成する
 
-`--preset` で最小構成を即起動できるようにする。
+導入を楽にする方法として最も安直なのは「おすすめの Reviewer を既定値にする」ことだが、
+**それをやると、そのベンダーを事実上の標準として押し付けることになる。**
+OSS としてこれは採らない。既定設定に Reviewer は 1 つも入っていない。
+
+代わりに、**利用者の環境で実際に使えるものを検出して設定を生成する。**
 
 ```bash
-security-checker review . --preset claude-code     # ★ API キー不要。手元の Claude Code CLI を使う
-security-checker review . --preset codex           # ★ API キー不要。手元の Codex CLI を使う
-security-checker review . --preset gemini-free     # GEMINI_API_KEY だけ要求
-security-checker review . --preset local-ollama    # API キー不要・完全ローカル
-security-checker review . --preset ci-cheap        # 安価モデル 1 個 + 差分のみ
-security-checker review . --preset cross-check     # CLI 系 1 + HTTP 系 1 の consensus (推奨構成)
+security-checker init
 ```
 
-**API キーを要求しないプリセットを先頭に置く。** 「まず試す」ときの障壁が、
-このカテゴリのツールが使われない最大の理由だからである。
+```text
+環境を検出しています…
 
-プリセットは `config/presets/*.yml` の実体であり、`security-checker config show --preset gemini-free` で
+  process transport で使えるコマンド
+    ✓ <detected-command-a>      (PATH 上に存在・非対話モードあり)
+    ✓ <detected-command-b>      (PATH 上に存在・非対話モードあり)
+    ✗ <preset-name-c>           (見つかりません)
+
+  http transport で使える資格情報
+    ✓ <ENV_VAR_X>               (設定済み)
+    ✗ <ENV_VAR_Y>               (未設定)
+    ✓ http://localhost:11434    (ローカルエンドポイントが応答)
+
+検出された 4 つのうち、どれを Reviewer にしますか?(複数選択可・順序は検出順)
+```
+
+検出結果は**アルファベット順または検出順で提示し、推奨マークを付けない。**
+選択の結果は `security-checker.yml` として書き出され、以後は普通の設定ファイルとして編集できる。
+検出ロジックが知っているのは「同梱プリセットに書かれたコマンド名と環境変数名」だけであり、
+**コードにベンダー名は現れない**(§9 冒頭)。
+
+#### `--preset` は「構成の形」であってベンダーではない
+
+`--preset` が指すのは Reviewer の顔ぶれではなく、**予算・並列度・モードの組み合わせ**とする。
+
+```bash
+security-checker review . --preset minimal     # Reviewer 1 個、差分のみ、候補上限 50
+security-checker review . --preset thorough    # Reviewer 全部、全件、judge 有効
+security-checker review . --preset frugal      # 低並列・低レート・候補上限厳しめ(無料枠向け)
+security-checker review . --preset ci          # 差分のみ、strict、SARIF 出力、コメント有効
+```
+
+どの Reviewer を使うかは設定ファイル(= `init` が生成したもの)側の責務であり、
+プリセットはそれに直交する。この分離により、**プリセット一覧にベンダー名が一切現れない。**
+
+プリセットは `config/presets/*.yml` の実体であり、`security-checker config show --preset ci` で
 生成される YAML をそのまま見て・コピーして編集できる。**魔法を作らない。**
 
 ---
@@ -1087,28 +1193,35 @@ context:
   max_tokens_per_task: 8000
   include_repo_facts: true
 
+# reviewers に既定値はない。`security-checker init` が環境を検出して生成する(§9.8)。
+# 以下は「書き方」の例であり、特定のサービスを推奨するものではない。
 reviewers:
-  - name: gemini
-    provider: openai_compatible
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    model: gemini-2.5-flash
-    api_key_env: GEMINI_API_KEY
+  # (a) HTTP transport — API キーを使う
+  - name: r1
+    transport: http
+    dialect: openai_chat                     # openai_chat | anthropic_messages
+                                             # | gemini_generate | ollama_chat
+    base_url: https://<endpoint>/v1
+    model: <model-id>
+    api_key_env: <ENV_VAR_NAME>
     weight: 1.0
-    rate_limit: { rpm: 10, tpm: 250000 }     # 無料枠を宣言しておく
+    rate_limit: { rpm: 10, tpm: 250000 }     # 無料枠などの制限を宣言しておく
     max_output_tokens: 2000
     timeout_s: 120
 
-  - name: local
-    provider: ollama
+  # (b) HTTP transport — ローカルエンドポイント。API キー不要
+  - name: r2
+    transport: http
+    dialect: ollama_chat
     base_url: http://localhost:11434
-    model: qwen3-coder:30b
+    model: <model-id>
     num_ctx: 16384
     weight: 0.8
 
-  # ★ CLI 系: API キー不要。手元の CLI の既存ログインをそのまま使う
-  - name: claude-code
-    provider: cli
-    preset: claude_code
+  # (c) process transport — 任意のコマンド。そのコマンド側の既存ログインを使う
+  - name: r3
+    transport: process
+    preset: <preset-name>                    # または command: [...] を直接書く
     timeout_s: 300
     weight: 1.0
     concurrency: 1
@@ -1122,7 +1235,7 @@ aggregation:
   # weighted:
   #   threshold: 0.6
   # judge:
-  #   reviewer: gemini-pro      # reviewers に別途定義した名前を指す
+  #   reviewer: r4              # reviewers に別途定義した名前を指す
   #   fallback: consensus       # Judge が失敗したときの代替
 
 policy:
@@ -1178,6 +1291,8 @@ logging:
 - `reviewers` が空なら設定エラー(exit 2)。「LLM なしで動く」モードは `scan` サブコマンド側で提供する。
 - `aggregation.strategy: judge` で `judge.reviewer` が `reviewers` に存在しない名前ならエラー。
 - 同名 reviewer の重複はエラー。
+- **`transport` は必須。** 省略時に何かを推測して補完しない。暗黙の既定値が
+  「事実上の推奨ベンダー」として機能してしまうのを避けるため。
 
 ---
 
@@ -1380,7 +1495,7 @@ security-checker v2.0.0   run 01JQ...   target: ~/my-project (diff mode, 12 file
 
 Scanners    semgrep ✓ 31  gitleaks ✓ 0  osv ✓ 4  trivy ✗ failed (exit 2)
             ⚠ trivy が失敗しました。設定ファイルの検査は行われていません。
-Reviewers   gemini (12 calls)  local (12 calls)   cost: $0.004  tokens: 61,203
+Reviewers   alpha (12 calls)  beta (12 calls)     cost: $0.004  tokens: 61,203
 
 ┌ CONFIRMED ────────────────────────────────────────────────────────┐
 │ HIGH  CWE-78  OS Command Injection            confidence 0.91     │
@@ -1388,13 +1503,13 @@ Reviewers   gemini (12 calls)  local (12 calls)   cost: $0.004  tokens: 61,203
 │                                                                   │
 │ Attack path: POST /upload → filename → process_file() →           │
 │              subprocess.run(shell=True)                           │
-│ gemini: high (0.93) / local: high (0.88)                          │
+│ alpha: high (0.93) / beta: high (0.88)                            │
 └───────────────────────────────────────────────────────────────────┘
 
 ┌ REVIEW REQUIRED ──────────────────────────────────────────────────┐
 │ ?      CWE-89  Possible SQL Injection         agreement: low      │
 │ src/db.py:88                                                      │
-│ gemini: high (0.80)  |  local: not vulnerable (0.72)              │
+│ alpha: high (0.80)  |  beta: not vulnerable (0.72)                │
 │ → 判断が分かれました。人間による確認を推奨します。                │
 └───────────────────────────────────────────────────────────────────┘
 
@@ -1459,7 +1574,8 @@ LLM レビューは本質的に「自分のコードを外部サービスに送�
 
 - 送信されるのは**候補箇所とその周辺文脈のみ**で、リポジトリ全体ではない(§8)。
 - `--dry-run` で「何が送信されるか」を実際の送信前に全部表示できる。
-- 完全に送信したくない組織向けの答えは **Ollama プリセット**であり、これを README の目立つ位置に置く。
+- 完全に送信したくない組織向けの答えは **ローカルエンドポイント / ローカルコマンドのみで構成すること**であり、
+  `init` がローカル実行可能なものを検出できるようにする(§9.8)。
 - `target.exclude` で機微なパスを除外できる。
 
 ### 19.4 プロンプトインジェクション
@@ -1553,10 +1669,12 @@ jobs:
         with: { fetch-depth: 0 }        # diff 算出に必要
       - uses: Sh1n1230/security-checker@v2
         with:
-          preset: gemini-free
+          config: security-checker.yml   # init で生成したもの
+          preset: ci
           fail-on: high
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # 設定ファイルの api_key_env で参照している変数だけを渡す
+          YOUR_PROVIDER_API_KEY: ${{ secrets.YOUR_PROVIDER_API_KEY }}
 ```
 
 ### 21.2 fork PR とシークレットの扱い ★
@@ -1585,7 +1703,7 @@ HTML コメントのマーカー `<!-- security-checker:summary:v2 -->` で自�
 ## 🛡 AI Security Review
 
 **1 confirmed** · 0 likely · **1 review required** · 10 false positive (suppressed)
-Reviewers: `gemini-2.5-flash`, `qwen3-coder:30b` · Aggregation: consensus (2 of 2)
+Reviewers: `alpha`, `beta` · Aggregation: consensus (2 of 2)
 ⚠️ trivy が失敗したため、設定ファイルの検査は行われていません。
 
 ---
@@ -1606,8 +1724,8 @@ Reviewers: `gemini-2.5-flash`, `qwen3-coder:30b` · Aggregation: consensus (2 of
 
 | Reviewer | vulnerable | severity | confidence | FP prob |
 |---|---|---|---|---|
-| gemini | ✅ | high | 0.93 | 0.05 |
-| local  | ✅ | high | 0.88 | 0.10 |
+| alpha | ✅ | high | 0.93 | 0.05 |
+| beta  | ✅ | high | 0.88 | 0.10 |
 </details>
 
 ---
@@ -1615,8 +1733,8 @@ Reviewers: `gemini-2.5-flash`, `qwen3-coder:30b` · Aggregation: consensus (2 of
 `src/db.py:88` · agreement **low**
 
 判断が分かれました。人間による確認を推奨します。
-- `gemini`: 脆弱 (high, 0.80) — 「文字列連結でクエリを構築している」
-- `local`: 脆弱でない (0.72) — 「呼び出し元で常に整数にキャストされている」
+- `alpha`: 脆弱 (high, 0.80) — 「文字列連結でクエリを構築している」
+- `beta`: 脆弱でない (0.72) — 「呼び出し元で常に整数にキャストされている」
 
 ---
 <sub>security-checker v2.0.0 · 47 candidates → 12 reviewed · $0.004 · [full report](…)</sub>
@@ -1668,7 +1786,7 @@ rate_limit:
 ### 22.3 無料枠向けプリセット
 
 `--slow` で `rpm: 5, concurrency: 1, max_candidates: 50` に落とす。
-Gemini 無料枠での完走を目標にしたプリセットを CI テストで実際に検証する。
+無料枠相当のレート(rpm 5 程度)で完走できることを、モックを用いた CI テストで検証する。
 
 ---
 
@@ -1697,7 +1815,7 @@ Gemini 無料枠での完走を目標にしたプリセットを CI テストで
 
 ```json
 {"ts":"2026-08-30T10:00:00Z","level":"info","run_id":"01JQ...","event":"review.call",
- "reviewer":"gemini","model":"gemini-2.5-flash","candidate_id":"a1b2c3d4",
+ "reviewer":"alpha","model":"<model-id>","candidate_id":"a1b2c3d4",
  "attempt":1,"latency_ms":2310,"input_tokens":4102,"output_tokens":388,"status":"ok"}
 ```
 
@@ -1710,7 +1828,7 @@ Gemini 無料枠での完走を目標にしたプリセットを CI テストで
 
 ```json
 {
-  "candidate_id": "a1b2c3d4", "reviewer": "gemini", "model": "gemini-2.5-flash",
+  "candidate_id": "a1b2c3d4", "reviewer": "alpha", "model": "<model-id>",
   "params": {"temperature": 0.0, "seed": 42, "max_output_tokens": 2000,
              "structured_mode": "json_schema"},
   "prompt": {"system_sha256": "...", "user_sha256": "...", "input_tokens": 4102},
@@ -1730,7 +1848,7 @@ Gemini 無料枠での完走を目標にしたプリセットを CI テストで
 - `usage` から実トークン数を集計。`Usage` は input / output / reasoning / cached を区別して保持する。
 - 価格表は**設定ファイル**(`pricing.yml`)に持つ。モデル価格は頻繁に変わるためコードに埋めない。
   未知モデルは `cost: unknown` と表示し、**推測しない**。
-- Ollama など無料 Provider は `cost: 0` を明示。
+- ローカル実行の Reviewer は `cost: 0`、コスト算出できない `process` transport は `cost: unknown` を明示。
 - 予算監視はレビュー実行中に逐次行い、`budget.max_usd` に達したら新規呼び出しを止めて
   部分結果を出力する。**「気づいたら課金されていた」を構造的に防ぐ。**
 - `--estimate` で実行前に「候補 N 件 × Reviewer M 個 ≈ 概算 $X」を表示し、実行前に止められるようにする。
@@ -1778,7 +1896,7 @@ class TestMyProvider(ProviderContractTests):
 5. `aclose()` で接続が解放される
 6. リトライを Provider 内部で実装していない(スケジューラの責務を侵さない)
 
-CLI 系 Provider には**追加の契約テスト**を課す(`CliProviderContractTests`)。
+`process` transport には**追加の契約テスト**を課す(`ProcessProviderContractTests`)。
 
 7. `shell=False` で起動している(プロンプトがシェルに渡らない)
 8. cwd がレビュー対象リポジトリの**外**である
@@ -1786,7 +1904,9 @@ CLI 系 Provider には**追加の契約テスト**を課す(`CliProviderContrac
 10. タイムアウト時に子プロセスが残らない(プロセスグループが回収される)
 
 9 番は P3(No Automatic Modification)を保証する唯一の自動検証であり、
-「書き込みを試みる偽 CLI」をフィクスチャとして用意して検知できることを確認する。
+「書き込みを試みる偽コマンド」をフィクスチャとして用意して検知できることを確認する。
+フィクスチャは実在のコマンドを模したものではなく、契約だけを満たす最小のスクリプトとする
+(テストが特定ベンダーの挙動に依存しないため)。
 
 ### 25.3 record / replay
 
@@ -1857,8 +1977,8 @@ ground_truth:
 ```bash
 security-checker eval \
   --dataset benchmarks/datasets/handmade-v1 \
-  --config benchmarks/configs/gemini-flash.yml \
-  --output benchmarks/results/2026-08-30-gemini-flash.json
+  --config benchmarks/configs/<config-name>.yml \
+  --output benchmarks/results/2026-08-30-<config-name>.json
 ```
 
 ### 27.2 指標
@@ -1916,10 +2036,11 @@ v2.2  Read-only agent        LLM に read_file / grep / list_symbols を tool ca
 v3.0  Dynamic verification   隔離サンドボックス内での PoC 検証。要オプトイン・要別ドキュメント
 ```
 
-### 28.3 CLI Provider と Agent 化の関係
+### 28.3 `process` transport と Agent 化の関係
 
-CLI 系 Provider(§9.7)は、**それ自体が既にエージェント**である。したがって v2.2 の「read-only agent」は、
-CLI 系については「サンドボックスの締め方を緩める」という形で先に到達しうる
+`process` transport(§9.7)で起動される対象は、**それ自体がエージェントである場合がある。**
+その場合 v2.2 の「read-only agent」は、新機能の実装ではなく
+**サンドボックスの締め方を緩める**という形で先に到達しうる
 (cwd をリポジトリにし、読み取り専用でコードを探索させる)。
 
 ただしこれは §19 のマスキング保証を弱める。Context Builder を通さずに CLI 自身がファイルを読むため、
@@ -1928,7 +2049,7 @@ CLI 系については「サンドボックスの締め方を緩める」とい�
 - 既定は常に「リポジトリ外 cwd + 渡した文脈のみ」。
 - `sandbox.cwd: repo` はオプトインとし、有効化時に
   「マスキング保証が無効になる」旨を**起動時に明示的に警告する**。
-- HTTP 系と CLI 系でレビューの前提が変わるため、その事実を Verdict のメタ情報に記録する。
+- transport によってレビューの前提が変わるため、その事実を Verdict のメタ情報に記録する。
 
 ### 28.4 不変条件として守るもの
 
@@ -1955,34 +2076,40 @@ CLI 系については「サンドボックスの締め方を緩める」とい�
 **「新しい LLM を追加する」は、9 割のケースでコードを書かずに終わる。**
 ドキュメントもこの順序で書く(§30)。
 
-#### ルート 1: OpenAI 互換 API — 設定 1 ブロック
+#### ルート 1: 既知の方言を話す HTTP エンドポイント — 設定 1 ブロック
 
 ```yaml
 reviewers:
   - name: my-llm
-    provider: openai_compatible
+    transport: http
+    dialect: openai_chat            # 4 方言のいずれか
     base_url: https://my-endpoint.example.com/v1
     model: my-model
     api_key_env: MY_LLM_KEY
 ```
 
-#### ルート 2: CLI コマンド — 設定 1 ブロック(API キー不要)
+#### ルート 2: 非対話で動くコマンド — 設定 1 ブロック(API キー不要)
 
-OpenAI 互換でなくても、非対話で動く CLI があれば足せる。
+方言がどれにも当てはまらなくても、stdin/stdout で会話できるコマンドがあれば足せる。
 
 ```yaml
 reviewers:
   - name: my-agent
-    provider: cli
-    command: ["my-agent-cli", "--non-interactive", "--no-tools"]
+    transport: process
+    command: ["my-command", "--non-interactive", "--no-tools"]
     prompt_via: stdin
 ```
 
-`preset:` を持つ CLI(`claude_code` / `codex` / `gemini_cli`)なら `command` すら不要。
+#### (ルート 1・2 の補助)プリセットデータを足す — YAML 1 ファイル・コードなし
 
-#### ルート 3: 独自 API 形式 — 外部パッケージ
+自分の環境に合わせた既定値を名前で呼びたい場合、`~/.config/security-checker/presets/` に
+YAML を置くだけでよい(§9.7)。**PR も不要、コードも不要。**
+他人にも役立つ内容なら、同じファイルをそのまま本体に PR できる。
 
-上記いずれにも当てはまらない場合のみ、コードを書く。
+#### ルート 3: 上記いずれでも表現できない形 — 外部パッケージ
+
+**ここに到達するのは、新しい API 方言が登場した場合だけ**である。
+「新しいベンダーが出たから」という理由でここに来ることはない。
 
 ```python
 # my_plugin/provider.py
@@ -2041,22 +2168,22 @@ pip install security-checker my-plugin
 2. **PR コメントのスクリーンショット**(何が得られるかを最初に見せる。文章より速い)
 3. **これは何か / これは何でないか**(非目標を早い段階で明示 — §2)
    「コードを自動修正しません」「あなたのコーディング AI とは別の第三者としてレビューします」
-4. **60 秒で試す** — **API キー不要の例を先頭に置く**
+4. **60 秒で試す**
    ```bash
-   # 手元の Claude Code / Codex CLI をそのまま Security Auditor として使う(鍵不要)
-   uvx security-checker review . --preset claude-code
-   uvx security-checker review . --preset codex
-
-   uvx security-checker review . --preset gemini-free   # GEMINI_API_KEY のみ
-   uvx security-checker review . --preset local-ollama  # 鍵不要・完全ローカル
+   uvx security-checker init      # 環境を検出して設定を生成する
+   uvx security-checker review .
    ```
-5. **「書いた AI と、レビューする AI を分ける」**(目玉のユースケース)
-   Codex で書いて Claude Code にレビューさせる / その逆。要件メモ §4 の第三者性を、
-   利用者が既に持っているツールだけで実現できることを図で示す。ここがこのツールの一番の売り。
+   **具体的なモデル名を README のコマンド例に書かない。** 書いた瞬間に、それが
+   事実上の推奨になってしまうため。`init` が「あなたの環境で使えるもの」を出す。
+5. **「書いた AI と、レビューする AI を分ける」**(中心的な考え方)
+   要件メモ §4 の第三者性を、**ベンダーを特定しない形で**説明する。
+   図に描くのは `Developer's AI` と `Reviewer AI` という役割であって、製品名ではない。
+   「あなたが開発に何を使っていても、レビューには別のものを選べる」が伝わればよい。
 6. **GitHub Actions の最小例**
-7. **設定例**(1 モデル → 複数モデル → judge の順に段階的に)
-8. **対応 LLM 一覧**(表。**3 つのルート**(§29.2)を明示し、
-   「OpenAI 互換なら設定だけ」「CLI があれば設定だけ」「それ以外はプラグイン」と書く)
+7. **設定の書き方**(1 Reviewer → 複数 Reviewer → judge の順に段階的に。値はプレースホルダ)
+8. **LLM を足す 3 つのルート**(§29.2)。**「対応 LLM 一覧」という表は作らない。**
+   一覧を作ると「載っていないものは使えない」と読まれ、載せる/載せないの政治が発生する。
+   代わりに「どの方言を話すか」「非対話コマンドがあるか」という**条件**を書く。
 9. **どう動くか**(§3 のアーキ図)
 10. **精度について**(§27 のベンチマーク結果へのリンク。数字を隠さない)
 11. **セキュリティとプライバシー**(何が送信されるか。§19.3 へのリンク)
@@ -2071,8 +2198,8 @@ pip install security-checker my-plugin
 |---|---|
 | `getting-started.md` | インストール(uv / pip / docker)、最初の実行、結果の読み方 |
 | `configuration.md` | 設定 Schema 全項目のリファレンス |
-| `providers.md` | 対応 Provider 一覧、**LLM を足す 3 つのルート**(OpenAI 互換 / CLI / プラグイン) |
-| `cli-providers.md` | CLI 系 Provider の詳細。安全性の担保、制約、各 CLI の利用規約についての注意 |
+| `providers.md` | transport と方言の説明、**LLM を足す 3 つのルート**(§29.2)、プリセットの追加方法 |
+| `process-transport.md` | `process` transport の詳細。安全性の担保、制約、対象コマンドの利用規約についての注意 |
 | `scanners.md` | 各スキャナの役割、導入、無効化 |
 | `aggregation.md` | 3 戦略の説明と選び方、agreement の意味 |
 | `prompts.md` | プロンプト設計、カスタマイズ方法、変更時の eval 手順 |
@@ -2143,9 +2270,9 @@ v1 のユーザー(実質的には作者自身)を壊さず、かつ v2 を素�
 |---|---|---|
 | **P0. 地固め** | この設計書のレビューと確定。リポジトリ設定(squash only、保護ブランチ、テンプレート類)。`legacy` タグを打って v1 を退避 | 設計合意 + `v1.0.0` タグ |
 | **P1. 骨格** | Python プロジェクト初期化、models / config / CLI の枠、`scan` サブコマンド(LLM なしで v1 相当)、semgrep + gitleaks アダプタ | `security-checker scan .` が v1 と同等以上の結果を出す |
-| **P2. 単一 LLM レビュー** | `openai_compatible` Provider、Context Builder(行ウィンドウ)、Structured Output、単一 Reviewer、terminal + json レポート | `--preset gemini-free` で end-to-end 動作 |
-| **P2.5 CLI Provider** ★ | `cli_provider` + sandbox(隔離・書込検知・killpg)、`claude_code` / `codex` プリセット、CLI 契約テスト | **API キーなしで** `--preset claude-code` が end-to-end 動作 |
-| **P3. Multi-LLM** | Ollama / Anthropic Provider、consensus / weighted、agreement、markdown レポート | CLI 系 1 + HTTP 系 1 の `cross-check` で review_required が正しく出る |
+| **P2. 単一 LLM レビュー** | `http` transport + `openai_chat` 方言、Context Builder(行ウィンドウ)、Structured Output、単一 Reviewer、terminal + json レポート | 任意の `openai_chat` エンドポイントで end-to-end 動作 |
+| **P2.5 `process` transport** ★ | runner + sandbox(隔離・書込検知・killpg)、プリセットデータ機構、`init` の環境検出、`process` 契約テスト | **API キーなしで** end-to-end 動作。プリセットを 1 つも同梱しなくても `command` 直書きで動く |
+| **P3. Multi-LLM** | 残り 3 方言のアダプタ、consensus / weighted、agreement、markdown レポート | 異なる transport の Reviewer 2 つで review_required が正しく出る |
 | **P4. GitHub 統合** | Action、PR sticky コメント、inline コメント、SARIF、diff モード | 自リポジトリの PR で動作 |
 | **P5. 品質** | osv / trivy アダプタ、Judge、baseline / ignore、コスト・予算、契約テスト一式 | カバレッジ 80%、mypy strict 通過 |
 | **P6. 評価と公開** | 自前データセット 100 件、eval コマンド、ベンチ結果、README / docs 一式、PyPI + GHCR 公開 | `v2.0.0` リリース |
@@ -2155,6 +2282,8 @@ v1 のユーザー(実質的には作者自身)を壊さず、かつ v2 を素�
 
 **P2.5 を早い位置に置いたのは意図的である。** API キーを 1 つも要求せずに動く状態を早期に作れれば、
 作者自身が日常的に使えるようになり(dogfooding)、他人に試してもらう際の障壁も消える。
+同時に、**2 つ目の transport を早期に実装することでベンダー中立性が実装レベルで検証される。**
+transport が 1 つしかない期間が長いと、その 1 つの都合がコード全体に染み出す。
 
 ### v1 との互換性
 
@@ -2174,13 +2303,14 @@ v1 のユーザー(実質的には作者自身)を壊さず、かつ v2 を素�
 | R2 | **複数 LLM のコスト対効果が不明** | 同じく §27 で single vs multi を比較。効果が薄ければ「既定は 1 モデル、multi はオプション」に変える。既定値は測ってから決める |
 | R3 | Context 不足による過大/過小評価 | `needs_more_context` を計測し、頻出するなら v2.1 の context expansion を前倒しする |
 | R4 | プロンプトインジェクション | §19.4 の多層防御。ただし**完全な防御はできない**と docs に明記する |
-| R5 | コードを外部 API に送ることへの組織的抵抗 | Ollama プリセットを一級市民として扱う。`--dry-run` で送信内容を可視化 |
+| R5 | コードを外部 API に送ることへの組織的抵抗 | ローカル完結の構成(ローカルエンドポイント / ローカルコマンド)を `init` が検出できるようにする。`--dry-run` で送信内容を可視化 |
 | R6 | 無料枠のレート制限で大規模リポが完走できない | `max_candidates` と `--slow`、baseline による差分運用。「PR 差分レビューが主戦場」と位置づける |
 | R7 | モデルの非決定性による結果の揺れ | temperature 0 + seed。それでも揺れることを docs に明記し、CI 用途では baseline での運用を推奨 |
 | R8 | PyPI 名 `security-checker` が空いていない可能性 | 公開前に確認。埋まっていれば配布名のみ変更し、CLI 名は維持 |
-| R9 | **CLI Provider が対象 CLI のバージョン変更で壊れる** | プリセットをコードに閉じ込め、`providers check` で実地検証。壊れても `command:` 直書きで回避できる逃げ道を常に残す。nightly でプリセットのスモークテスト |
-| R10 | **CLI 系の自動化利用が各サービスの利用規約に抵触する可能性** | 判断は利用者に委ねる。docs/cli-providers.md に「各 CLI の利用規約を確認すること」を明記し、既定では有効化しない |
-| R11 | **Coding Agent CLI がレビュー対象を書き換えてしまう(P3 違反)** | §9.7 の 5 つの強制策(リポジトリ外 cwd / ツール無効 / shell 不使用 / 書込検知 / killpg)。書込検知は自動テストでも検証する |
+| R9 | **同梱プリセットが対象コマンドのバージョン変更で壊れる** | プリセットはデータなので修正は YAML 1 行。`providers check` で実地検証でき、壊れても `command:` 直書きで回避できる。nightly でスモークテスト |
+| R10 | **`process` transport の自動化利用が対象サービスの利用規約に抵触する可能性** | 判断は利用者に委ねる。docs/process-transport.md に「対象コマンドの利用規約を確認すること」を明記し、既定では何も有効化しない |
+| R10b | **同梱プリセットの採否が「推奨」と読まれる / 政治問題化する** | 採否基準を §9.7 に明文化(客観条件のみ・先着順・アルファベット順・順位づけなし)。「対応一覧」表を作らない(§30)。プリセットなしでも `command` 直書きで完全に動くことを明示 |
+| R11 | **起動した対象がレビュー対象を書き換えてしまう(P3 違反)** | §9.7 の 5 つの強制策(リポジトリ外 cwd / 書込能力の無効化 / shell 不使用 / 書込検知 / killpg)。書込検知は自動テストでも検証する |
 | R12 | `contrib/host-audit/` の維持コスト | v2.1 以降で別リポジトリ化を再検討 |
 | R13 | 名前が一般的すぎて検索性が低い | タグライン・トピック・README で位置づけを補う。将来的な改名は SemVer major の機会に検討 |
 
@@ -2193,12 +2323,12 @@ v1 のユーザー(実質的には作者自身)を壊さず、かつ v2 を素�
 | 1 | 正式名称 | §1 |
 | 2 | Repository 構成 | §5 |
 | 3 | 使用言語・Framework | §4 |
-| 4 | LLM Provider Interface | §9.1(+ 3 系統の整理: §9 冒頭) |
-| 5 | OpenAI-compatible API 設計 | §9.3 |
-| 6 | Ollama 対応 | §9.4 |
-| 7 | Gemini 対応 | §9.5 |
-| — | Anthropic 対応(native) | §9.6 |
-| — | **CLI Provider**(Claude Code / Codex / Gemini CLI) | §9.7 |
+| 4 | LLM Provider Interface | §9.1(+ 分類軸の整理: §9 冒頭) |
+| 5 | OpenAI-compatible API 設計 | §9.3(`openai_chat` 方言) |
+| 6 | Ollama 対応 | §9.4(`ollama_chat` 方言) |
+| 7 | Gemini 対応 | §9.5(`gemini_generate` 方言) |
+| — | Messages API 形式への対応 | §9.6(`anthropic_messages` 方言) |
+| — | **`process` transport**(任意の非対話コマンドを Reviewer にする) | §9.7 |
 | 8 | LLM 設定ファイル Schema | §12 |
 | 9 | Scanner Interface | §7 |
 | 10 | Finding Schema | §6 |
@@ -2227,5 +2357,9 @@ v1 のユーザー(実質的には作者自身)を壊さず、かつ v2 を素�
 **Context Builder(§8)**、**Policy Engine とスコアの位置づけ(§17)**、
 **シークレット値を LLM に送らない設計(§19.2)**、**プロンプトインジェクション対策(§19.4)**、
 **OSS 運用ルール(§31)**、**移行計画(§32)**、**リスク一覧(§33)**、
-そして **CLI Provider(§9.7)** — API キーを持たない利用者と、
-「書いた AI とレビューする AI を分ける」という要件メモ §4 の第三者性を、最も直接的に満たす手段。
+そして **`process` transport(§9.7)** — API キーを持たない利用者を排除しないための一般機構。
+
+なお要件メモ §5「LLM は固定しない」を、**設定で選べる**という水準から
+**コードにベンダー名が現れない**という水準まで引き上げた(§9 冒頭・P1)。
+これは要件メモの文言を超えた解釈だが、OSS として公開する以上、
+「プロジェクトが特定ベンダーを事実上の標準にしてしまわない」ことは構造で担保すべきと判断した。
