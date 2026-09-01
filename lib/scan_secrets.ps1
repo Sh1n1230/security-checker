@@ -16,7 +16,23 @@ if (-not (Get-Command gitleaks -ErrorAction SilentlyContinue)) {
 }
 
 $RAW = Join-Path $env:REPORT_DIR "secrets_raw.json"
-& gitleaks detect --no-git --source "$env:TARGET" --report-format json --report-path "$RAW" --exit-code 0 *> $null
+
+# gitleaks 8.19+ は `dir`。`detect --no-git --source` は非推奨で --help からも消えている
+& gitleaks dir --help *> $null
+if ($LASTEXITCODE -eq 0) {
+    $scanArgs = @("dir", "$env:TARGET")
+} else {
+    $scanArgs = @("detect", "--no-git", "--source", "$env:TARGET")
+}
+
+# --exit-code 0 により「検出あり」でも 0 が返る。したがって非 0 は実行失敗を意味する。
+# ここを握りつぶすと「検査できていない」が「0 件」に化けるため、必ず区別する。
+& gitleaks @scanArgs --report-format json --report-path "$RAW" --exit-code 0 *> $null
+if ($LASTEXITCODE -ne 0) {
+    Write-JsonUtf8 $OUT ([ordered]@{ category = "secrets"; skipped = $true; findings = @() })
+    Write-Output "エラー: gitleaks の実行に失敗しました (シークレット検査は行われていません)"
+    exit 1
+}
 
 if (-not (Test-Path $RAW) -or (Get-Item $RAW).Length -eq 0) {
     [System.IO.File]::WriteAllText($RAW, "[]", [System.Text.UTF8Encoding]::new($false))

@@ -1,50 +1,68 @@
 #!/usr/bin/env bash
-# 対象リポジトリに pre-commit フックを導入し、コミット前にシークレット検査を自動実行する。
-# 使い方: ./install_hooks.sh <gitリポジトリのパス>
+# 対象リポジトリに security-checker の git フックを導入する。
+#
+# 導入されるもの (tools/hooks/ の実体をコピーする):
+#   pre-commit … コミット前にステージ済みの変更をシークレット検査 (gitleaks)
+#   pre-push   … 保護ブランチへの直接 push と force push を止める
+#
+# git のフックなので、人間の操作にも任意の AI エージェントの操作にも等しく効く。
+# ただし --no-verify で外せるため最終防御ではない (docs/DESIGN.md §31.6)。
+#
+# 使い方: ./install_hooks.sh [gitリポジトリのパス]   (省略時は現在のリポジトリ)
 set -uo pipefail
 
-REPO="${1:?使い方: ./install_hooks.sh <gitリポジトリのパス>}"
-HOOK_DIR="$REPO/.git/hooks"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC_DIR="$SCRIPT_DIR/hooks"
+MARKER="security-checker-hook:"
+HOOKS=(pre-commit pre-push)
 
-if [[ ! -d "$HOOK_DIR" ]]; then
-  echo "エラー: $REPO はgitリポジトリではありません" >&2
+REPO="${1:-$(git rev-parse --show-toplevel 2>/dev/null || true)}"
+if [[ -z "$REPO" ]]; then
+  echo "エラー: gitリポジトリのパスを指定してください" >&2
   exit 2
 fi
 
-HOOK="$HOOK_DIR/pre-commit"
-if [[ -f "$HOOK" ]]; then
-  echo "既存の pre-commit フックがあります: $HOOK"
-  echo "上書きせず終了します。手動で統合してください。"
-  exit 1
+HOOK_DIR="$(git -C "$REPO" rev-parse --git-path hooks 2>/dev/null || true)"
+if [[ -z "$HOOK_DIR" ]]; then
+  echo "エラー: $REPO はgitリポジトリではありません" >&2
+  exit 2
+fi
+# rev-parse --git-path はリポジトリからの相対パスを返すことがある
+[[ "$HOOK_DIR" == /* ]] || HOOK_DIR="$REPO/$HOOK_DIR"
+mkdir -p "$HOOK_DIR"
+
+installed=0
+skipped=0
+
+for name in "${HOOKS[@]}"; do
+  src="$SRC_DIR/$name"
+  dst="$HOOK_DIR/$name"
+
+  if [[ ! -f "$src" ]]; then
+    echo "エラー: $src が見つかりません" >&2
+    exit 2
+  fi
+
+  # 他人が置いたフックは絶対に上書きしない。自分が入れたものだけ更新する
+  if [[ -e "$dst" ]] && ! grep -q "$MARKER" "$dst" 2>/dev/null; then
+    echo "⏭️  $name: 既存のフックがあるため上書きしません ($dst)"
+    echo "     手動で統合してください。参照元: $src"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  cp "$src" "$dst"
+  chmod +x "$dst"
+  echo "✅ $name を導入しました"
+  installed=$((installed + 1))
+done
+
+echo ""
+echo "導入 ${installed} 件 / スキップ ${skipped} 件  → $HOOK_DIR"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "⚠️  gitleaks が未インストールのため pre-commit は簡易パターン検査で動作します (brew install gitleaks 推奨)"
 fi
 
-cat > "$HOOK" <<'EOF'
-#!/usr/bin/env bash
-# security-checker が導入したフック: コミット前にステージ済みの変更をシークレット検査
-set -uo pipefail
-
-if command -v gitleaks >/dev/null 2>&1; then
-  if ! gitleaks protect --staged --exit-code 1 >/dev/null 2>&1; then
-    echo "❌ コミットにシークレットが含まれている可能性があります (gitleaks)"
-    echo "   詳細: gitleaks protect --staged --verbose"
-    echo "   誤検知なら: git commit --no-verify"
-    exit 1
-  fi
-else
-  # gitleaks が無い場合の簡易パターン検査
-  if git diff --cached -U0 | grep -E '^\+' | grep -qE 'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|xox[bp]-[0-9A-Za-z-]{20,}|-----BEGIN .*PRIVATE KEY'; then
-    echo "❌ コミットにシークレットらしき文字列が含まれています"
-    echo "   誤検知なら: git commit --no-verify"
-    exit 1
-  fi
-fi
+[[ "$skipped" -eq 0 ]] || exit 1
 exit 0
-EOF
-chmod +x "$HOOK"
-
-echo "✅ pre-commit フックを導入しました: $HOOK"
-if command -v gitleaks >/dev/null 2>&1; then
-  echo "   gitleaks によるシークレット検査がコミット毎に走ります"
-else
-  echo "   ⚠️ gitleaks が未インストールのため簡易パターン検査で動作します (brew install gitleaks 推奨)"
-fi

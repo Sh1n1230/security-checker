@@ -7,14 +7,20 @@ on:
     branches: [main, master]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # SARIF を Code Scanning にアップロードするため
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: security-checker を取得
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: Sh1n1230/security-checker # 自分のリポジトリ名に変更
           path: .security-checker
@@ -33,7 +39,10 @@ jobs:
           curl -sSL -o osv-scanner https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64
           chmod +x osv-scanner && sudo mv osv-scanner /usr/local/bin/
           # trivy
-          curl -sSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+          # 公式 install.sh の `curl | sh` は使わない (取得したスクリプトを検証せず root で実行するため)
+          TRIVY_VER=$(curl -sSL https://api.github.com/repos/aquasecurity/trivy/releases/latest | jq -r .tag_name | sed 's/^v//')
+          curl -sSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VER}/trivy_${TRIVY_VER}_Linux-64bit.tar.gz" | tar xz trivy
+          sudo mv trivy /usr/local/bin/
 
       - name: セキュリティ検査を実行
         run: |
@@ -44,6 +53,101 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           cat result.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # --- GitHub Code Scanning 連携 ---
+      # Security タブに履歴が残り、PR の Files changed に直接表示される。
+      # Ruleset の "Require code scanning results" でマージ条件にもできる。
+      # 不要なら以下のステップと、上の security-events: write を削除してよい。
+      - name: SARIF を生成
+        if: always()
+        id: sarif
+        run: |
+          # GitHub の既定シェルは `bash -e` で、set -uo pipefail では解除されない。
+          # このステップはスキャナの終了コードを自分で解釈するため -e を明示的に外す。
+          # (osv-scanner の exit 128 = 対象マニフェスト無し で打ち切られる事故があった)
+          set +e
+          set -uo pipefail
+          SARIF_DIR="$RUNNER_TEMP/sarif"
+          mkdir -p "$SARIF_DIR"
+          FAILED=""
+
+          # 空の SARIF をアップロードすると既存 alert が「解決済み」として閉じられ、
+          # ツールの故障が「指摘ゼロ」に化ける。生成できなかったものは上げない。
+          check() { # check <名前> <終了コード> <許容する終了コードのCSV>
+            local name="$1" rc="$2" allowed="$3" out="$SARIF_DIR/$1.sarif"
+            if [[ ",${allowed}," != *",${rc},"* ]] || ! jq -e '.runs[0].tool.driver.name' "$out" >/dev/null 2>&1; then
+              echo "::error::${name} の SARIF 生成に失敗しました (exit ${rc})。この結果はアップロードしません"
+              rm -f "$out"; FAILED="${FAILED} ${name}"; return
+            fi
+            echo "- \`${name}\`: $(jq '.runs[0].results | length' "$out") 件" >> "$GITHUB_STEP_SUMMARY"
+            echo "${name}=true" >> "$GITHUB_OUTPUT"
+          }
+
+          echo '## Code Scanning へ登録する SARIF' >> "$GITHUB_STEP_SUMMARY"
+
+          semgrep scan --config p/default --sarif --quiet --metrics=off . > "$SARIF_DIR/semgrep.sarif"
+          check semgrep $? 0
+
+          # gitleaks 8.19+ は `dir`。`detect --no-git --source` は非推奨
+          gitleaks dir . --report-format sarif \
+            --report-path "$SARIF_DIR/gitleaks.sarif" --exit-code 0 >/dev/null 2>&1
+          check gitleaks $? 0
+
+          trivy fs --scanners misconfig,vuln,secret --format sarif --quiet -o "$SARIF_DIR/trivy.sarif" .
+          check trivy $? 0
+
+          # osv-scanner: 0=脆弱性なし 1=脆弱性あり 128=対象のマニフェストが無い
+          osv-scanner scan --recursive --format sarif . > "$SARIF_DIR/osv.sarif"
+          osv_rc=$?
+          if [[ "$osv_rc" == "128" ]]; then
+            rm -f "$SARIF_DIR/osv.sarif"
+            echo "- \`osv-scanner\`: 依存マニフェストが無いためスキップ" >> "$GITHUB_STEP_SUMMARY"
+          else
+            check osv "$osv_rc" 0,1
+          fi
+
+          if [[ -n "$FAILED" ]]; then
+            echo "::error::SARIF を生成できなかったスキャナがあります:${FAILED}"
+            exit 1
+          fi
+
+      # fork からの PR では GITHUB_TOKEN が read-only になり security-events: write が付かない。
+      # アップロードは必ず失敗するので、明示的にスキップして理由を残す (黙って緑にしない)。
+      - name: アップロード可否を判定
+        if: always()
+        id: ctx
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" || \
+                "${{ github.event.pull_request.head.repo.full_name }}" == "${{ github.repository }}" ]]; then
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+            {
+              echo '> [!WARNING]'
+              echo '> fork からの PR のため SARIF を Code Scanning にアップロードしていません。'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # category はツールごとに分ける (同じ category に別ツールの結果を上げると互いに上書きし合う)
+      - name: SARIF をアップロード (semgrep)
+        if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.semgrep == 'true'
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with: { sarif_file: "${{ runner.temp }}/sarif/semgrep.sarif", category: semgrep }
+
+      - name: SARIF をアップロード (gitleaks)
+        if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.gitleaks == 'true'
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with: { sarif_file: "${{ runner.temp }}/sarif/gitleaks.sarif", category: gitleaks }
+
+      - name: SARIF をアップロード (trivy)
+        if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.trivy == 'true'
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with: { sarif_file: "${{ runner.temp }}/sarif/trivy.sarif", category: trivy }
+
+      - name: SARIF をアップロード (osv-scanner)
+        if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.osv == 'true'
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with: { sarif_file: "${{ runner.temp }}/sarif/osv.sarif", category: osv-scanner }
 
 # --- Windows でも検査したい場合は下記のジョブを有効化する ---
 # (コメントアウトを外し、上の `.security-checker を取得` ステップで security-checker 本体を

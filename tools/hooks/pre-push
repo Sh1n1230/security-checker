@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# security-checker-hook: pre-push
+# 保護ブランチへの直接 push と、履歴を書き換える push を止める。
+#
+# この層は「人間にも、任意の AI エージェントにも効く」ことに意味がある。
+# ただし --no-verify で外せるため、最終的な防御ではない。
+# 実効的な強制は GitHub の Ruleset (サーバ側) が担う。docs/DESIGN.md §31.6 を参照。
+#
+# 導入: tools/install_hooks.sh   /   一時的に外す: git push --no-verify
+set -uo pipefail
+
+PROTECTED='^refs/heads/(main|master)$'
+ALL_ZERO='^0+$' # 全ゼロ = ブランチの新規作成 or 削除 (sha1/sha256 どちらでも成立)
+
+status=0
+
+# git は 1 行に "<local ref> <local sha> <remote ref> <remote sha>" を渡してくる
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [[ -n "${remote_ref:-}" ]] || continue
+  branch="${remote_ref#refs/heads/}"
+
+  if [[ "$remote_ref" =~ $PROTECTED ]]; then
+    echo "❌ ${branch} への直接 push は禁止されています。PR 経由で変更してください。"
+    status=1
+    continue
+  fi
+
+  # 履歴の書き換え検知: 送信先の先端が、送ろうとしている履歴に含まれていない
+  if ! [[ "$remote_sha" =~ $ALL_ZERO ]] && ! [[ "$local_sha" =~ $ALL_ZERO ]]; then
+    if git cat-file -e "$remote_sha" 2>/dev/null; then
+      if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+        echo "❌ ${branch} への非早送り push (force push) です。既存のコミットが失われます。"
+        status=1
+        continue
+      fi
+    fi
+    # remote_sha がローカルに無い場合は判定できない。Ruleset の non_fast_forward に委ねる
+  fi
+done
+
+if [[ "$status" -ne 0 ]]; then
+  echo "   意図的な場合のみ: git push --no-verify"
+fi
+exit "$status"
