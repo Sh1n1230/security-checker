@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# security-checker-hook: pre-commit
+# コミット前にステージ済みの変更をシークレット検査する。
+# 導入: tools/install_hooks.sh   /   一時的に外す: git commit --no-verify
+set -uo pipefail
+
+if command -v gitleaks >/dev/null 2>&1; then
+  # gitleaks 8.19+ は `git --staged`。`protect` は非推奨の別名で --help からも消えている
+  if gitleaks git --help >/dev/null 2>&1; then
+    sub=(git --staged)
+  else
+    sub=(protect --staged)
+  fi
+  if ! gitleaks "${sub[@]}" --exit-code 1 >/dev/null 2>&1; then
+    echo "❌ コミットにシークレットが含まれている可能性があります (gitleaks)"
+    echo "   詳細: gitleaks ${sub[*]} --verbose"
+    echo "   誤検知なら: git commit --no-verify"
+    exit 1
+  fi
+else
+  # gitleaks が無い場合の簡易パターン検査
+  if git diff --cached -U0 | grep -E '^\+' | grep -qE 'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|xox[bp]-[0-9A-Za-z-]{20,}|-----BEGIN .*PRIVATE KEY'; then
+    echo "❌ コミットにシークレットらしき文字列が含まれています"
+    echo "   誤検知なら: git commit --no-verify"
+    exit 1
+  fi
+fi
+exit 0

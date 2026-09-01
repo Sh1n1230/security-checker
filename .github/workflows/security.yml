@@ -1,5 +1,10 @@
-# このファイルを検査したいリポジトリの .github/workflows/ にコピーして使う。
-# security-checker 本体もリポジトリに含めるか、checkout で取得すること。
+# security-checker 自身を security-checker で検査する (dogfooding)。
+# 他のリポジトリで使う場合は ci/security.yml をコピーすること。
+#
+# このワークフローは 2 つの役割を持つ。
+#   1. check.sh によるスコア判定 (min-score 70 未満で落ちる) = ゲート
+#   2. 各スキャナの SARIF を GitHub Code Scanning に登録 = 可視化と履歴
+# 2 は v2 で「security-checker が集約した単一の SARIF」に置き換わる (docs/DESIGN.md §18.4)。
 name: Security Check
 
 on:
@@ -7,14 +12,24 @@ on:
     branches: [main, master]
   pull_request:
 
+# 既定を最小権限にし、必要なジョブでのみ広げる
+permissions:
+  contents: read
+
 jobs:
   security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # SARIF を Code Scanning にアップロードするため
     steps:
-      - uses: actions/checkout@v5
+      # 可変タグ (@v5) は指す先が後から変わるため SHA で固定する。
+      # 実際 actions/checkout の v5 タグは 93cb6ef (v5.0.1) から fbc6f39 (v5.1.0) へ移動している。
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: ツールをインストール
         run: |
+          set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq jq
           # gitleaks (最新版をGitHub APIから解決)
@@ -27,20 +42,131 @@ jobs:
           curl -sSL -o osv-scanner https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64
           chmod +x osv-scanner && sudo mv osv-scanner /usr/local/bin/
           # trivy
-          curl -sSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+          # 公式 install.sh の `curl | sh` は使わない。取得したスクリプトを検証せず root 権限で
+          # 実行することになり、セキュリティツール自身の推奨と矛盾するため。
+          TRIVY_VER=$(curl -sSL https://api.github.com/repos/aquasecurity/trivy/releases/latest | jq -r .tag_name | sed 's/^v//')
+          curl -sSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VER}/trivy_${TRIVY_VER}_Linux-64bit.tar.gz" | tar xz trivy
+          sudo mv trivy /usr/local/bin/
 
       - name: セキュリティ検査を実行
         run: |
+          # 既定の shell は pipefail 無しのため、check.sh の失敗が tee に隠れる。
+          # 「壊れているのに緑」を防ぐために必須。
+          set -o pipefail
           bash check.sh . --min-score 70 | tee result.txt
           echo '## Security Check 結果' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           cat result.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+      # --- ここから Code Scanning 連携 ---
+      # スコア判定で落ちても SARIF は出す (落ちた時ほど中身が見たい)
+      - name: SARIF を生成
+        if: always()
+        id: sarif
+        run: |
+          set -uo pipefail
+          SARIF_DIR="$RUNNER_TEMP/sarif"
+          mkdir -p "$SARIF_DIR"
+          FAILED=""
+
+          # 生成結果を検証する。空の SARIF をアップロードすると Code Scanning 上の既存 alert が
+          # 「解決済み」として閉じられ、ツールの故障が「指摘ゼロ」に化ける。これは絶対に避ける。
+          check() { # check <名前> <終了コード> <許容する終了コードのCSV>
+            local name="$1" rc="$2" allowed="$3" out="$SARIF_DIR/$1.sarif"
+            if [[ ",${allowed}," != *",${rc},"* ]] || ! jq -e '.runs[0].tool.driver.name' "$out" >/dev/null 2>&1; then
+              echo "::error::${name} の SARIF 生成に失敗しました (exit ${rc})。誤って「指摘ゼロ」を登録しないよう、この結果はアップロードしません"
+              rm -f "$out"
+              FAILED="${FAILED} ${name}"
+              return
+            fi
+            echo "- \`${name}\`: $(jq '.runs[0].results | length' "$out") 件" >> "$GITHUB_STEP_SUMMARY"
+            # hashFiles() は GITHUB_WORKSPACE 外を見られないため、アップロード可否は出力で伝える
+            echo "${name}=true" >> "$GITHUB_OUTPUT"
+          }
+
+          echo '## Code Scanning へ登録する SARIF' >> "$GITHUB_STEP_SUMMARY"
+
+          semgrep scan --config p/default --sarif --quiet --metrics=off . > "$SARIF_DIR/semgrep.sarif"
+          check semgrep $? 0
+
+          # gitleaks 8.19+ は `dir`。`detect --no-git --source` は非推奨
+          gitleaks dir . --report-format sarif \
+            --report-path "$SARIF_DIR/gitleaks.sarif" --exit-code 0 >/dev/null 2>&1
+          check gitleaks $? 0
+
+          trivy fs --scanners misconfig,vuln,secret --format sarif --quiet \
+            -o "$SARIF_DIR/trivy.sarif" .
+          check trivy $? 0
+
+          # osv-scanner: 0=脆弱性なし 1=脆弱性あり 128=対象のマニフェストが無い
+          osv-scanner scan --recursive --format sarif . > "$SARIF_DIR/osv.sarif"
+          osv_rc=$?
+          if [[ "$osv_rc" == "128" ]]; then
+            rm -f "$SARIF_DIR/osv.sarif"
+            echo "- \`osv-scanner\`: 依存マニフェストが無いためスキップ" >> "$GITHUB_STEP_SUMMARY"
+          else
+            check osv "$osv_rc" 0,1
+          fi
+
+          if [[ -n "$FAILED" ]]; then
+            echo "::error::SARIF を生成できなかったスキャナがあります:${FAILED}"
+            exit 1
+          fi
+
+      # fork からの PR では GITHUB_TOKEN が read-only に降格され security-events: write が付かない。
+      # アップロードは必ず失敗するので、明示的にスキップして理由を残す (黙って緑にしない)。
+      - name: アップロード可否を判定
+        if: always()
+        id: ctx
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" || \
+                "${{ github.event.pull_request.head.repo.full_name }}" == "${{ github.repository }}" ]]; then
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+            {
+              echo '> [!WARNING]'
+              echo '> fork からの PR のため SARIF を Code Scanning にアップロードしていません。'
+              echo '> 検出結果はこのジョブのログにのみ残ります。'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # category はツールごとに分ける。同じ category に別ツールの結果を上げると互いに上書きし合う。
+      - name: SARIF をアップロード (semgrep)
+        if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.semgrep == 'true'
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/semgrep.sarif
+          category: semgrep
+
+      - name: SARIF をアップロード (gitleaks)
+        if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.gitleaks == 'true'
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/gitleaks.sarif
+          category: gitleaks
+
+      - name: SARIF をアップロード (trivy)
+        if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.trivy == 'true'
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/trivy.sarif
+          category: trivy
+
+      - name: SARIF をアップロード (osv-scanner)
+        if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.osv == 'true'
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/osv.sarif
+          category: osv-scanner
+
   security-windows:
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: 全 .ps1 の構文リント
         shell: pwsh

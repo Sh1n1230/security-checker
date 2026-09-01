@@ -1447,6 +1447,11 @@ Reviewer C ─┘
 **1 と 3 を分けるのが重要。** 「脆弱性が見つかった」と「ツールが壊れた」を CI が区別できないと、
 v1 と同じ「壊れているのに緑」の事故が起きる。
 
+exit code は **Actions の status check**に、Finding の重大度は **Code Scanning** に対応させる。
+どちらをマージゲートに使うかで判定が二重化しないよう、境界を §18.4 に定義する。
+要点だけ先に書くと、**exit 2/3(ツールが壊れた)は status check が、
+脆弱性の重大度によるブロックは Code Scanning が受け持ち、両方を required にする。**
+
 ### 17.2 Baseline / Ignore
 
 - `baseline`: 既存 Finding の `candidate.id` を記録した JSON。一致するものは `suppressed` として
@@ -1532,9 +1537,112 @@ Security タブで履歴管理できる。マッピングは次のとおり。
 | `partialFingerprints.primary` | Candidate の安定 ID(§6.1) |
 | `properties.security-severity` | CVSS 相当の数値(GitHub の重大度表示に使われる) |
 | `properties.status` / `agreement` / `reviewers` | v2 独自情報 |
+| `tool.driver.name` | 常に `security-checker`(スキャナ名ではない。§18.4.4 の理由による) |
+| `invocations[].executionSuccessful` | scanner が 1 つでも failed なら `false`(§18.4.2) |
 
 `false_positive` の Finding は SARIF に出さない(GitHub 側のノイズになるため)。
 
+`review_required` は SARIF に**出すが `level: note` に固定する**。理由は §18.4.1 に書く。
+
+### 18.4 Code Scanning をマージゲートにする場合の設計 ★
+
+最終形として GitHub Ruleset の **"Require code scanning results"** をマージ条件に置く。
+この判断は §17(exit code)・§20(部分的失敗)・§21(fork PR)と干渉するため、境界を先に決めておく。
+
+```text
+  security-checker
+        │
+        ├─ exit code ────────► Actions の status check   : 「ツールが壊れたか」を見る
+        │                       (required status checks)
+        └─ report.sarif ─────► GitHub Code Scanning      : 「脆弱性があるか」を見る
+                                (require code scanning results)
+```
+
+**2 つのゲートは役割が違う。両方を required にする。** どちらか一方では次の穴が空く。
+
+- status check だけ → 脆弱性の重大度で段階的に締められない。履歴も残らない。
+- code scanning だけ → **スキャナが全滅した run は alert 0 件になり、緑で通る。**
+  v1 の「壊れているのに緑」が Code Scanning レイヤで再発する。
+
+#### 18.4.1 `review_required` を Code Scanning でどう扱うか
+
+§21.3 で「`review_required` は CI を落とさない(警告と失敗を分ける)」と決めている。
+一方 Code Scanning の gate は alert の severity だけを見るため、`review_required` を
+`warning`/`error` で出すと**この原則が Ruleset 側で破られる**。
+
+したがって:
+
+| status | SARIF `level` | `security-severity` | Ruleset の既定設定での挙動 |
+|---|---|---|---|
+| `confirmed` | severity に応じて `error` / `warning` / `note` | CVSS 相当 | high 以上でマージをブロック |
+| `likely` | 同上(1 段下げる) | CVSS − 1.0 | 同上 |
+| `review_required` | **常に `note`** | **常に 0.0** | ブロックしない。Security タブには残る |
+| `false_positive` | 出力しない | — | — |
+
+Ruleset 側は `alerts_threshold: errors`(既定)を使う。`note` は閾値に掛からない。
+
+#### 18.4.2 スキャナが壊れた run を「指摘ゼロ」にしない
+
+SARIF は「このツールがこの run で見つけた全て」として解釈される。したがって
+**空の SARIF をアップロードすると、Code Scanning 上の既存 alert が「解決済み」として一括で閉じる。**
+スキャナの故障が「修正された」に化ける、最も危険な失敗モードである。
+
+強制する規約:
+
+1. scanner が failed の場合、その scanner 由来の結果を**含まない SARIF はアップロードしない**。
+2. 1 つでも failed があれば `invocations[].executionSuccessful: false` と
+   `toolExecutionNotifications` に理由を書く。GitHub はこれを解析エラーとして表示する。
+3. それと独立に、`--strict` 相当では exit 3 で **status check も落とす**。
+   Code Scanning の表示に依存しない経路を必ず残す。
+
+#### 18.4.3 fork PR で外部コントリビュータをブロックしない
+
+`pull_request` イベントの fork PR では `GITHUB_TOKEN` が read-only に降格され、
+`security-events: write` は付与されない。**SARIF のアップロードは必ず失敗する。**
+
+この状態で "Require code scanning results" を必須にすると、
+**外部からの PR は永久にマージできない**(§31 で OSS 公開を掲げる以上これは致命的)。
+
+対応は §21.2 で既に推奨している `workflow_run` パターンに寄せる。
+
+- `pull_request` の workflow ではスキャンして SARIF を **artifact として出すだけ**。
+- `workflow_run` の workflow が artifact を取得し、`security-events: write` でアップロードする。
+  チェックアウトするのは **PR のコードではなく artifact のみ**。
+- `upload-sarif` には `ref` / `sha` を明示指定する。指定しないと `workflow_run` の
+  実行 ref(既定ブランチ)に紐づき、PR に alert が出ない。
+
+このパターンを `docs/github-actions.md` にサンプルごと載せる。**これを用意するまで
+"Require code scanning results" は有効化しない。**
+
+#### 18.4.4 tool 名と category を最初に固定する
+
+Ruleset の "Require code scanning results" は **ツール名を指定して**設定する。
+ツール名は SARIF の `tool.driver.name` である。ここが変わると Ruleset の設定が無効になり、
+**気づかないうちにゲートが外れる**。
+
+- v2 の SARIF は `tool.driver.name` を常に `security-checker` にする。
+  内訳(semgrep 由来か gitleaks 由来か)は `ruleId` の `{scanner}/{rule_id}` 接頭辞で表す。
+- アップロード時の `category` も `security-checker` 固定にする。
+  category が異なる SARIF は GitHub 上で**別系統として共存**するため、
+  移行時に古い alert が閉じずに残る。
+
+#### 18.4.5 v1 → v2 の移行手順
+
+v1 の CI は各スキャナの生 SARIF を、それぞれ別 category(`semgrep` / `gitleaks` /
+`trivy` / `osv-scanner`)でアップロードしている。これは **LLM レビューを通していない生の結果**で、
+FP がそのまま alert になる。v2 はこれを置き換える。
+
+| 段階 | Code Scanning に上がるもの | Ruleset |
+|---|---|---|
+| 現在 (v1) | 4 スキャナの生 SARIF(category = ツール名) | まだ設定しない。alert の量と質を観察する |
+| P4 完了時 | 上記 + `security-checker`(集約 SARIF) | まだ設定しない。両者の差分 = LLM が潰した FP を測る(§27 の実データになる) |
+| P6 (v2.0.0) | `security-checker` のみ | `security-checker` を指定して required にする |
+
+最後の切り替えでは、生 SARIF の 4 category を**空 SARIF で明示的に閉じる**か、
+GitHub UI から該当ツールの alert を削除する。放置すると解決済みの alert が残り続ける。
+
+**この「観察期間を挟む」ことが重要である。** LLM レビューが FP を減らすかは未検証(R1)であり、
+効果を測る前にゲートを締めると、効果がないまま運用負荷だけが増える。
 
 ---
 
@@ -1684,6 +1792,9 @@ jobs:
 - `pull_request` イベントでは fork からの PR に **secrets が渡らない**ため、LLM レビューは実行できない。
   この場合は**スキャナのみ実行し、LLM レビューをスキップして明示的にそう報告する**
   (黙って 0 件にしない)。
+- 同じ理由で fork PR の `GITHUB_TOKEN` は read-only に降格され、`security-events: write` が付かない。
+  **SARIF のアップロードも必ず失敗する。** Code Scanning をマージ条件にしている場合、
+  外部コントリビュータの PR がマージ不能になる。詳細と回避策は §18.4.3。
 - `pull_request_target` は fork PR のコードを**書き込み権限とシークレット付きの文脈で実行する**ため、
   極めて危険である。README とサンプルでは**使わない**。docs/github-actions.md に
   「なぜ使わないか」を明記する。
@@ -2260,6 +2371,100 @@ feat!: / BREAKING CHANGE:                    → major
 セキュリティツール自身が `security-checker` と `dependabot` と `CodeQL` でチェックされている状態を作る
 (dogfooding は最良のデモになる)。
 
+### 31.5 自己適用 (dogfooding) の設計 ★
+
+このプロダクトは**自分自身を検査対象にできる**。それは最良のデモであり、同時に
+「自分の欠陥を自分で見逃す」という固有のリスクを持つ。設計として次の 3 層に分ける。
+
+| 層 | 実行するもの | 目的 | 壊れたとき |
+|---|---|---|---|
+| L1. 素のスキャナ | semgrep / gitleaks / osv-scanner / trivy を直接実行し、生 SARIF を Code Scanning へ | **security-checker に依存しない安全網** | security-checker のバグが露出する |
+| L2. 自己レビュー | `security-checker review .` を自リポジトリに適用 | 製品の実地検証 + FP 削減効果の実測(§27) | L1 が拾っているので見逃しにならない |
+| L3. 自己適用固有テスト | 下記の不変条件を CI で検証 | 設計上の約束が守られているかの検査 | ここが赤なら製品の前提が崩れている |
+
+**L1 を捨ててはいけない。** 自分をレビューするツールが壊れている場合、
+自己レビューだけでは「指摘ゼロ」と「検査できていない」を区別できない。
+L1 は security-checker のコードを 1 行も通らない独立経路として維持する。
+
+#### L3 で検証する不変条件
+
+§19 と §9.7 で宣言した設計上の約束は、文章ではなくテストで守る。
+
+- **検出したシークレットを LLM に送らない**(§19.2)。ダミーのシークレットを含む
+  フィクスチャを走らせ、`trace/calls/*.json` に生の値が現れないことを assert する。
+- **レビュー対象を書き換えない**(§9.7 / R11)。`process` transport の書込検知が発火することを検証。
+- **プロンプトインジェクション耐性**(§19.4 / R4)。既知の注入文字列を埋めたフィクスチャで、
+  Reviewer の出力が汚染されないことを検証。完全防御はできないので**回帰検知**として扱う。
+- **サプライチェーン**。GitHub Actions を SHA でピン留め、`curl | sh` を使わない、
+  PyPI は Trusted Publishing、リリース成果物に SBOM を添付。
+  これは L1 の semgrep(`github-actions-mutable-action-tag` 等)が自動で見張る。
+
+#### フィクスチャの扱い
+
+§26 の評価用データセットと L3 のフィクスチャは**意図的に脆弱なコード**である。
+自己適用でこれらを検出すると、常時 alert が出続けてゲートが機能しなくなる。
+
+- `.security-checker-ignore` に `tests/fixtures/**` と `evals/**` を登録する。
+- ただし**除外していること自体をレポートに明記する**(§20.2 の「部分的失敗を成功に見せない」と同じ原則)。
+- 除外パスに実コードが紛れ込まないよう、除外配下に本体パッケージが無いことを L3 で検査する。
+
+#### v1 と v2 で自己適用の中身が変わる
+
+v1 の本体は bash であり、静的解析が効く範囲は狭かった(実質 GitHub Actions の YAML のみ)。
+v2 は Python になるため、semgrep の Python ルール・`osv-scanner` による依存 CVE 検査・
+配布 Docker イメージへの `trivy image` が**すべて実際に意味を持つ**ようになる。
+**自己適用の価値は v2 で跳ね上がる**ので、P1 の時点から L1 を回し続ける。
+
+### 31.6 開発時ガードレールの層 ★
+
+「AI エージェントに危険な git 操作をさせない」ための仕掛けを、**強制力の順に 3 層**に分ける。
+上の層ほど強く、下の層ほど体験がよい。**下の層に上の層の役割を持たせない**のが要点。
+
+| 層 | 効く範囲 | 迂回手段 | 置き場所 |
+|---|---|---|---|
+| **1. GitHub Ruleset** | 全員・全ツール(サーバ側) | **なし**(bypass actor を置かない限り) | GitHub 設定 |
+| **2. git hooks** | ローカルの全操作。人間にも任意のエージェントにも等しく効く | `--no-verify` | `tools/hooks/` |
+| **3. エージェントの権限設定** | そのツールのエージェントのみ | シェルの書き方で容易に迂回可 | `.claude/settings.json` など |
+
+- **保護ブランチへの直接 push と force push の禁止は 1 と 2 に置く。** 3 には置かない。
+- **3 の役割は「実行前に人間へ確認を返す」という体験だけ**に限る。これは 1 も 2 も提供できない。
+
+#### 層 3 に実行コードを置かない
+
+エージェントのフック機構(コマンドを検査して allow/ask/deny を返す仕組み)は**標準化されていない**。
+命令ファイルは `AGENTS.md` へ収束しつつあり、ツール提供は MCP という標準があるが、
+**実行を差し止める側に相当する標準は存在しない**。イベント名も入出力の JSON 契約も各ツール固有である。
+
+したがって層 3 に書けるのは**ポータブルなポリシーではなく、特定ツールへのバインディングだけ**になる。
+これは §9 で `transport × dialect` に分けたのと同じ構造であり、同じ結論を採る。
+**ポリシーの実体は中立な層に置き、ツール固有の層は薄い宣言に留める。**
+
+`.claude/settings.json` は**宣言のみとし、実行スクリプトを置かない**。理由は 2 つ。
+
+1. `.claude/hooks/` は「リポジトリを clone して当該ツールで開いた人のマシンで実行されるコード」である。
+   `.vscode/tasks.json` や direnv の `.envrc` と同じクラスの攻撃面で、外部 PR を受け付ける OSS では
+   フックの書き換えがそのまま他者へのコード実行になる。実行コードを置かなければこの面は消える。
+2. コマンド文字列のパターンマッチで危険操作を判定する方式は、**原理的に穴が残る**。
+   実際に、この方式で書いたガードは次のように迂回できた(実測)。
+
+   - `git -C <path> push --force origin main` — `git` と部分コマンドの間に引数が入ると一致しない
+   - `git push "origin" "main"` / `git push origin main; echo done` — 引用符や後続コマンドで一致が崩れる
+
+   宣言的な `permissions` の前方一致も同じ性質を持つ。**だから保護ブランチの防御を層 3 に置いてはならない。**
+
+#### ベンダー中立性との関係
+
+v2 が掲げる中立性は「**security-checker が何をレビュアーとして使えるか**」の主張であり、
+「**作者が何で開発しているか**」とは層が違う。したがって `.claude/` の存在は設計上の矛盾ではない。
+
+ただし**見え方の問題は実在する**。エージェント設定が 1 ベンダー分しか無いリポジトリは
+「そのベンダー専用プロジェクト」に読まれる。これは R10b(同梱プリセットの採否が「推奨」と読まれる)と
+同型の問題であり、同じ方針で処理する。
+
+- ガードレールの実体は `tools/hooks/` に置く。**どのツールを使っていても、人間が素手で操作していても効く。**
+- `.claude/settings.json` は薄いバインディングとして置く。他ツールを使う人は自分の分を追加できる。
+  **採否は先着順・順位づけなし**(§9.7 と同じ規則)。README に「対応ツール一覧」は作らない。
+
 ---
 
 ## 32. 移行計画
@@ -2273,9 +2478,10 @@ v1 のユーザー(実質的には作者自身)を壊さず、かつ v2 を素�
 | **P2. 単一 LLM レビュー** | `http` transport + `openai_chat` 方言、Context Builder(行ウィンドウ)、Structured Output、単一 Reviewer、terminal + json レポート | 任意の `openai_chat` エンドポイントで end-to-end 動作 |
 | **P2.5 `process` transport** ★ | runner + sandbox(隔離・書込検知・killpg)、プリセットデータ機構、`init` の環境検出、`process` 契約テスト | **API キーなしで** end-to-end 動作。プリセットを 1 つも同梱しなくても `command` 直書きで動く |
 | **P3. Multi-LLM** | 残り 3 方言のアダプタ、consensus / weighted、agreement、markdown レポート | 異なる transport の Reviewer 2 つで review_required が正しく出る |
-| **P4. GitHub 統合** | Action、PR sticky コメント、inline コメント、SARIF、diff モード | 自リポジトリの PR で動作 |
+| **P4. GitHub 統合** | Action、PR sticky コメント、inline コメント、SARIF(§18.4 の規約に従う)、diff モード、fork PR 用の `workflow_run` サンプル | 自リポジトリの PR で動作し、`security-checker` category の alert が Security タブに出る |
 | **P5. 品質** | osv / trivy アダプタ、Judge、baseline / ignore、コスト・予算、契約テスト一式 | カバレッジ 80%、mypy strict 通過 |
 | **P6. 評価と公開** | 自前データセット 100 件、eval コマンド、ベンチ結果、README / docs 一式、PyPI + GHCR 公開 | `v2.0.0` リリース |
+| **P7. ゲートを締める** | 生 SARIF の 4 category を撤去し `security-checker` に一本化、Ruleset に "Require code scanning results" を追加 | 自リポジトリで、high 以上の confirmed がある PR がマージできない |
 
 各フェーズは独立してマージ可能な PR 群に分割する。P2 完了時点で「動くもの」があることを重視する
 (設計だけ立派で動かない期間を長く作らない)。
@@ -2313,6 +2519,9 @@ transport が 1 つしかない期間が長いと、その 1 つの都合がコ�
 | R11 | **起動した対象がレビュー対象を書き換えてしまう(P3 違反)** | §9.7 の 5 つの強制策(リポジトリ外 cwd / 書込能力の無効化 / shell 不使用 / 書込検知 / killpg)。書込検知は自動テストでも検証する |
 | R12 | `contrib/host-audit/` の維持コスト | v2.1 以降で別リポジトリ化を再検討 |
 | R13 | 名前が一般的すぎて検索性が低い | タグライン・トピック・README で位置づけを補う。将来的な改名は SemVer major の機会に検討 |
+| R14 | **LLM の非決定性で alert が open / close を繰り返す** | `partialFingerprints` は Candidate の安定 ID(スキャナ由来・LLM 非依存)にする(§18.3)。それでも `status` が揺れると `level` が変わり alert が消えて再出現する。SARIF の `level` は**スキャナ由来の severity で決め、LLM の判定は `message` と `properties` に載せる**案を P4 で比較検討する |
+| R15 | **Code Scanning を必須にすると fork PR がマージ不能になる** | `workflow_run` パターンを P4 の成果物に含め、それが動くまで Ruleset の "Require code scanning results" を有効化しない(§18.4.3) |
+| R16 | **生 SARIF から集約 SARIF への切り替えでゲートが静かに外れる** | Ruleset はツール名(`tool.driver.name`)を指定するため、名前を最初から `security-checker` に固定する(§18.4.4)。切り替えは P7 として移行計画に明示 |
 
 ---
 
