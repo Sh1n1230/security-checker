@@ -65,6 +65,10 @@ jobs:
         if: always()
         id: sarif
         run: |
+          # GitHub の既定シェルは `bash -e` で、set -uo pipefail では解除されない。
+          # このステップはスキャナの終了コードを自分で解釈するため -e を明示的に外す。
+          # (osv-scanner の exit 128 = 対象マニフェスト無し で打ち切られる事故があった)
+          set +e
           set -uo pipefail
           SARIF_DIR="$RUNNER_TEMP/sarif"
           mkdir -p "$SARIF_DIR"

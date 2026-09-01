@@ -1622,6 +1622,9 @@ Ruleset の "Require code scanning results" は **ツール名を指定して**�
 
 - v2 の SARIF は `tool.driver.name` を常に `security-checker` にする。
   内訳(semgrep 由来か gitleaks 由来か)は `ruleId` の `{scanner}/{rule_id}` 接頭辞で表す。
+- **Ruleset がキーにするのは `category` ではなく `tool.driver.name` である。** この 2 つは別物で、
+  スキャナ側が SARIF に書くツール名はこちらの指定が効かない(例: category を `semgrep` にしても
+  ツール名は `Semgrep OSS` になる)。Ruleset を設定するときは実際に登録された名前を確認すること。
 - アップロード時の `category` も `security-checker` 固定にする。
   category が異なる SARIF は GitHub 上で**別系統として共存**するため、
   移行時に古い alert が閉じずに残る。
@@ -1634,7 +1637,7 @@ FP がそのまま alert になる。v2 はこれを置き換える。
 
 | 段階 | Code Scanning に上がるもの | Ruleset |
 |---|---|---|
-| 現在 (v1) | 4 スキャナの生 SARIF(category = ツール名) | まだ設定しない。alert の量と質を観察する |
+| 現在 (v1) | 4 スキャナの生 SARIF。category は `semgrep` / `gitleaks` / `trivy` / `osv-scanner`、GitHub 上のツール名は各スキャナが SARIF に書く値(実測: `Semgrep OSS` / `Gitleaks` / `Trivy`) | まだ設定しない。alert の量と質を観察する |
 | P4 完了時 | 上記 + `security-checker`(集約 SARIF) | まだ設定しない。両者の差分 = LLM が潰した FP を測る(§27 の実データになる) |
 | P6 (v2.0.0) | `security-checker` のみ | `security-checker` を指定して required にする |
 
