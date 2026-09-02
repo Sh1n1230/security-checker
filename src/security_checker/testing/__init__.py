@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
-from security_checker.testing.fakes import FakeScanner
+from security_checker.testing.fakes import FakeScanner, ScriptedProvider, verdict_payload
+from security_checker.testing.provider_contract import ProviderContractTests
 
-__all__ = ["FakeScanner"]
+__all__ = ["FakeScanner", "ProviderContractTests", "ScriptedProvider", "verdict_payload"]

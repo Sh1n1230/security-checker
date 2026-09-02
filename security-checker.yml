@@ -37,5 +37,22 @@ output:
 logging:
   level: info
   format: text
-# reviewers (LLM) は P2 以降。API キーは api_key_env で環境変数名のみを指定する
-# (平文の api_key フィールドはスキーマに存在しない)。
+# reviewers を定義すると `security-checker review` が使えるようになる。
+# 既定の Reviewer は持たない (特定ベンダーを標準にしないため)。
+# API キーは api_key_env で環境変数名のみを指定する (平文の api_key はスキーマに存在しない)。
+#
+# reviewers:
+#   - name: r1
+#     transport: http
+#     dialect: openai_chat
+#     base_url: https://<endpoint>/v1
+#     model: <model-id>
+#     api_key_env: MY_API_KEY
+#     rate_limit: { rpm: 10 }
+#
+# aggregation:
+#   strategy: consensus     # 複数 Reviewer 時の集約 (weighted / judge は P3)
+#
+# budget:
+#   max_candidates: 200     # レビューに回す候補の上限
+#   max_total_tokens: 2000000

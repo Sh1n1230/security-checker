@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from security_checker.config.schema import PolicyConfig
 from security_checker.errors import ExitCode
-from security_checker.models.enums import ScanStatus, Severity
+from security_checker.models.enums import FindingStatus, ScanStatus, Severity
 from security_checker.models.report import Report
 
 
@@ -38,18 +38,45 @@ def evaluate(report: Report, policy: PolicyConfig) -> PolicyDecision:
             reasons=[f"スキャナが失敗しました (strict): {names}"],
         )
 
-    threshold = policy.fail_on
-    if threshold is not Severity.NONE:
-        blocking = [
-            candidate
-            for candidate in report.candidates
-            if (candidate.severity_reported or Severity.INFO) >= threshold
-        ]
-        if blocking:
-            reasons.append(
-                f"{threshold.value} 以上の検出が {len(blocking)} 件あります "
-                f"(policy.fail_on: {threshold.value})"
-            )
+    if report.findings:
+        # レビュー済み: 「LLM が脆弱と判断したもの」だけをゲートにする
+        if policy.strict:
+            errored = [f for f in report.findings if f.status is FindingStatus.ERROR]
+            if errored:
+                return PolicyDecision(
+                    exit_code=ExitCode.EXECUTION_ERROR,
+                    reasons=[
+                        f"有効な判定が得られなかった候補が {len(errored)} 件あります (strict)"
+                    ],
+                )
+        threshold = policy.fail_on
+        if threshold is not Severity.NONE:
+            blocking = [
+                finding
+                for finding in report.findings
+                if finding.suppressed is None
+                and finding.status in policy.fail_on_status
+                and finding.severity >= threshold
+            ]
+            if blocking:
+                statuses = "/".join(status.value for status in policy.fail_on_status)
+                reasons.append(
+                    f"{threshold.value} 以上の {statuses} が {len(blocking)} 件あります "
+                    f"(policy.fail_on: {threshold.value})"
+                )
+    else:
+        threshold = policy.fail_on
+        if threshold is not Severity.NONE:
+            blocking_candidates = [
+                candidate
+                for candidate in report.candidates
+                if (candidate.severity_reported or Severity.INFO) >= threshold
+            ]
+            if blocking_candidates:
+                reasons.append(
+                    f"{threshold.value} 以上の検出が {len(blocking_candidates)} 件あります "
+                    f"(policy.fail_on: {threshold.value})"
+                )
 
     if policy.min_score is not None and report.score.value < policy.min_score:
         reasons.append(f"スコア {report.score.value} が下限 {policy.min_score} を下回りました")

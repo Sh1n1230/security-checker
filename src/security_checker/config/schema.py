@@ -77,6 +77,21 @@ class RateLimit(StrictModel):
     tpm: int | None = Field(default=None, gt=0)
 
 
+class ReviewerCapabilities(StrictModel):
+    """capability の明示指定 (最優先・設計書 §9.3).
+
+    エンドポイントを叩いても分からないため、利用者が上書きできる経路を必ず残す。
+    """
+
+    structured_output: Literal["json_schema", "json_mode", "prompt_only"] | None = None
+    max_context_tokens: int | None = Field(default=None, gt=0)
+    max_output_tokens: int | None = Field(default=None, gt=0)
+    supports_system_role: bool | None = None
+    supports_temperature: bool | None = None
+    supports_seed: bool | None = None
+    reasoning: bool | None = None
+
+
 class ReviewerConfig(StrictModel):
     """Reviewer 定義 (P2 以降で使用).
 
@@ -99,6 +114,9 @@ class ReviewerConfig(StrictModel):
     api_key_env: str | None = None
     max_output_tokens: int = Field(default=2000, gt=0)
     num_ctx: int | None = Field(default=None, gt=0)
+    headers: dict[str, str] = Field(default_factory=dict)
+    capabilities: ReviewerCapabilities = ReviewerCapabilities()
+    seed: int | None = None
 
     # process transport
     preset: str | None = None
@@ -107,12 +125,13 @@ class ReviewerConfig(StrictModel):
     @model_validator(mode="after")
     def _validate_transport(self) -> ReviewerConfig:
         if self.transport == "http":
-            missing = [
-                field for field in ("dialect", "base_url", "model") if getattr(self, field) is None
-            ]
+            # preset を指定した場合、dialect / base_url はプリセットデータ側が供給しうる
+            required = ("model",) if self.preset else ("dialect", "base_url", "model")
+            missing = [field for field in required if getattr(self, field) is None]
             if missing:
                 raise ValueError(
                     f"reviewer '{self.name}': transport: http には {', '.join(missing)} が必要です"
+                    + ("" if self.preset else " (または preset)")
                 )
         else:
             if self.preset is None and not self.command:

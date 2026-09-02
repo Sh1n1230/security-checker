@@ -91,3 +91,51 @@ def test_config_show_explain_reports_origin(tmp_path):
 def test_config_show_rejects_unknown_preset(tmp_path):
     result = runner.invoke(app, ["config", "show", str(tmp_path), "--preset", "no-such"])
     assert result.exit_code == ExitCode.CONFIG_ERROR
+
+
+def reviewer_config(tmp_path: Path) -> None:
+    (tmp_path / "security-checker.yml").write_text(
+        "version: 1\n"
+        "scanners:\n  semgrep: { enabled: false }\n  gitleaks: { enabled: false }\n"
+        "reviewers:\n"
+        "  - name: r1\n    transport: http\n    dialect: openai_chat\n"
+        "    base_url: http://127.0.0.1:9/v1\n    model: m\n",
+        encoding="utf-8",
+    )
+
+
+def test_review_without_reviewers_is_config_error(tmp_path, monkeypatch):
+    disabled_scanners_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["review", str(tmp_path)])
+
+    assert result.exit_code == ExitCode.CONFIG_ERROR
+    assert "reviewers" in result.stderr
+
+
+def test_review_missing_api_key_names_the_variable(tmp_path, monkeypatch):
+    (tmp_path / "security-checker.yml").write_text(
+        "version: 1\n"
+        "scanners:\n  semgrep: { enabled: false }\n  gitleaks: { enabled: false }\n"
+        "reviewers:\n"
+        "  - name: r1\n    transport: http\n    dialect: openai_chat\n"
+        "    base_url: http://127.0.0.1:9/v1\n    model: m\n    api_key_env: SC_TEST_KEY\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("SC_TEST_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["review", str(tmp_path)])
+
+    assert result.exit_code == ExitCode.CONFIG_ERROR
+    assert "SC_TEST_KEY" in result.stderr
+
+
+def test_review_dry_run_does_not_call_the_provider(tmp_path, monkeypatch):
+    """--dry-run は送信前に内容を見せるだけで、外部には出さない (§19.3)."""
+    reviewer_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["review", str(tmp_path), "--dry-run"])
+
+    assert result.exit_code == ExitCode.OK
+    assert "dry-run" in result.stdout
+    assert "推定入力トークン" in result.stdout

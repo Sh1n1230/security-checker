@@ -12,7 +12,7 @@ Python 実装。移行計画(設計書 §32)のうち **P1「骨格」まで完�
 | フェーズ | 内容 | 状態 |
 |---|---|---|
 | P1 | models / config / CLI の骨格、`scan` サブコマンド、semgrep + gitleaks アダプタ | ✅ 完了 |
-| P2 | 単一 LLM レビュー(`http` transport / Context Builder / Structured Output) | 未着手 |
+| P2 | 単一 LLM レビュー(`http` transport / Context Builder / Structured Output) | ✅ 完了 |
 | P2.5 | `process` transport(API キーなしで動く) | 未着手 |
 | P3〜P7 | Multi-LLM / GitHub 統合 / Judge / 評価と公開 | 未着手 |
 
@@ -20,8 +20,45 @@ Python 実装。移行計画(設計書 §32)のうち **P1「骨格」まで完�
 uv sync --group dev                      # 開発環境
 uv run security-checker scan .           # スキャナのみで検査 (LLM は使わない)
 uv run security-checker scan . --strict --fail-on high
+uv run security-checker review .         # スキャン結果を LLM Reviewer でレビュー
+uv run security-checker review . --dry-run       # 送信予定の内容を送信前に全部見る
 uv run security-checker config show --explain    # 解決された設定と、その決定元
 ```
+
+### Reviewer の設定 (review 用)
+
+Reviewer は**ベンダーではなく transport × dialect** で指定します。`openai_chat` 方言を話す
+エンドポイントであれば、提供元がどこであっても同じ設定で動きます。
+
+```yaml
+reviewers:
+  - name: r1
+    transport: http           # 必須。推測で補完しない
+    dialect: openai_chat      # リクエスト/レスポンスの「形」
+    base_url: https://<endpoint>/v1
+    model: <model-id>
+    api_key_env: MY_API_KEY   # 環境変数名のみ。平文キーの項目は存在しない
+    rate_limit: { rpm: 10 }   # 無料枠などの制限を宣言するとスケジューラが尊重する
+```
+
+既定の Reviewer は**ありません**(特定のベンダーを事実上の標準にしないため)。
+ベンダー知識は `providers/presets/*.yml` の**データ**にのみ置き、コードには現れません。
+同梱プリセットは空ですが、`~/.config/security-checker/presets/http/<name>.yml` に置けば
+自分用のプリセットを追加・上書きできます。
+
+構造化出力は `json_schema → json_mode → prompt_only` の順に自動で降格し、
+スキーマ違反の応答は 1 回だけ修復を試みます。それでも駄目なら `schema_error` として
+**レポートに残します**(黙って消しません)。
+
+### レビュー結果の読み方
+
+判定は `confirmed` / `likely` / `review_required` / `false_positive` / `inconclusive` /
+`error` / `not_reviewed` に分かれます。**`review_required`(判断が割れた・信頼度が低い)は
+`confirmed` の直後に表示します。** 割れた判断こそ人間が見るべきものだからです。
+Reviewer が 1 個のときは `agreement: not_applicable` とし、「1 モデルの合意」を
+高い一致度として偽装しません。
+
+コードを外部に送ることについては [docs/security-model.md](docs/security-model.md) を参照してください。
 
 出力は `.security-checker/report.json`(`schema_version` 付き)と `.security-checker/raw/`。
 設定は `security-checker.yml`(サンプルはリポジトリ直下)を自動探索し、

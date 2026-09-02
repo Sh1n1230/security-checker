@@ -1,0 +1,148 @@
+"""ReviewerConfig から Provider を組み立てる (設計書 §9.3, §29).
+
+capability の決定順序: 利用者の明示指定 → プリセットデータ → 互換性の高いモードへのフォールバック。
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Callable
+from importlib.metadata import entry_points
+from typing import Any
+
+import httpx
+from pydantic import ValidationError
+
+from security_checker.config.schema import ReviewerConfig
+from security_checker.errors import ConfigError
+from security_checker.providers.base import (
+    Capabilities,
+    CapabilityOverrides,
+    LLMProvider,
+    StructuredMode,
+)
+from security_checker.providers.http.dialects import DIALECTS
+from security_checker.providers.http.transport import HttpProvider
+from security_checker.providers.presets.loader import (
+    HttpPreset,
+    load_http_presets,
+    resolve_http_preset,
+)
+
+ENTRY_POINT_GROUP = "security_checker.providers"
+
+
+def discover_plugin_providers() -> tuple[dict[str, Callable[..., LLMProvider]], list[str]]:
+    """外部パッケージが提供する Provider を探す. 読み込み失敗は警告にして続行する."""
+    found: dict[str, Callable[..., LLMProvider]] = {}
+    warnings: list[str] = []
+    for entry in entry_points(group=ENTRY_POINT_GROUP):
+        try:
+            found[entry.name] = entry.load()
+        except Exception as exc:  # プラグイン側の任意の失敗を封じ込める
+            warnings.append(f"provider プラグイン '{entry.name}' の読み込みに失敗しました: {exc}")
+    return found, warnings
+
+
+def resolve_api_key(reviewer: ReviewerConfig, environ: dict[str, str] | None = None) -> str | None:
+    """API キーは環境変数からのみ取得する (設計書 §19.1)."""
+    if reviewer.api_key_env is None:
+        return None
+    source = environ if environ is not None else dict(os.environ)
+    value = source.get(reviewer.api_key_env)
+    if not value:
+        raise ConfigError(
+            f"reviewer '{reviewer.name}': 環境変数 {reviewer.api_key_env} が設定されていません。"
+            f"`export {reviewer.api_key_env}=...` を実行するか、api_key_env を修正してください"
+        )
+    return value
+
+
+def resolve_capabilities(
+    reviewer: ReviewerConfig,
+    preset: HttpPreset | None,
+) -> Capabilities:
+    """3 段構え: 既定 → プリセット → 利用者の明示指定 (後勝ち)."""
+    base = Capabilities(structured_output=StructuredMode.JSON_MODE)
+    if preset is not None and preset.capabilities:
+        try:
+            base = Capabilities.model_validate(
+                {**base.model_dump(mode="json"), **preset.capabilities}
+            )
+        except ValidationError as exc:  # プリセットのデータ不備を設定エラーとして返す
+            raise ConfigError(
+                f"プリセット '{preset.name}' の capabilities が不正です: {exc}"
+            ) from exc
+    overrides = CapabilityOverrides.model_validate(
+        reviewer.capabilities.model_dump(exclude_none=True)
+    )
+    capabilities = overrides.apply(base)
+    if reviewer.max_output_tokens > capabilities.max_output_tokens:
+        capabilities = capabilities.model_copy(
+            update={"max_output_tokens": reviewer.max_output_tokens}
+        )
+    return capabilities
+
+
+def build_http_provider(
+    reviewer: ReviewerConfig,
+    *,
+    environ: dict[str, str] | None = None,
+    client: httpx.AsyncClient | None = None,
+    presets: dict[str, HttpPreset] | None = None,
+) -> HttpProvider:
+    """`transport: http` の Reviewer から Provider を作る."""
+    available = presets if presets is not None else load_http_presets()
+    preset = resolve_http_preset(
+        available, name=reviewer.preset, base_url=reviewer.base_url, model=reviewer.model
+    )
+
+    dialect_name = reviewer.dialect or (preset.dialect if preset else None)
+    base_url = reviewer.base_url or (preset.base_url if preset else None)
+    if dialect_name is None or base_url is None or reviewer.model is None:
+        raise ConfigError(
+            f"reviewer '{reviewer.name}': dialect / base_url / model を解決できません。"
+            "設定に直接書くか、preset を指定してください"
+        )
+    factory = DIALECTS.get(dialect_name)
+    if factory is None:
+        raise ConfigError(
+            f"reviewer '{reviewer.name}': 未知の dialect '{dialect_name}'。"
+            f"利用可能: {', '.join(sorted(DIALECTS))}"
+        )
+
+    api_key_env = reviewer.api_key_env or (preset.api_key_env if preset else None)
+    key_source = reviewer.model_copy(update={"api_key_env": api_key_env})
+    return HttpProvider(
+        name=reviewer.name,
+        dialect=factory(),
+        base_url=base_url,
+        model=reviewer.model,
+        capabilities=resolve_capabilities(reviewer, preset),
+        api_key=resolve_api_key(key_source, environ),
+        extra_headers=dict(reviewer.headers),
+        client=client,
+    )
+
+
+def build_provider(
+    reviewer: ReviewerConfig,
+    *,
+    environ: dict[str, str] | None = None,
+    client: httpx.AsyncClient | None = None,
+    presets: dict[str, HttpPreset] | None = None,
+    plugins: dict[str, Callable[..., LLMProvider]] | None = None,
+) -> LLMProvider:
+    """transport に応じた Provider を作る."""
+    if reviewer.transport == "http":
+        return build_http_provider(reviewer, environ=environ, client=client, presets=presets)
+    available_plugins: dict[str, Any] = plugins if plugins is not None else {}
+    factory = available_plugins.get(reviewer.transport)
+    if factory is not None:
+        provider: LLMProvider = factory(reviewer)
+        return provider
+    # process transport は P2.5 で実装する
+    raise ConfigError(
+        f"reviewer '{reviewer.name}': transport '{reviewer.transport}' は未実装です "
+        "(process transport は P2.5 で追加予定)"
+    )

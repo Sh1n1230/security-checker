@@ -14,15 +14,20 @@ from typing import Annotated, Any, NoReturn
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
 
 from security_checker import __version__
 from security_checker.config.loader import LoadedConfig, available_presets, load_config
+from security_checker.context.budget import estimate_tokens
 from security_checker.context.redact import redact_known_patterns
 from security_checker.errors import ConfigError, ExitCode, SecurityCheckerError
 from security_checker.models.enums import Severity
+from security_checker.observability.cost import load_price_table
 from security_checker.report.json_writer import write_json
 from security_checker.report.terminal import render
-from security_checker.run import run_scan
+from security_checker.review import prompts
+from security_checker.review.structured import verdict_schema
+from security_checker.run import build_tasks, run_review, run_scan
 
 app = typer.Typer(
     name="security-checker",
@@ -144,6 +149,111 @@ def scan(
         render(outcome.report, outcome.decision, outcome.output_dir)
 
     raise typer.Exit(code=int(outcome.decision.exit_code))
+
+
+@app.command()
+def review(
+    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path("."),
+    config_path: Annotated[
+        Path | None, typer.Option("--config", "-c", help="設定ファイル (既定は自動探索)")
+    ] = None,
+    preset: Annotated[
+        str | None,
+        typer.Option("--preset", "-p", help=f"プリセット: {', '.join(available_presets())}"),
+    ] = None,
+    fail_on: Annotated[
+        Severity | None, typer.Option("--fail-on", help="この重大度以上の判定で exit 1")
+    ] = None,
+    strict: Annotated[
+        bool | None,
+        typer.Option("--strict/--no-strict", help="スキャナ/Reviewer の失敗を exit 3 にする"),
+    ] = None,
+    max_candidates: Annotated[
+        int | None, typer.Option("--max-candidates", min=1, help="レビューする候補の上限")
+    ] = None,
+    exclude: Annotated[
+        list[str] | None, typer.Option("--exclude", help="除外パターン (複数指定可)")
+    ] = None,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", "-o", help="レポート出力先 (既定: .security-checker/)"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="LLM に送信せず、送信予定の内容を表示する"),
+    ] = False,
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="ターミナル出力を抑制する")] = False,
+) -> None:
+    """スキャン結果を LLM Reviewer でレビューする."""
+    root = path.expanduser().resolve()
+    if not root.is_dir():
+        _fail(f"検査対象が見つかりません: {path}", ExitCode.CONFIG_ERROR)
+
+    overrides = _cli_overrides(
+        fail_on=fail_on,
+        min_score=None,
+        strict=strict,
+        exclude=exclude,
+        output_dir=output_dir,
+        formats=None,
+        semgrep_config=None,
+    )
+    if max_candidates is not None:
+        overrides["budget"] = {"max_candidates": max_candidates}
+    loaded = _load(root, config_path, preset, overrides)
+
+    if dry_run:
+        _dry_run(loaded, root)
+        raise typer.Exit(code=int(ExitCode.OK))
+
+    price_table = load_price_table(
+        loaded.config_path.parent if loaded.config_path is not None else None
+    )
+    try:
+        outcome = asyncio.run(run_review(loaded.config, root, price_table=price_table))
+    except SecurityCheckerError as exc:
+        _fail(str(exc), exc.exit_code)
+
+    if "json" in loaded.config.output.formats:
+        write_json(outcome.report, outcome.output_dir)
+    if not quiet and "terminal" in loaded.config.output.formats:
+        render(outcome.report, outcome.decision, outcome.output_dir)
+
+    raise typer.Exit(code=int(outcome.decision.exit_code))
+
+
+def _dry_run(loaded: LoadedConfig, root: Path) -> None:
+    """何が送信されるかを、送信前に全部見せる (設計書 §19.3)."""
+    console = Console()
+    outcome = asyncio.run(run_scan(loaded.config, root))
+    tasks, overflow = build_tasks(outcome.report.candidates, root, loaded.config)
+
+    console.print(
+        f"[bold]dry-run[/bold]: 候補 {len(outcome.report.candidates)} 件中 "
+        f"{len(tasks)} 件を送信予定 (超過 {len(overflow)} 件は未レビュー)"
+    )
+    console.print(
+        f"[bold]reviewers[/bold]: "
+        f"{', '.join(r.name for r in loaded.config.reviewers) or '(未設定)'}"
+    )
+    schema = verdict_schema()
+    total = 0
+    for task in tasks:
+        user = prompts.render_user(task, schema)
+        total += estimate_tokens(user)
+        console.print(
+            Panel(
+                user,
+                title=f"{task.candidate.id}  {task.candidate.where}",
+                title_align="left",
+                border_style="blue",
+            )
+        )
+    console.print(
+        f"[bold]推定入力トークン[/bold]: 約 {total:,} "
+        f"(× Reviewer {len(loaded.config.reviewers)} 個)"
+    )
+    console.print("[dim]system プロンプトは全タスク共通です[/dim]")
 
 
 @config_app.command("show")

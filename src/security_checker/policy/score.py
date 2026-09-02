@@ -10,8 +10,11 @@ from __future__ import annotations
 from typing import Literal
 
 from security_checker.models.candidate import Candidate
-from security_checker.models.enums import ScanStatus, Severity
+from security_checker.models.enums import FindingStatus, ScanStatus, Severity
+from security_checker.models.finding import Finding
 from security_checker.models.report import ScannerRun, Score
+
+SCORED_STATUSES = (FindingStatus.CONFIRMED, FindingStatus.LIKELY)
 
 DEDUCTION = {
     Severity.CRITICAL: 20,
@@ -34,12 +37,30 @@ def rank_for(value: int) -> Literal["A", "B", "C", "D"]:
     return "D"
 
 
-def compute_score(candidates: list[Candidate], runs: list[ScannerRun]) -> Score:
-    """カテゴリ毎に減点し、上限 40 で頭打ちにする."""
+def compute_score(
+    candidates: list[Candidate],
+    runs: list[ScannerRun],
+    findings: list[Finding] | None = None,
+) -> Score:
+    """カテゴリ毎に減点し、上限 40 で頭打ちにする.
+
+    findings がある (= LLM レビュー済み) 場合は confirmed / likely のみを減点対象にする。
+    review_required は「人間の確認待ち」であり、減点として表現するのは誤りなので数えない。
+    """
     deductions: dict[str, int] = {}
-    for candidate in candidates:
-        severity = candidate.severity_reported or Severity.INFO
-        key = candidate.category.value
+    scored: list[tuple[str, Severity]] = []
+    if findings is None:
+        scored = [
+            (candidate.category.value, candidate.severity_reported or Severity.INFO)
+            for candidate in candidates
+        ]
+    else:
+        scored = [
+            (finding.candidate.category.value, finding.severity)
+            for finding in findings
+            if finding.status in SCORED_STATUSES and finding.suppressed is None
+        ]
+    for key, severity in scored:
         deductions[key] = deductions.get(key, 0) + DEDUCTION[severity]
     capped = {key: min(value, CATEGORY_CAP) for key, value in deductions.items()}
     value = max(0, 100 - sum(capped.values()))

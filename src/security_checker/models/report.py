@@ -8,8 +8,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from security_checker.models.candidate import Candidate
-from security_checker.models.enums import Category, ScanStatus, Severity
+from security_checker.models.enums import Category, FindingStatus, ScanStatus, Severity
 from security_checker.models.finding import Finding
+from security_checker.models.verdict import Usage
 
 SCHEMA_VERSION = 1
 
@@ -40,6 +41,22 @@ class ReportWarning(BaseModel):
     level: Literal["warn", "error"]
     source: str
     message: str
+
+
+class ReviewerRun(BaseModel):
+    """1 Reviewer の実行サマリ. 途中で無効化された事実も残す (設計書 §23)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    model: str | None = None
+    transport: str = "http"
+    dialect: str | None = None
+    calls: int = 0
+    verdicts_ok: int = 0
+    verdicts_error: int = 0
+    usage: Usage = Usage()
+    disabled_reason: str | None = None
 
 
 class Coverage(BaseModel):
@@ -91,6 +108,7 @@ class Report(BaseModel):
     target: TargetInfo
 
     scanners: list[ScannerRun] = Field(default_factory=list)
+    reviewers: list[ReviewerRun] = Field(default_factory=list)
     candidates: list[Candidate] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
 
@@ -98,6 +116,10 @@ class Report(BaseModel):
     score: Score
     warnings: list[ReportWarning] = Field(default_factory=list)
     severity_counts: dict[str, int] = Field(default_factory=dict)
+    finding_counts: dict[str, int] = Field(default_factory=dict)
+    usage: Usage = Usage()
+    stopped_reason: str | None = None
+    trace_dir: str | None = None
 
     @property
     def has_failed_scanner(self) -> bool:
@@ -109,6 +131,13 @@ class Report(BaseModel):
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def count_by_status(findings: list[Finding]) -> dict[str, int]:
+    counts = {status.value: 0 for status in FindingStatus}
+    for finding in findings:
+        counts[finding.status.value] += 1
+    return counts
 
 
 def count_by_severity(candidates: list[Candidate]) -> dict[str, int]:
