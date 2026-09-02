@@ -1,0 +1,24 @@
+# E2E テスト用のローカルルール。レジストリへの通信を避けるため自前で持つ。
+rules:
+  - id: local-os-system-injection
+    languages: [python]
+    severity: ERROR
+    message: os.system に外部入力が渡る可能性があります
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/78.html
+    patterns:
+      - pattern: os.system(...)
+  - id: local-eval-detected
+    languages: [python]
+    severity: WARNING
+    message: eval の使用を検出しました
+    metadata:
+      cwe:
+        - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"
+      confidence: MEDIUM
+    patterns:
+      - pattern: eval(...)

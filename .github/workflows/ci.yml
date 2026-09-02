@@ -1,0 +1,71 @@
+# v2 (Python 実装) の CI。設計書 §25.4 で必須としたものを回す。
+#   ruff check / ruff format --check / mypy --strict / pytest (カバレッジ 80%)
+# 実 LLM は一切叩かない (設計書 §25 の原則)。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
+        with:
+          enable-cache: true
+
+      - name: 依存関係を同期
+        run: uv sync --group dev --frozen
+
+      - name: Lint (ruff)
+        run: |
+          uv run ruff check .
+          uv run ruff format --check src tests
+
+      - name: 型検査 (mypy --strict)
+        run: uv run mypy
+
+      - name: テスト
+        run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=80
+
+  dogfooding:
+    # 自分自身を scan にかける。ここが落ちても quality とは別問題として扱えるよう job を分ける。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
+        with:
+          enable-cache: true
+
+      - name: スキャナを導入
+        run: |
+          set -euo pipefail
+          GITLEAKS_VER=$(curl -sSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
+            | grep -o '"tag_name": *"v[^"]*"' | head -1 | sed 's/.*"v\(.*\)"/\1/')
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER}_linux_x64.tar.gz" | tar xz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+          uv tool install semgrep
+
+      - name: セルフスキャン
+        # --strict: スキャナが失敗したら exit 3 で落とす (「壊れているのに緑」を作らない)
+        run: uv run security-checker scan . --strict --fail-on critical
+
+      - name: レポートを保存
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: security-checker-report
+          path: .security-checker/
+          retention-days: 7

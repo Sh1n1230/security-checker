@@ -1,0 +1,18 @@
+# thorough — 網羅優先。全スキャナを有効にし、文脈も広く取る。
+version: 1
+scanners:
+  semgrep: { enabled: true, config: p/default }
+  gitleaks: { enabled: true }
+  osv: { enabled: true }
+  trivy: { enabled: true, scanners: [config] }
+context:
+  window_lines: 60
+  max_callers: 5
+  max_tokens_per_task: 12000
+budget:
+  max_candidates: 500
+policy:
+  fail_on: medium
+  strict: true
+output:
+  formats: [terminal, json, markdown]

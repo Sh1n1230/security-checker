@@ -1,3 +1,13 @@
 reports/
 .claude/settings.local.json
 .DS_Store
+.security-checker/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/

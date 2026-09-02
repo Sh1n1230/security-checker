@@ -1,9 +1,50 @@
 # security-checker
 
 自作の成果物(コード・アプリ・設定など)がどれだけ安全かを測るための仕組み。
-AIを使わず、OSSの静的解析ツールのみで構成(再現性が高く無料)。
 
-## 3つの使い方
+現在、**v2「複数の独立した LLM を Security Auditor として使える AI Security Review プラットフォーム」**へ
+移行中です([docs/DESIGN.md](docs/DESIGN.md))。v1(bash/PowerShell 実装)はそのまま使えます。
+
+## v2 (開発中)
+
+Python 実装。移行計画(設計書 §32)のうち **P1「骨格」まで完了**しています。
+
+| フェーズ | 内容 | 状態 |
+|---|---|---|
+| P1 | models / config / CLI の骨格、`scan` サブコマンド、semgrep + gitleaks アダプタ | ✅ 完了 |
+| P2 | 単一 LLM レビュー(`http` transport / Context Builder / Structured Output) | 未着手 |
+| P2.5 | `process` transport(API キーなしで動く) | 未着手 |
+| P3〜P7 | Multi-LLM / GitHub 統合 / Judge / 評価と公開 | 未着手 |
+
+```sh
+uv sync --group dev                      # 開発環境
+uv run security-checker scan .           # スキャナのみで検査 (LLM は使わない)
+uv run security-checker scan . --strict --fail-on high
+uv run security-checker config show --explain    # 解決された設定と、その決定元
+```
+
+出力は `.security-checker/report.json`(`schema_version` 付き)と `.security-checker/raw/`。
+設定は `security-checker.yml`(サンプルはリポジトリ直下)を自動探索し、
+**組み込み既定値 → `--preset` → 設定ファイル → 環境変数(`SECURITY_CHECKER__POLICY__FAIL_ON` 形式)
+→ CLI フラグ** の順に、後勝ちで合成します。
+
+終了コードは目的別に分かれています(設計書 §17.1)。
+
+| code | 意味 |
+|---|---|
+| 0 | ポリシー違反なし |
+| 1 | `fail_on` 以上の検出、または `min_score` 未満 |
+| 2 | 設定エラー |
+| 3 | 実行エラー(`--strict` 時にスキャナが失敗した) |
+
+**1 と 3 を分けているのが v1 との最大の違いです。** v1 には「スキャナが失敗しても 0 件成功として扱われ、
+スコアが満点に見える」欠陥がありました。v2 は `skipped`(未導入)と `failed`(異常終了)を区別し、
+どちらの場合もスコアに `partial` フラグを立てます。
+
+検出されたシークレットの値は Candidate にもレポートにも書き出しません(マスク済みの形式のみ)。
+漏洩した値を成果物や外部 LLM に再送しないためです(設計書 §19.2)。
+
+## v1 の3つの使い方
 
 1. **CLI**: `./check.sh <対象ディレクトリ>` (Windowsは `pwsh ./check.ps1 <対象ディレクトリ>`) でスコア(100点満点)とランクを出す
 2. **CI**: [ci/security.yml](ci/security.yml) を GitHub Actions にコピーして push 毎に自動検査(GitHub Code Scanning への SARIF 登録つき)

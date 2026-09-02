@@ -1,0 +1,41 @@
+# security-checker v2 の設定サンプル (このリポジトリ自身の設定も兼ねる)。
+# 全項目に既定値があるため、このファイルがなくても動く。
+# 解決結果は `security-checker config show --explain` で確認できる。
+version: 1
+
+target:
+  root: .
+  mode: auto # auto | full | diff (diff は P4 で有効化)
+  exclude:
+    - "**/vendor/**"
+    - "**/node_modules/**"
+    - "**/__pycache__/**"
+    - "**/.venv/**"
+    - "**/.git/**"
+    - "**/.security-checker/**"
+    - "**/*.min.js"
+
+scanners:
+  semgrep:
+    enabled: true
+    config: p/default
+    timeout_s: 600
+  gitleaks:
+    enabled: true
+  # osv / trivy のアダプタは P5 で実装する
+  osv: { enabled: false }
+  trivy: { enabled: false }
+
+policy:
+  fail_on: high # この重大度以上の検出で exit 1
+  strict: true # スキャナが失敗したら exit 3 (「壊れているのに緑」を作らない)
+
+output:
+  dir: .security-checker/
+  formats: [terminal, json]
+
+logging:
+  level: info
+  format: text
+# reviewers (LLM) は P2 以降。API キーは api_key_env で環境変数名のみを指定する
+# (平文の api_key フィールドはスキーマに存在しない)。
