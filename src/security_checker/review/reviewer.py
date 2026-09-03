@@ -139,6 +139,8 @@ class Reviewer:
     ) -> ReviewOutcome:
         checked, warnings = drop_hallucinated_evidence(judgement, task)  # type: ignore[arg-type]
         usage = self._priced(usage)
+        # transport 固有の警告 (process の書込検知など) を落とさずに持ち上げる (§9.7)。
+        warnings.extend(response.warnings)
         if response.degraded_to is not None and response.degraded_to != StructuredMode.JSON_SCHEMA:
             warnings.append(
                 f"{self.name}: 構造化出力を {response.degraded_to.value} に降格しました"
@@ -220,22 +222,29 @@ class Reviewer:
         if self.save_prompts:
             prompt["system"] = system
             prompt["user"] = user
+        params: dict[str, Any] = {
+            "transport": self.provider.transport,
+            "dialect": self.provider.dialect,
+            "temperature": 0.0,
+            "seed": self.seed,
+            "max_output_tokens": self.max_output_tokens,
+            "structured_mode": self.provider.capabilities.structured_output.value,
+        }
+        response_trace: dict[str, Any] = {
+            "raw": response.text if response is not None else None,
+            "finish_reason": response.finish_reason if response is not None else None,
+            "error": error,
+        }
+        if response is not None:
+            params.update(response.trace_params)
+            response_trace.update(response.trace_response)
         return {
             "candidate_id": task.candidate.id,
             "reviewer": self.name,
             "model": verdict.model,
-            "params": {
-                "temperature": 0.0,
-                "seed": self.seed,
-                "max_output_tokens": self.max_output_tokens,
-                "structured_mode": self.provider.capabilities.structured_output.value,
-            },
+            "params": params,
             "prompt": prompt,
-            "response": {
-                "raw": response.text if response is not None else None,
-                "finish_reason": response.finish_reason if response is not None else None,
-                "error": error,
-            },
+            "response": response_trace,
             "usage": verdict.usage.model_dump(mode="json"),
             "latency_ms": verdict.latency_ms,
             "attempt": attempt,

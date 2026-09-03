@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypeVar
 from urllib.parse import urlparse
 
 import yaml
@@ -47,22 +47,45 @@ class PresetMatch(BaseModel):
         return self.host is not None or self.model is not None
 
 
-class HttpPreset(BaseModel):
-    """`http` transport 用のプリセット (名前 → dialect + base_url + capability)."""
+class BasePreset(BaseModel):
+    """transport 共通の部分. capability の供給源であることは両者に共通する."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str
-    dialect: str
-    base_url: str | None = None
-    api_key_env: str | None = None
-    match: PresetMatch = PresetMatch()
     capabilities: dict[str, Any] = Field(default_factory=dict)
     source: str = "bundled"
 
 
-def _read_presets(directory: Path, source: str) -> dict[str, HttpPreset]:
-    presets: dict[str, HttpPreset] = {}
+class HttpPreset(BasePreset):
+    """`http` transport 用のプリセット (名前 → dialect + base_url + capability)."""
+
+    dialect: str
+    base_url: str | None = None
+    api_key_env: str | None = None
+    match: PresetMatch = PresetMatch()
+
+
+class ProcessPreset(BasePreset):
+    """`process` transport 用のプリセット (名前 → command + parse + capability).
+
+    プリセットは**省略記法にすぎない**。設定に `command` を直接書けば、
+    プリセットが 1 つもなくても同じように動く (設計書 §9.7)。
+    """
+
+    command: list[str]
+    prompt_via: Literal["stdin", "file"] = "stdin"
+    parse: str = "json_in_stdout"
+    #: §9.7 の安全要件 (非対話 + ツール無効/読み取り専用) を満たしていることの申告。
+    #: false のプリセットは、command 直書きと同じ扱いで警告する。
+    requires_readonly_flags: bool = False
+
+
+PresetT = TypeVar("PresetT", bound=BasePreset)
+
+
+def _read_presets(directory: Path, source: str, model: type[PresetT]) -> dict[str, PresetT]:
+    presets: dict[str, PresetT] = {}
     if not directory.is_dir():
         return presets
     for path in sorted(directory.glob("*.yml")):
@@ -74,7 +97,7 @@ def _read_presets(directory: Path, source: str) -> dict[str, HttpPreset]:
             raise ConfigError(f"プリセット {path} のトップレベルはマッピングである必要があります")
         raw.setdefault("name", path.stem)
         try:
-            preset = HttpPreset.model_validate({**raw, "source": source})
+            preset = model.model_validate({**raw, "source": source})
         except ValidationError as exc:
             raise ConfigError(f"プリセット {path} が不正です: {exc}") from exc
         presets[preset.name] = preset
@@ -84,9 +107,33 @@ def _read_presets(directory: Path, source: str) -> dict[str, HttpPreset]:
 def load_http_presets(user_dir: Path | None = None) -> dict[str, HttpPreset]:
     """同梱 → ユーザーの順に読み、同名はユーザー側が勝つ."""
     directory = user_dir if user_dir is not None else user_preset_dir() / "http"
-    presets = _read_presets(BUNDLED_HTTP_DIR, "bundled")
-    presets.update(_read_presets(directory, "user"))
+    presets = _read_presets(BUNDLED_HTTP_DIR, "bundled", HttpPreset)
+    presets.update(_read_presets(directory, "user", HttpPreset))
     return presets
+
+
+def load_process_presets(user_dir: Path | None = None) -> dict[str, ProcessPreset]:
+    """`process` 用も同じ規則で読む. 利用者は PR なしでプリセットを追加・上書きできる."""
+    directory = user_dir if user_dir is not None else user_preset_dir() / "process"
+    presets = _read_presets(BUNDLED_PROCESS_DIR, "bundled", ProcessPreset)
+    presets.update(_read_presets(directory, "user", ProcessPreset))
+    return presets
+
+
+def resolve_process_preset(
+    presets: dict[str, ProcessPreset], *, name: str | None
+) -> ProcessPreset | None:
+    """`process` は host / model のような照合材料を持たないため、名前指定のみ."""
+    if name is None:
+        return None
+    preset = presets.get(name)
+    if preset is None:
+        available = ", ".join(sorted(presets)) or "(同梱プリセットはありません)"
+        raise ConfigError(
+            f"preset '{name}' は見つかりません。利用可能: {available}。"
+            "command を直接指定することもできます"
+        )
+    return preset
 
 
 def resolve_http_preset(

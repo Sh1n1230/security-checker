@@ -74,7 +74,8 @@ allowed-confusables = ["×", "－", "–"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
 # 契約テストはテストコードそのものを提供するモジュール
-"src/security_checker/testing/provider_contract.py" = ["S101"]
+# (S108: シェル経由でないことを示すための固定パス。実際には作られないことを検証している)
+"src/security_checker/testing/provider_contract.py" = ["S101", "S108"]
 
 [tool.mypy]
 python_version = "3.11"

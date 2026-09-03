@@ -7,13 +7,13 @@
 
 ## v2 (開発中)
 
-Python 実装。移行計画(設計書 §32)のうち **P1「骨格」まで完了**しています。
+Python 実装。移行計画(設計書 §32)のうち **P2.5「`process` transport」まで完了**しています。
 
 | フェーズ | 内容 | 状態 |
 |---|---|---|
 | P1 | models / config / CLI の骨格、`scan` サブコマンド、semgrep + gitleaks アダプタ | ✅ 完了 |
 | P2 | 単一 LLM レビュー(`http` transport / Context Builder / Structured Output) | ✅ 完了 |
-| P2.5 | `process` transport(API キーなしで動く) | 未着手 |
+| P2.5 | `process` transport(API キーなしで動く) | ✅ 完了 |
 | P3〜P7 | Multi-LLM / GitHub 統合 / Judge / 評価と公開 | 未着手 |
 
 ```sh
@@ -23,6 +23,7 @@ uv run security-checker scan . --strict --fail-on high
 uv run security-checker review .         # スキャン結果を LLM Reviewer でレビュー
 uv run security-checker review . --dry-run       # 送信予定の内容を送信前に全部見る
 uv run security-checker config show --explain    # 解決された設定と、その決定元
+uv run security-checker init                     # 環境を検出して設定を生成する
 ```
 
 ### Reviewer の設定 (review 用)
@@ -43,8 +44,39 @@ reviewers:
 
 既定の Reviewer は**ありません**(特定のベンダーを事実上の標準にしないため)。
 ベンダー知識は `providers/presets/*.yml` の**データ**にのみ置き、コードには現れません。
-同梱プリセットは空ですが、`~/.config/security-checker/presets/http/<name>.yml` に置けば
+同梱プリセットは空ですが、`~/.config/security-checker/presets/<transport>/<name>.yml` に置けば
 自分用のプリセットを追加・上書きできます。
+
+### API キーを持っていない場合 — `process` transport
+
+**手元の非対話コマンドをそのまま Reviewer にできます。**認証はそのコマンド側の既存ログインに
+委ねるため、API キーの設定は要りません。特定の CLI 向けの機能ではなく、
+「stdin を受け取り stdout にテキストを返す」契約を満たすものはすべて同じ経路で扱われます。
+
+```yaml
+reviewers:
+  - name: local-command
+    transport: process
+    command: ["<your-command>", "--non-interactive", "--no-tools"]
+    prompt_via: stdin         # stdin | file
+    timeout_s: 300
+```
+
+```sh
+uv run security-checker init --command '<your-command> --non-interactive --no-tools'
+```
+
+起動対象は任意のコマンドなので、**P3(レビュー対象を書き換えない)を transport の性質に
+よらず守ります**。毎回作り直す空の一時ディレクトリで `shell=False` 起動し、プロンプトは
+stdin(または一時ファイル)でのみ渡し、実行後に書き込みを検知して警告し、タイムアウト時は
+プロセスグループごと回収します。ただし**コマンド自体の書き込み能力を無効化できているかは
+本体からは検証できない**ため、非対話・ツール無効のフラグは利用者が指定してください
+(起動時に警告が出ます)。
+
+`process` は「安価だが荒い」transport です。構造化出力は `prompt_only` のみ、
+コストは `unknown`、トークンは推定値になります。詳細と注意点(**対象コマンドの利用規約は
+利用者が確認してください**)は [docs/process-transport.md](docs/process-transport.md) に
+まとめてあります。性質の異なる transport を混ぜると agreement が情報量を持ちやすくなります。
 
 構造化出力は `json_schema → json_mode → prompt_only` の順に自動で降格し、
 スキーマ違反の応答は 1 回だけ修復を試みます。それでも駄目なら `schema_error` として

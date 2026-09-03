@@ -21,13 +21,19 @@ from security_checker.providers.base import (
     LLMProvider,
     StructuredMode,
 )
+from security_checker.providers.detect import command_version
 from security_checker.providers.http.dialects import DIALECTS
 from security_checker.providers.http.transport import HttpProvider
 from security_checker.providers.presets.loader import (
+    BasePreset,
     HttpPreset,
+    ProcessPreset,
     load_http_presets,
+    load_process_presets,
     resolve_http_preset,
+    resolve_process_preset,
 )
+from security_checker.providers.process.runner import ProcessProvider
 
 ENTRY_POINT_GROUP = "security_checker.providers"
 
@@ -60,7 +66,7 @@ def resolve_api_key(reviewer: ReviewerConfig, environ: dict[str, str] | None = N
 
 def resolve_capabilities(
     reviewer: ReviewerConfig,
-    preset: HttpPreset | None,
+    preset: BasePreset | None,
 ) -> Capabilities:
     """3 段構え: 既定 → プリセット → 利用者の明示指定 (後勝ち)."""
     base = Capabilities(structured_output=StructuredMode.JSON_MODE)
@@ -125,6 +131,73 @@ def build_http_provider(
     )
 
 
+def build_process_provider(
+    reviewer: ReviewerConfig,
+    *,
+    environ: dict[str, str] | None = None,
+    presets: dict[str, ProcessPreset] | None = None,
+    warnings: list[str] | None = None,
+) -> ProcessProvider:
+    """`transport: process` の Reviewer から Provider を作る (§9.7).
+
+    プリセットは省略記法にすぎない。`command` を直接書けば、プリセットが
+    1 つも無くても動く — これが P2.5 の受け入れ条件そのものである。
+    """
+    available = presets if presets is not None else load_process_presets()
+    preset = resolve_process_preset(available, name=reviewer.preset)
+
+    command = reviewer.command or (list(preset.command) if preset else None)
+    if not command:
+        raise ConfigError(
+            f"reviewer '{reviewer.name}': command を解決できません。"
+            "command を直接書くか、preset を指定してください"
+        )
+
+    sink = warnings if warnings is not None else []
+    _warn_unless_readonly_declared(reviewer, preset, sink)
+    capabilities = resolve_capabilities(reviewer, preset)
+    if reviewer.capabilities.structured_output not in (None, StructuredMode.PROMPT_ONLY.value):
+        sink.append(
+            f"reviewer '{reviewer.name}': transport: process の構造化出力は prompt_only のみです。"
+            f"指定された {reviewer.capabilities.structured_output} は無視されます (§9.7)"
+        )
+
+    # command 直書きなら設定側が、preset 経由ならプリセットデータ側が渡し方を決める。
+    direct = bool(reviewer.command)
+    prompt_via = reviewer.prompt_via if direct or preset is None else preset.prompt_via
+    parse = reviewer.parse if direct or preset is None else preset.parse
+    return ProcessProvider(
+        name=reviewer.name,
+        command=command,
+        capabilities=capabilities,
+        model=reviewer.model or (preset.name if preset else None),
+        prompt_via=prompt_via,
+        parse=parse,
+        version=command_version(command[0]).version,
+        environ=environ,
+    )
+
+
+def _warn_unless_readonly_declared(
+    reviewer: ReviewerConfig,
+    preset: ProcessPreset | None,
+    warnings: list[str],
+) -> None:
+    """書き込み能力の無効化を、本体は検証できない (§9.7 の 2).
+
+    プリセットが `requires_readonly_flags: true` を申告している場合を除き、
+    「その責任は利用者にある」ことを起動時に明示する。黙って起動しない。
+    """
+    if preset is not None and preset.requires_readonly_flags and not reviewer.command:
+        return
+    warnings.append(
+        f"reviewer '{reviewer.name}': process transport は隔離した一時ディレクトリで起動し、"
+        "書き込みがあれば検知しますが、コマンド自体の書き込み能力を無効化できているかは"
+        "本体からは検証できません。非対話・ツール無効 (または読み取り専用) の指定が"
+        "command に含まれていることを確認してください (§9.7)"
+    )
+
+
 def build_provider(
     reviewer: ReviewerConfig,
     *,
@@ -132,17 +205,20 @@ def build_provider(
     client: httpx.AsyncClient | None = None,
     presets: dict[str, HttpPreset] | None = None,
     plugins: dict[str, Callable[..., LLMProvider]] | None = None,
+    warnings: list[str] | None = None,
 ) -> LLMProvider:
     """transport に応じた Provider を作る."""
     if reviewer.transport == "http":
         return build_http_provider(reviewer, environ=environ, client=client, presets=presets)
+    if reviewer.transport == "process":
+        return build_process_provider(reviewer, environ=environ, warnings=warnings)
     available_plugins: dict[str, Any] = plugins if plugins is not None else {}
     factory = available_plugins.get(reviewer.transport)
     if factory is not None:
         provider: LLMProvider = factory(reviewer)
         return provider
-    # process transport は P2.5 で実装する
     raise ConfigError(
-        f"reviewer '{reviewer.name}': transport '{reviewer.transport}' は未実装です "
-        "(process transport は P2.5 で追加予定)"
+        f"reviewer '{reviewer.name}': transport '{reviewer.transport}' は未実装です。"
+        f"利用可能: http, process"
+        + (f", {', '.join(sorted(available_plugins))}" if available_plugins else "")
     )

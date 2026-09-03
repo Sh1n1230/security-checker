@@ -1,8 +1,8 @@
 """Run オーケストレータ (設計書 §3).
 
 パイプライン全体を 1 つの Run として扱い、run_id で全出力を紐づける。
-P1 では Scanner → Normalizer → Policy → Report までを実装する
-(Context Builder / Reviewer / Aggregator は P2 以降)。
+`run_scan` は Scanner → Normalizer → Policy → Report、
+`run_review` はそこに Context Builder → Reviewer → Aggregator を挟む。
 """
 
 from __future__ import annotations
@@ -245,7 +245,7 @@ def build_reviewers(
     setup = ReviewerSetup()
     table = price_table or PriceTable()
     for reviewer_config in config.reviewers:
-        provider = build_provider(reviewer_config, environ=environ)
+        provider = build_provider(reviewer_config, environ=environ, warnings=setup.warnings)
         reviewer = Reviewer(
             reviewer_config.name,
             provider,
@@ -253,7 +253,11 @@ def build_reviewers(
             max_output_tokens=reviewer_config.max_output_tokens,
             timeout_s=float(reviewer_config.timeout_s),
             seed=reviewer_config.seed,
-            price=table.lookup(reviewer_config.model or ""),
+            # process transport はトークンを実測できないため、価格表があっても
+            # 金額を出さない。推測した数字を出すより cost: unknown が正しい (§9.7)。
+            price=None
+            if reviewer_config.transport == "process"
+            else table.lookup(reviewer_config.model or ""),
             save_prompts=config.output.save_prompts,
         )
         setup.runtimes.append(
@@ -315,6 +319,10 @@ async def run_review(
     )
 
     setup = reviewer_setup or build_reviewers(config, price_table=price_table, environ=environ)
+    warnings.extend(
+        ReportWarning(level="warn", source="reviewer", message=message)
+        for message in setup.warnings
+    )
     tasks, overflow = build_tasks(candidates, root, config)
     if overflow:
         warnings.append(

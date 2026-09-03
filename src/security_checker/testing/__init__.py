@@ -3,6 +3,17 @@
 from __future__ import annotations
 
 from security_checker.testing.fakes import FakeScanner, ScriptedProvider, verdict_payload
-from security_checker.testing.provider_contract import ProviderContractTests
+from security_checker.testing.provider_contract import (
+    ProcessProviderContractTests,
+    ProviderContractTests,
+    python_command,
+)
 
-__all__ = ["FakeScanner", "ProviderContractTests", "ScriptedProvider", "verdict_payload"]
+__all__ = [
+    "FakeScanner",
+    "ProcessProviderContractTests",
+    "ProviderContractTests",
+    "ScriptedProvider",
+    "python_command",
+    "verdict_payload",
+]

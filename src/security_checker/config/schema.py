@@ -105,9 +105,16 @@ class ReviewerConfig(StrictModel):
     concurrency: int = Field(default=1, gt=0)
     rate_limit: RateLimit = RateLimit()
 
-    # http transport
+    # http transport ("text_io" だけは process transport の方言)
     dialect: (
-        Literal["openai_chat", "anthropic_messages", "gemini_generate", "ollama_chat"] | None
+        Literal[
+            "openai_chat",
+            "anthropic_messages",
+            "gemini_generate",
+            "ollama_chat",
+            "text_io",
+        ]
+        | None
     ) = None
     base_url: str | None = None
     model: str | None = None
@@ -121,10 +128,18 @@ class ReviewerConfig(StrictModel):
     # process transport
     preset: str | None = None
     command: list[str] | None = None
+    #: プロンプトの渡し方. どちらでも argv には本文を埋め込まない (設計書 §9.7)
+    prompt_via: Literal["stdin", "file"] = "stdin"
+    #: stdout の解釈方法. 現状は「最初の JSON オブジェクトを抽出する」のみ
+    parse: Literal["json_in_stdout"] = "json_in_stdout"
 
     @model_validator(mode="after")
     def _validate_transport(self) -> ReviewerConfig:
         if self.transport == "http":
+            if self.dialect == "text_io":
+                raise ValueError(
+                    f"reviewer '{self.name}': dialect: text_io は transport: process 専用です"
+                )
             # preset を指定した場合、dialect / base_url はプリセットデータ側が供給しうる
             required = ("model",) if self.preset else ("dialect", "base_url", "model")
             missing = [field for field in required if getattr(self, field) is None]
@@ -137,6 +152,10 @@ class ReviewerConfig(StrictModel):
             if self.preset is None and not self.command:
                 raise ValueError(
                     f"reviewer '{self.name}': transport: process には preset か command が必要です"
+                )
+            if self.dialect not in (None, "text_io"):
+                raise ValueError(
+                    f"reviewer '{self.name}': transport: process の dialect は text_io のみです"
                 )
         return self
 

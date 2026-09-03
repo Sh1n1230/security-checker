@@ -137,7 +137,10 @@ def test_broken_user_preset_is_config_error(tmp_path):
         load_http_presets(tmp_path)
 
 
-def test_process_transport_is_not_yet_implemented():
-    config = ReviewerConfig(name="r1", transport="process", command=["echo"])
-    with pytest.raises(ConfigError, match=r"P2\.5"):
-        build_provider(config, environ={})
+def test_unknown_transport_lists_what_is_available():
+    config = ReviewerConfig(
+        name="r1", transport="http", dialect="openai_chat", base_url="https://x/v1", model="m"
+    )
+    unknown = config.model_copy(update={"transport": "carrier-pigeon"})
+    with pytest.raises(ConfigError, match="http, process"):
+        build_provider(unknown, environ={})

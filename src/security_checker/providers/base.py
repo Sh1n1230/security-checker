@@ -82,6 +82,13 @@ class CompletionResponse(BaseModel):
     latency_ms: int = 0
     degraded_to: StructuredMode | None = None
 
+    # transport 固有の情報を、上位が transport を知らないまま持ち上げるための口 (§24.2)。
+    # 例: process transport は argv・バージョンを params に、stderr・exit code を
+    # response に、書込検知の結果を warnings に載せる (§9.7)。
+    warnings: list[str] = Field(default_factory=list)
+    trace_params: dict[str, Any] = Field(default_factory=dict)
+    trace_response: dict[str, Any] = Field(default_factory=dict)
+
 
 class HealthStatus(BaseModel):
     """`providers check` 用の到達性確認結果."""
