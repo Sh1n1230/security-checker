@@ -1166,6 +1166,12 @@ Return a single JSON object matching this schema:
 `security-checker.yml`(`.security-checker.yml` / `.github/security-checker.yml` も探索)。
 全項目に既定値があり、**設定ファイルなしでも `--preset` だけで動く**。
 
+`security-checker.local.yml` があれば、共有設定の**後に**重ねる(§12 の合成順序)。
+これは git 管理しない個人用の層であり、「手元でだけ使う Reviewer 定義」を
+共有設定に混ぜないために用意する。既定 Reviewer を持たない方針(§9.8)の下では、
+各自の環境で使えるものは各自の手元にしか書けないため、この層がないと
+「動かすには共有ファイルを汚すしかない」状態になる。
+
 ```yaml
 version: 1
 
@@ -1278,6 +1284,7 @@ logging:
 組み込み既定値
   ← --preset で指定したプリセット
   ← 設定ファイル (security-checker.yml)
+  ← ローカル設定 (security-checker.local.yml / git 管理外)
   ← 環境変数 (SECURITY_CHECKER__POLICY__FAIL_ON=critical のような二重アンダースコア記法)
   ← CLI フラグ
 ```

@@ -1,7 +1,10 @@
 """設定の探索・合成・検証 (設計書 §12).
 
 合成順序 (後勝ち):
-  組み込み既定値 ← preset ← 設定ファイル ← 環境変数 ← CLI フラグ
+  組み込み既定値 ← preset ← 設定ファイル ← ローカル設定 ← 環境変数 ← CLI フラグ
+
+「ローカル設定」は git 管理しない個人用の上書き層 (`security-checker.local.yml`)。
+共有する設定と、手元でだけ使う Reviewer 定義を混ぜないためにある。
 """
 
 from __future__ import annotations
@@ -24,6 +27,11 @@ CONFIG_FILENAMES = (
     ".security-checker.yaml",
     ".github/security-checker.yml",
 )
+#: git 管理しない個人用の上書き層. 共有設定より後に適用される (後勝ち).
+LOCAL_CONFIG_FILENAMES = (
+    "security-checker.local.yml",
+    "security-checker.local.yaml",
+)
 ENV_PREFIX = "SECURITY_CHECKER__"
 PRESET_DIR = Path(__file__).parent / "presets"
 
@@ -38,11 +46,21 @@ class LoadedConfig:
     origins: dict[str, Layer] = field(default_factory=dict)
     config_path: Path | None = None
     preset: str | None = None
+    local_config_path: Path | None = None
 
 
 def find_config_file(root: Path) -> Path | None:
     """対象ディレクトリ配下から設定ファイルを探す."""
     for name in CONFIG_FILENAMES:
+        candidate = root / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def find_local_config_file(root: Path) -> Path | None:
+    """個人用の上書き設定を探す. `--config` の指定とは独立に、対象直下だけを見る."""
+    for name in LOCAL_CONFIG_FILENAMES:
         candidate = root / name
         if candidate.is_file():
             return candidate
@@ -157,6 +175,14 @@ def load_config(
         _reject_plaintext_keys(file_data)
         layers.append((f"file:{resolved_path}", file_data))
 
+    # 共有設定の後に、git 管理しない個人用の層を重ねる。
+    # 「手元でだけ使う Reviewer」を共有設定に混ぜずに済ませるための経路。
+    local_path = find_local_config_file(root)
+    if local_path is not None:
+        local_data = _read_yaml(local_path)
+        _reject_plaintext_keys(local_data)
+        layers.append((f"local:{local_path}", local_data))
+
     layers.append(("env", env_overrides(environ)))
     layers.append(("cli", cli_overrides or {}))
 
@@ -179,6 +205,7 @@ def load_config(
         origins=origins,
         config_path=resolved_path,
         preset=preset,
+        local_config_path=local_path,
     )
 
 

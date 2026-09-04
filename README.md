@@ -94,8 +94,13 @@ Reviewer が 1 個のときは `agreement: not_applicable` とし、「1 モデ�
 
 出力は `.security-checker/report.json`(`schema_version` 付き)と `.security-checker/raw/`。
 設定は `security-checker.yml`(サンプルはリポジトリ直下)を自動探索し、
-**組み込み既定値 → `--preset` → 設定ファイル → 環境変数(`SECURITY_CHECKER__POLICY__FAIL_ON` 形式)
-→ CLI フラグ** の順に、後勝ちで合成します。
+**組み込み既定値 → `--preset` → 設定ファイル → ローカル設定 → 環境変数
+(`SECURITY_CHECKER__POLICY__FAIL_ON` 形式)→ CLI フラグ** の順に、後勝ちで合成します。
+
+手元でだけ使う Reviewer は `security-checker.local.yml`(git 管理外・`.gitignore` 済み)に
+書きます。共有設定の後に重なるので、`security-checker.yml` を汚さずに個人の Reviewer を
+足せます。`security-checker init --local` で生成でき、`config show --explain` に
+どの層で決まったかが出ます。
 
 終了コードは目的別に分かれています(設計書 §17.1)。
 

@@ -69,3 +69,21 @@ def test_init_stdout_does_not_touch_the_filesystem(tmp_path):
 def test_init_rejects_a_missing_directory(tmp_path):
     result = runner.invoke(app, ["init", str(tmp_path / "nope"), "--command", "my-cmd"])
     assert result.exit_code == ExitCode.CONFIG_ERROR
+
+
+def test_init_local_writes_the_gitignored_overlay(tmp_path):
+    """共有設定を残したまま、手元用の Reviewer だけを別ファイルに置く."""
+    (tmp_path / "security-checker.yml").write_text("version: 1\n", encoding="utf-8")
+    result = runner.invoke(app, ["init", str(tmp_path), "--command", "my-cmd", "--local"])
+
+    assert result.exit_code == ExitCode.OK
+    assert (tmp_path / "security-checker.yml").read_text(encoding="utf-8") == "version: 1\n"
+    payload = yaml.safe_load((tmp_path / "security-checker.local.yml").read_text(encoding="utf-8"))
+    assert payload["reviewers"][0]["command"] == ["my-cmd"]
+
+
+def test_init_suggests_local_when_the_shared_config_exists(tmp_path):
+    (tmp_path / "security-checker.yml").write_text("version: 1\n", encoding="utf-8")
+    result = runner.invoke(app, ["init", str(tmp_path), "--command", "my-cmd"])
+    assert result.exit_code == ExitCode.CONFIG_ERROR
+    assert "--local" in result.stdout + str(result.stderr)

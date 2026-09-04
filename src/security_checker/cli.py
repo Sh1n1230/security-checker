@@ -21,6 +21,7 @@ from rich.panel import Panel
 from security_checker import __version__
 from security_checker.config.loader import (
     CONFIG_FILENAMES,
+    LOCAL_CONFIG_FILENAMES,
     LoadedConfig,
     available_presets,
     load_config,
@@ -323,6 +324,13 @@ def init(
     name: Annotated[
         str | None, typer.Option("--name", help="--command で作る Reviewer の名前")
     ] = None,
+    local: Annotated[
+        bool,
+        typer.Option(
+            "--local",
+            help="security-checker.local.yml に書く (git 管理しない個人用の上書き層)",
+        ),
+    ] = False,
     force: Annotated[bool, typer.Option("--force", help="既存の設定ファイルを上書きする")] = False,
     stdout: Annotated[
         bool, typer.Option("--stdout", help="ファイルに書かず標準出力に表示する")
@@ -377,15 +385,25 @@ def init(
         print(document)
         raise typer.Exit(code=int(ExitCode.OK))
 
-    destination = root / CONFIG_FILENAMES[0]
+    destination = root / (LOCAL_CONFIG_FILENAMES[0] if local else CONFIG_FILENAMES[0])
     if destination.exists() and not force:
         _fail(
-            f"{destination} は既に存在します。"
-            "--force で上書きするか、--stdout で内容だけ表示できます",
+            f"{destination} は既に存在します。--force で上書きするか、--stdout で内容だけ"
+            "表示できます"
+            + (
+                ""
+                if local
+                else "。共有設定を残したまま手元用の Reviewer を足すなら --local を使ってください"
+            ),
             ExitCode.CONFIG_ERROR,
         )
     destination.write_text(document, encoding="utf-8")
     console.print(f"[green]書き出しました[/green]: {destination}")
+    if local:
+        console.print(
+            "[dim]このファイルは共有設定に後勝ちで重なります。"
+            ".gitignore 済みなのでコミットされません[/dim]"
+        )
     console.print("次: [bold]security-checker review --dry-run[/bold] で送信内容を確認できます")
 
 
@@ -422,6 +440,7 @@ def config_show(
     if explain:
         console.print(f"[bold]preset[/bold]: {loaded.preset or '(なし)'}")
         console.print(f"[bold]config file[/bold]: {loaded.config_path or '(なし)'}")
+        console.print(f"[bold]local config[/bold]: {loaded.local_config_path or '(なし)'}")
         for key in sorted(loaded.origins):
             console.print(f"  {key} [dim]← {loaded.origins[key]}[/dim]")
         return

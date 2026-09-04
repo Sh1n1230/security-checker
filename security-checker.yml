@@ -50,6 +50,20 @@ logging:
 #     api_key_env: MY_API_KEY
 #     rate_limit: { rpm: 10 }
 #
+# API キーを持っていない場合は process transport を使う。認証は起動される
+# コマンド側の既存ログインに委ねる。書き込み能力の無効化は利用者の責任
+# (詳細と注意点: docs/process-transport.md)。
+#
+#   - name: local-command
+#     transport: process
+#     command: ["<your-command>", "--non-interactive", "--no-tools"]
+#     prompt_via: stdin     # stdin | file
+#     timeout_s: 300
+#     concurrency: 1
+#
+# 手元でだけ使う Reviewer は、この共有設定ではなく security-checker.local.yml に
+# 書く (git 管理外・後勝ちで重なる)。`security-checker init --local` で生成できる。
+#
 # aggregation:
 #   strategy: consensus     # 複数 Reviewer 時の集約 (weighted / judge は P3)
 #

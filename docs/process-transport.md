@@ -42,6 +42,13 @@ security-checker review --dry-run     # 何が送信されるかを、送信前�
 security-checker review
 ```
 
+共有リポジトリの `security-checker.yml` を汚したくない場合は `--local` を付けます。
+`security-checker.local.yml`(git 管理外)に書き出され、共有設定に後勝ちで重なります。
+
+```bash
+security-checker init --local --command '<your-command> --non-interactive --no-tools'
+```
+
 ## ★ 安全性 — ここが本題です
 
 起動対象は**任意のコマンド**であり、その中にはファイルを書き換える能力を持つものが含まれます。

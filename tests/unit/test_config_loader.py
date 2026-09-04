@@ -138,3 +138,66 @@ def test_judge_reviewer_must_exist(tmp_path):
 def test_explicit_config_path_must_exist(tmp_path):
     with pytest.raises(ConfigError, match="見つかりません"):
         load_config(tmp_path, config_path=tmp_path / "nope.yml", environ={})
+
+
+def write_local_config(tmp_path: Path, body: str) -> Path:
+    path = tmp_path / "security-checker.local.yml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_local_config_is_discovered_and_layered_over_the_shared_one(tmp_path):
+    """共有設定に手元用の Reviewer を混ぜずに済ませるための層 (§12)."""
+    write_config(tmp_path, "version: 1\npolicy:\n  fail_on: critical\n")
+    write_local_config(
+        tmp_path,
+        "version: 1\nreviewers:\n  - name: mine\n    transport: process\n    command: ['cmd']\n",
+    )
+    loaded = load_config(tmp_path, environ={})
+
+    assert [r.name for r in loaded.config.reviewers] == ["mine"]
+    # 共有設定の値は残る (置き換えではなく重ね合わせ)
+    assert loaded.config.policy.fail_on is Severity.CRITICAL
+    assert loaded.origins["reviewers"].startswith("local:")
+    assert loaded.local_config_path is not None
+
+
+def test_local_config_wins_over_the_shared_one(tmp_path):
+    write_config(tmp_path, "version: 1\npolicy:\n  fail_on: critical\n")
+    write_local_config(tmp_path, "version: 1\npolicy:\n  fail_on: low\n")
+    loaded = load_config(tmp_path, environ={})
+    assert loaded.config.policy.fail_on is Severity.LOW
+
+
+def test_env_and_cli_still_win_over_the_local_config(tmp_path):
+    write_local_config(tmp_path, "version: 1\npolicy:\n  fail_on: low\n")
+    loaded = load_config(
+        tmp_path,
+        environ={"SECURITY_CHECKER__POLICY__FAIL_ON": "medium"},
+    )
+    assert loaded.config.policy.fail_on is Severity.MEDIUM
+
+
+def test_local_config_works_without_a_shared_one(tmp_path):
+    write_local_config(tmp_path, "version: 1\npolicy:\n  fail_on: low\n")
+    loaded = load_config(tmp_path, environ={})
+    assert loaded.config.policy.fail_on is Severity.LOW
+    assert loaded.config_path is None
+    assert loaded.local_config_path is not None
+
+
+def test_local_config_also_rejects_plaintext_keys(tmp_path):
+    """個人用ファイルでも平文キーは受け付けない (§19.1)."""
+    write_local_config(
+        tmp_path,
+        "version: 1\nreviewers:\n"
+        "  - name: r1\n    transport: http\n    dialect: openai_chat\n"
+        "    base_url: https://x/v1\n    model: m\n    api_key: sk-plaintext\n",
+    )
+    with pytest.raises(ConfigError, match="平文の api_key"):
+        load_config(tmp_path, environ={})
+
+
+def test_no_local_config_leaves_the_field_empty(tmp_path):
+    write_config(tmp_path, "version: 1\n")
+    assert load_config(tmp_path, environ={}).local_config_path is None
