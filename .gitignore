@@ -1,3 +1,16 @@
 reports/
 .claude/settings.local.json
 .DS_Store
+.security-checker/
+# 個人用の設定上書き層 (Reviewer 定義など). 共有設定とは分けて持つ
+security-checker.local.yml
+security-checker.local.yaml
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/

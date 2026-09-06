@@ -1,0 +1,72 @@
+# security-checker v2 の設定サンプル (このリポジトリ自身の設定も兼ねる)。
+# 全項目に既定値があるため、このファイルがなくても動く。
+# 解決結果は `security-checker config show --explain` で確認できる。
+version: 1
+
+target:
+  root: .
+  mode: auto # auto | full | diff (diff は P4 で有効化)
+  exclude:
+    - "**/vendor/**"
+    - "**/node_modules/**"
+    - "**/__pycache__/**"
+    - "**/.venv/**"
+    - "**/.git/**"
+    - "**/.security-checker/**"
+    - "**/*.min.js"
+
+scanners:
+  semgrep:
+    enabled: true
+    config: p/default
+    timeout_s: 600
+  gitleaks:
+    enabled: true
+  # osv / trivy のアダプタは P5 で実装する
+  osv: { enabled: false }
+  trivy: { enabled: false }
+
+policy:
+  fail_on: high # この重大度以上の検出で exit 1
+  strict: true # スキャナが失敗したら exit 3 (「壊れているのに緑」を作らない)
+
+output:
+  dir: .security-checker/
+  formats: [terminal, json]
+
+logging:
+  level: info
+  format: text
+# reviewers を定義すると `security-checker review` が使えるようになる。
+# 既定の Reviewer は持たない (特定ベンダーを標準にしないため)。
+# API キーは api_key_env で環境変数名のみを指定する (平文の api_key はスキーマに存在しない)。
+#
+# reviewers:
+#   - name: r1
+#     transport: http
+#     dialect: openai_chat
+#     base_url: https://<endpoint>/v1
+#     model: <model-id>
+#     api_key_env: MY_API_KEY
+#     rate_limit: { rpm: 10 }
+#
+# API キーを持っていない場合は process transport を使う。認証は起動される
+# コマンド側の既存ログインに委ねる。書き込み能力の無効化は利用者の責任
+# (詳細と注意点: docs/process-transport.md)。
+#
+#   - name: local-command
+#     transport: process
+#     command: ["<your-command>", "--non-interactive", "--no-tools"]
+#     prompt_via: stdin     # stdin | file
+#     timeout_s: 300
+#     concurrency: 1
+#
+# 手元でだけ使う Reviewer は、この共有設定ではなく security-checker.local.yml に
+# 書く (git 管理外・後勝ちで重なる)。`security-checker init --local` で生成できる。
+#
+# aggregation:
+#   strategy: consensus     # 複数 Reviewer 時の集約 (weighted / judge は P3)
+#
+# budget:
+#   max_candidates: 200     # レビューに回す候補の上限
+#   max_total_tokens: 2000000

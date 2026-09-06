@@ -1,0 +1,203 @@
+"""設定の合成順序と検証のテスト (設計書 §12)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from security_checker.config.loader import available_presets, env_overrides, load_config
+from security_checker.errors import ConfigError
+from security_checker.models.enums import Severity
+
+
+def write_config(tmp_path: Path, body: str) -> Path:
+    path = tmp_path / "security-checker.yml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_defaults_without_config_file(tmp_path):
+    loaded = load_config(tmp_path, environ={})
+    assert loaded.config.policy.fail_on is Severity.HIGH
+    assert loaded.config.scanners.semgrep.enabled is True
+    assert loaded.config_path is None
+
+
+def test_config_file_is_discovered(tmp_path):
+    write_config(tmp_path, "version: 1\npolicy:\n  fail_on: critical\n")
+    loaded = load_config(tmp_path, environ={})
+    assert loaded.config.policy.fail_on is Severity.CRITICAL
+    assert loaded.origins["policy.fail_on"].startswith("file:")
+
+
+def test_merge_order_cli_wins_over_env_and_file(tmp_path):
+    write_config(tmp_path, "version: 1\npolicy:\n  fail_on: critical\n  min_confidence: 0.9\n")
+    loaded = load_config(
+        tmp_path,
+        environ={"SECURITY_CHECKER__POLICY__FAIL_ON": "medium"},
+        cli_overrides={"policy": {"fail_on": "low"}},
+    )
+    assert loaded.config.policy.fail_on is Severity.LOW
+    assert loaded.config.policy.min_confidence == 0.9  # 上書きされていない値は保持
+    assert loaded.origins["policy.fail_on"] == "cli"
+
+
+def test_env_overrides_parse_scalars():
+    overrides = env_overrides(
+        {
+            "SECURITY_CHECKER__POLICY__STRICT": "false",
+            "SECURITY_CHECKER__CONCURRENCY__SCANNERS": "8",
+            "UNRELATED": "x",
+        }
+    )
+    assert overrides == {"policy": {"strict": False}, "concurrency": {"scanners": 8}}
+
+
+def test_preset_is_applied_then_overridden_by_file(tmp_path):
+    write_config(tmp_path, "version: 1\npolicy:\n  strict: true\n")
+    loaded = load_config(tmp_path, preset="minimal", environ={})
+    assert loaded.config.policy.fail_on is Severity.CRITICAL  # preset 由来
+    assert loaded.config.policy.strict is True  # ファイルが後勝ち
+    assert loaded.config.scanners.osv.enabled is False
+
+
+def test_all_presets_are_valid(tmp_path):
+    assert set(available_presets()) == {"ci", "frugal", "minimal", "thorough"}
+    for preset in available_presets():
+        load_config(tmp_path, preset=preset, environ={})
+
+
+def test_unknown_preset(tmp_path):
+    with pytest.raises(ConfigError, match="preset"):
+        load_config(tmp_path, preset="存在しない", environ={})
+
+
+def test_plaintext_api_key_is_rejected(tmp_path):
+    write_config(
+        tmp_path,
+        "version: 1\nreviewers:\n  - name: r1\n    transport: http\n"
+        "    dialect: openai_chat\n    base_url: http://x/v1\n    model: m\n"
+        "    api_key: TESTONLY-secret\n",
+    )
+    with pytest.raises(ConfigError, match="api_key_env"):
+        load_config(tmp_path, environ={})
+
+
+def test_unknown_key_is_rejected(tmp_path):
+    write_config(tmp_path, "version: 1\npolicy:\n  fail_onn: high\n")
+    with pytest.raises(ConfigError, match="fail_onn"):
+        load_config(tmp_path, environ={})
+
+
+def test_broken_yaml_is_config_error(tmp_path):
+    write_config(tmp_path, "version: 1\npolicy: [\n")
+    with pytest.raises(ConfigError, match="YAML"):
+        load_config(tmp_path, environ={})
+
+
+def test_transport_is_required(tmp_path):
+    write_config(tmp_path, "version: 1\nreviewers:\n  - name: r1\n    model: m\n")
+    with pytest.raises(ConfigError, match="transport"):
+        load_config(tmp_path, environ={})
+
+
+def test_http_reviewer_requires_endpoint_fields(tmp_path):
+    write_config(tmp_path, "version: 1\nreviewers:\n  - name: r1\n    transport: http\n")
+    with pytest.raises(ConfigError, match="dialect"):
+        load_config(tmp_path, environ={})
+
+
+def test_process_reviewer_requires_preset_or_command(tmp_path):
+    write_config(tmp_path, "version: 1\nreviewers:\n  - name: r1\n    transport: process\n")
+    with pytest.raises(ConfigError, match="preset"):
+        load_config(tmp_path, environ={})
+
+
+def test_duplicate_reviewer_names(tmp_path):
+    write_config(
+        tmp_path,
+        "version: 1\nreviewers:\n"
+        "  - { name: r1, transport: process, command: [echo] }\n"
+        "  - { name: r1, transport: process, command: [echo] }\n",
+    )
+    with pytest.raises(ConfigError, match="重複"):
+        load_config(tmp_path, environ={})
+
+
+def test_judge_reviewer_must_exist(tmp_path):
+    write_config(
+        tmp_path,
+        "version: 1\nreviewers:\n  - { name: r1, transport: process, command: [echo] }\n"
+        "aggregation:\n  strategy: judge\n  judge:\n    reviewer: missing\n",
+    )
+    with pytest.raises(ConfigError, match="judge"):
+        load_config(tmp_path, environ={})
+
+
+def test_explicit_config_path_must_exist(tmp_path):
+    with pytest.raises(ConfigError, match="見つかりません"):
+        load_config(tmp_path, config_path=tmp_path / "nope.yml", environ={})
+
+
+def write_local_config(tmp_path: Path, body: str) -> Path:
+    path = tmp_path / "security-checker.local.yml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_local_config_is_discovered_and_layered_over_the_shared_one(tmp_path):
+    """共有設定に手元用の Reviewer を混ぜずに済ませるための層 (§12)."""
+    write_config(tmp_path, "version: 1\npolicy:\n  fail_on: critical\n")
+    write_local_config(
+        tmp_path,
+        "version: 1\nreviewers:\n  - name: mine\n    transport: process\n    command: ['cmd']\n",
+    )
+    loaded = load_config(tmp_path, environ={})
+
+    assert [r.name for r in loaded.config.reviewers] == ["mine"]
+    # 共有設定の値は残る (置き換えではなく重ね合わせ)
+    assert loaded.config.policy.fail_on is Severity.CRITICAL
+    assert loaded.origins["reviewers"].startswith("local:")
+    assert loaded.local_config_path is not None
+
+
+def test_local_config_wins_over_the_shared_one(tmp_path):
+    write_config(tmp_path, "version: 1\npolicy:\n  fail_on: critical\n")
+    write_local_config(tmp_path, "version: 1\npolicy:\n  fail_on: low\n")
+    loaded = load_config(tmp_path, environ={})
+    assert loaded.config.policy.fail_on is Severity.LOW
+
+
+def test_env_and_cli_still_win_over_the_local_config(tmp_path):
+    write_local_config(tmp_path, "version: 1\npolicy:\n  fail_on: low\n")
+    loaded = load_config(
+        tmp_path,
+        environ={"SECURITY_CHECKER__POLICY__FAIL_ON": "medium"},
+    )
+    assert loaded.config.policy.fail_on is Severity.MEDIUM
+
+
+def test_local_config_works_without_a_shared_one(tmp_path):
+    write_local_config(tmp_path, "version: 1\npolicy:\n  fail_on: low\n")
+    loaded = load_config(tmp_path, environ={})
+    assert loaded.config.policy.fail_on is Severity.LOW
+    assert loaded.config_path is None
+    assert loaded.local_config_path is not None
+
+
+def test_local_config_also_rejects_plaintext_keys(tmp_path):
+    """個人用ファイルでも平文キーは受け付けない (§19.1)."""
+    write_local_config(
+        tmp_path,
+        "version: 1\nreviewers:\n"
+        "  - name: r1\n    transport: http\n    dialect: openai_chat\n"
+        "    base_url: https://x/v1\n    model: m\n    api_key: sk-plaintext\n",
+    )
+    with pytest.raises(ConfigError, match="平文の api_key"):
+        load_config(tmp_path, environ={})
+
+
+def test_no_local_config_leaves_the_field_empty(tmp_path):
+    write_config(tmp_path, "version: 1\n")
+    assert load_config(tmp_path, environ={}).local_config_path is None

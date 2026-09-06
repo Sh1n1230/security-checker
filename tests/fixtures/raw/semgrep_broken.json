@@ -1,0 +1,31 @@
+{
+  "version": "1.168.0",
+  "results": [
+    "これはオブジェクトではない",
+    { "path": "src/a.py", "extra": { "severity": "ERROR" } },
+    {
+      "check_id": "rules.no-start-line",
+      "path": "src/b.py",
+      "start": {},
+      "end": {},
+      "extra": { "severity": "WARNING", "lines": "x = 1", "metadata": { "cwe": "壊れた形式" } }
+    },
+    {
+      "check_id": "rules.unknown-severity",
+      "path": "/abs/outside/c.py",
+      "start": { "line": 3 },
+      "end": { "line": 3 },
+      "extra": { "severity": 42, "lines": null, "metadata": null }
+    },
+    {
+      "check_id": "rules.excluded",
+      "path": "vendor/lib/x.py",
+      "start": { "line": 1 },
+      "end": { "line": 1 },
+      "extra": { "severity": "ERROR", "lines": "danger()" }
+    }
+  ],
+  "errors": [
+    { "message": "Rule ファイルの読み込みに失敗しました", "type": "SemgrepError" }
+  ]
+}

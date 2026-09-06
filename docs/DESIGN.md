@@ -1166,6 +1166,12 @@ Return a single JSON object matching this schema:
 `security-checker.yml`(`.security-checker.yml` / `.github/security-checker.yml` も探索)。
 全項目に既定値があり、**設定ファイルなしでも `--preset` だけで動く**。
 
+`security-checker.local.yml` があれば、共有設定の**後に**重ねる(§12 の合成順序)。
+これは git 管理しない個人用の層であり、「手元でだけ使う Reviewer 定義」を
+共有設定に混ぜないために用意する。既定 Reviewer を持たない方針(§9.8)の下では、
+各自の環境で使えるものは各自の手元にしか書けないため、この層がないと
+「動かすには共有ファイルを汚すしかない」状態になる。
+
 ```yaml
 version: 1
 
@@ -1258,6 +1264,9 @@ concurrency:
 output:
   dir: .security-checker/       # レポートとトレースの出力先
   formats: [terminal, json, markdown, sarif]
+  language: auto                # レポート本文 (LLM が書く自然言語) の言語。
+                                # auto はロケールから推定し、不明なら en。
+                                # 訳し直す場所はないため全出力形式に効く
   save_prompts: false           # true にすると全プロンプト/応答を保存(機密注意)
 
 github:
@@ -1278,6 +1287,7 @@ logging:
 組み込み既定値
   ← --preset で指定したプリセット
   ← 設定ファイル (security-checker.yml)
+  ← ローカル設定 (security-checker.local.yml / git 管理外)
   ← 環境変数 (SECURITY_CHECKER__POLICY__FAIL_ON=critical のような二重アンダースコア記法)
   ← CLI フラグ
 ```
@@ -1478,6 +1488,16 @@ v2 のスコアは次の性質を持つ。
 ---
 
 ## 18. レポート出力
+
+`report.json` は**完全な機械可読レポート**であり、人間が読むことを想定しない。
+人間向けの正面出力は `report.md` と terminal であり、この 2 つは既定で生成する
+(既定が json だけだと「人間が読める保存済みレポートが 1 つも残らない」状態になる)。
+
+レポート本文 (`reasoning` / `impact` / `remediation.approach` など) は **LLM の出力そのもの**
+である。出力形式ごとに訳し直す場所は存在しないため、言語は生成時に決めるしかない。
+`output.language` がこれを決め、既定の `auto` は利用者のロケールから推定する。
+**推定結果は必ずトレースに残す** (§24.2)。同じリポジトリでも実行環境によって本文の言語が
+変わりうるため、「どの言語で書かせたか」が後から分からないと監査できない。
 
 ### 18.1 出力ファイル
 

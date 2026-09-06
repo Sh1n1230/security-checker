@@ -1,0 +1,16 @@
+# ci — CI 用。差分優先・strict(ツールの失敗を成功に見せない)・機械可読出力。
+version: 1
+target:
+  mode: auto
+scanners:
+  semgrep: { enabled: true, config: p/default }
+  gitleaks: { enabled: true }
+  osv: { enabled: true }
+  trivy: { enabled: true, scanners: [config] }
+policy:
+  fail_on: high
+  strict: true
+output:
+  formats: [terminal, json, markdown, sarif]
+logging:
+  format: json

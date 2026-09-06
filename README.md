@@ -1,9 +1,137 @@
 # security-checker
 
 自作の成果物(コード・アプリ・設定など)がどれだけ安全かを測るための仕組み。
-AIを使わず、OSSの静的解析ツールのみで構成(再現性が高く無料)。
 
-## 3つの使い方
+現在、**v2「複数の独立した LLM を Security Auditor として使える AI Security Review プラットフォーム」**へ
+移行中です([docs/DESIGN.md](docs/DESIGN.md))。v1(bash/PowerShell 実装)はそのまま使えます。
+
+## v2 (開発中)
+
+Python 実装。移行計画(設計書 §32)のうち **P2.5「`process` transport」まで完了**しています。
+
+| フェーズ | 内容 | 状態 |
+|---|---|---|
+| P1 | models / config / CLI の骨格、`scan` サブコマンド、semgrep + gitleaks アダプタ | ✅ 完了 |
+| P2 | 単一 LLM レビュー(`http` transport / Context Builder / Structured Output) | ✅ 完了 |
+| P2.5 | `process` transport(API キーなしで動く) | ✅ 完了 |
+| P3〜P7 | Multi-LLM / GitHub 統合 / Judge / 評価と公開 | 未着手 |
+
+```sh
+uv sync --group dev                      # 開発環境
+uv run security-checker scan .           # スキャナのみで検査 (LLM は使わない)
+uv run security-checker scan . --strict --fail-on high
+uv run security-checker review .         # スキャン結果を LLM Reviewer でレビュー
+uv run security-checker review . --dry-run       # 送信予定の内容を送信前に全部見る
+uv run security-checker config show --explain    # 解決された設定と、その決定元
+uv run security-checker init                     # 環境を検出して設定を生成する
+```
+
+### Reviewer の設定 (review 用)
+
+Reviewer は**ベンダーではなく transport × dialect** で指定します。`openai_chat` 方言を話す
+エンドポイントであれば、提供元がどこであっても同じ設定で動きます。
+
+```yaml
+reviewers:
+  - name: r1
+    transport: http           # 必須。推測で補完しない
+    dialect: openai_chat      # リクエスト/レスポンスの「形」
+    base_url: https://<endpoint>/v1
+    model: <model-id>
+    api_key_env: MY_API_KEY   # 環境変数名のみ。平文キーの項目は存在しない
+    rate_limit: { rpm: 10 }   # 無料枠などの制限を宣言するとスケジューラが尊重する
+```
+
+既定の Reviewer は**ありません**(特定のベンダーを事実上の標準にしないため)。
+ベンダー知識は `providers/presets/*.yml` の**データ**にのみ置き、コードには現れません。
+同梱プリセットは空ですが、`~/.config/security-checker/presets/<transport>/<name>.yml` に置けば
+自分用のプリセットを追加・上書きできます。
+
+### API キーを持っていない場合 — `process` transport
+
+**手元の非対話コマンドをそのまま Reviewer にできます。**認証はそのコマンド側の既存ログインに
+委ねるため、API キーの設定は要りません。特定の CLI 向けの機能ではなく、
+「stdin を受け取り stdout にテキストを返す」契約を満たすものはすべて同じ経路で扱われます。
+
+```yaml
+reviewers:
+  - name: local-command
+    transport: process
+    command: ["<your-command>", "--non-interactive", "--no-tools"]
+    prompt_via: stdin         # stdin | file
+    timeout_s: 300
+```
+
+```sh
+uv run security-checker init --command '<your-command> --non-interactive --no-tools'
+```
+
+起動対象は任意のコマンドなので、**P3(レビュー対象を書き換えない)を transport の性質に
+よらず守ります**。毎回作り直す空の一時ディレクトリで `shell=False` 起動し、プロンプトは
+stdin(または一時ファイル)でのみ渡し、実行後に書き込みを検知して警告し、タイムアウト時は
+プロセスグループごと回収します。ただし**コマンド自体の書き込み能力を無効化できているかは
+本体からは検証できない**ため、非対話・ツール無効のフラグは利用者が指定してください
+(起動時に警告が出ます)。
+
+`process` は「安価だが荒い」transport です。構造化出力は `prompt_only` のみ、
+コストは `unknown`、トークンは推定値になります。詳細と注意点(**対象コマンドの利用規約は
+利用者が確認してください**)は [docs/process-transport.md](docs/process-transport.md) に
+まとめてあります。性質の異なる transport を混ぜると agreement が情報量を持ちやすくなります。
+
+構造化出力は `json_schema → json_mode → prompt_only` の順に自動で降格し、
+スキーマ違反の応答は 1 回だけ修復を試みます。それでも駄目なら `schema_error` として
+**レポートに残します**(黙って消しません)。
+
+### レビュー結果の読み方
+
+判定は `confirmed` / `likely` / `review_required` / `false_positive` / `inconclusive` /
+`error` / `not_reviewed` に分かれます。**`review_required`(判断が割れた・信頼度が低い)は
+`confirmed` の直後に表示します。** 割れた判断こそ人間が見るべきものだからです。
+Reviewer が 1 個のときは `agreement: not_applicable` とし、「1 モデルの合意」を
+高い一致度として偽装しません。
+
+コードを外部に送ることについては [docs/security-model.md](docs/security-model.md) を参照してください。
+
+出力は `.security-checker/` 配下に、**人間向けの `report.md`** と機械可読の
+`report.json`(`schema_version` 付き)、各スキャナの生出力 `raw/`。`report.json` は 19 個の
+トップレベルキーを持つ機械可読レポートなので、**読むのは `report.md` かターミナル出力**です。
+
+レポート本文(判断理由・攻撃経路・対応方針)は LLM が書いた文章そのものです。言語は
+`output.language` で決まり、既定の `auto` はロケール(`LANG` など)から推定します。
+日本語環境ならそのまま日本語で出力されます。明示するなら:
+
+```yaml
+output:
+  language: ja      # auto | ja | en | ko | ... (未知のタグはそのまま LLM に渡す)
+```
+
+推定結果はトレースに記録されるので、後から「どの言語で書かせたか」を確認できます。
+設定は `security-checker.yml`(サンプルはリポジトリ直下)を自動探索し、
+**組み込み既定値 → `--preset` → 設定ファイル → ローカル設定 → 環境変数
+(`SECURITY_CHECKER__POLICY__FAIL_ON` 形式)→ CLI フラグ** の順に、後勝ちで合成します。
+
+手元でだけ使う Reviewer は `security-checker.local.yml`(git 管理外・`.gitignore` 済み)に
+書きます。共有設定の後に重なるので、`security-checker.yml` を汚さずに個人の Reviewer を
+足せます。`security-checker init --local` で生成でき、`config show --explain` に
+どの層で決まったかが出ます。
+
+終了コードは目的別に分かれています(設計書 §17.1)。
+
+| code | 意味 |
+|---|---|
+| 0 | ポリシー違反なし |
+| 1 | `fail_on` 以上の検出、または `min_score` 未満 |
+| 2 | 設定エラー |
+| 3 | 実行エラー(`--strict` 時にスキャナが失敗した) |
+
+**1 と 3 を分けているのが v1 との最大の違いです。** v1 には「スキャナが失敗しても 0 件成功として扱われ、
+スコアが満点に見える」欠陥がありました。v2 は `skipped`(未導入)と `failed`(異常終了)を区別し、
+どちらの場合もスコアに `partial` フラグを立てます。
+
+検出されたシークレットの値は Candidate にもレポートにも書き出しません(マスク済みの形式のみ)。
+漏洩した値を成果物や外部 LLM に再送しないためです(設計書 §19.2)。
+
+## v1 の3つの使い方
 
 1. **CLI**: `./check.sh <対象ディレクトリ>` (Windowsは `pwsh ./check.ps1 <対象ディレクトリ>`) でスコア(100点満点)とランクを出す
 2. **CI**: [ci/security.yml](ci/security.yml) を GitHub Actions にコピーして push 毎に自動検査(GitHub Code Scanning への SARIF 登録つき)

@@ -1,0 +1,19 @@
+[
+  null,
+  { "Description": "RuleID がない", "File": "a.py", "StartLine": 1 },
+  { "RuleID": "no-file", "StartLine": 1 },
+  {
+    "RuleID": "no-start-line",
+    "Description": null,
+    "File": "b.py",
+    "Match": null,
+    "Secret": null
+  },
+  {
+    "RuleID": "excluded-rule",
+    "Description": "除外対象",
+    "File": "vendor/lib/keys.py",
+    "StartLine": 3,
+    "Secret": "TESTONLY-excluded"
+  }
+]

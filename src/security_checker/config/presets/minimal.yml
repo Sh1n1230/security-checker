@@ -1,0 +1,18 @@
+# minimal — 最小構成。速度優先で、導入済みのスキャナだけを回す。
+# reviewers は環境依存のため、ここには書かない (`security-checker init` が生成する)。
+version: 1
+scanners:
+  semgrep: { enabled: true, config: p/default }
+  gitleaks: { enabled: true }
+  osv: { enabled: false }
+  trivy: { enabled: false }
+context:
+  window_lines: 30
+  max_callers: 1
+budget:
+  max_candidates: 50
+policy:
+  fail_on: critical
+  strict: false
+output:
+  formats: [terminal, json]

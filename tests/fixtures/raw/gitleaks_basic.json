@@ -1,0 +1,34 @@
+[
+  {
+    "RuleID": "slack-bot-token",
+    "Description": "Identified a Slack Bot token.",
+    "StartLine": 2,
+    "EndLine": 2,
+    "StartColumn": 11,
+    "EndColumn": 61,
+    "Match": "SLACK = \"xoxb-TESTONLY-0000000000-abcdefghijklmnopqrstuvwx\"",
+    "Secret": "xoxb-TESTONLY-0000000000-abcdefghijklmnopqrstuvwx",
+    "File": "settings.py",
+    "SymlinkFile": "",
+    "Commit": "",
+    "Entropy": 5.01,
+    "Author": "",
+    "Email": "",
+    "Date": "",
+    "Message": "",
+    "Tags": [],
+    "Fingerprint": "settings.py:slack-bot-token:2"
+  },
+  {
+    "RuleID": "generic-api-key",
+    "Description": "Detected a Generic API Key.",
+    "StartLine": 7,
+    "EndLine": 7,
+    "StartColumn": 5,
+    "EndColumn": 40,
+    "Match": "api_key = \"TESTONLY-abcdef0123456789\"",
+    "Secret": "TESTONLY-abcdef0123456789",
+    "File": "config/prod.py",
+    "Fingerprint": "config/prod.py:generic-api-key:7"
+  }
+]
