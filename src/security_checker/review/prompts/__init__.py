@@ -12,6 +12,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
+from security_checker.language import DEFAULT_LANGUAGE, output_language_instruction
 from security_checker.models.task import ReviewTask
 
 PROMPT_DIR = Path(__file__).parent
@@ -28,8 +29,15 @@ def _environment() -> Environment:
     )
 
 
-def render_system() -> str:
-    return _environment().get_template(f"system.{PROMPT_VERSION}.jinja").render()
+def render_system(language: str = DEFAULT_LANGUAGE) -> str:
+    """system プロンプト. 英語のときは v1 テンプレートと完全に一致する.
+
+    言語指示はテンプレートに埋め込まず末尾に足す。英語では 1 文字も変わらないため、
+    プロンプト版を分けずに済む (§11 のテンプレート版管理の意図を保つ)。
+    """
+    base = _environment().get_template(f"system.{PROMPT_VERSION}.jinja").render()
+    instruction = output_language_instruction(language)
+    return f"{base}\n{instruction}\n" if instruction else base
 
 
 def render_user(task: ReviewTask, schema: dict[str, object]) -> str:
@@ -56,8 +64,18 @@ def _sanitize(text: str) -> str:
     )
 
 
-def render_repair(previous_output: str, error: str, schema: dict[str, object]) -> str:
-    """修復リトライ用の指示 (§10.2). 1 回だけ使う."""
+def render_repair(
+    previous_output: str,
+    error: str,
+    schema: dict[str, object],
+    language: str = DEFAULT_LANGUAGE,
+) -> str:
+    """修復リトライ用の指示 (§10.2). 1 回だけ使う.
+
+    判定内容は変えさせない。言語指示も再掲する (前回出力の言語を保たせるため)。
+    """
+    instruction = output_language_instruction(language)
+    suffix = f"\n{instruction}" if instruction else ""
     return (
         "あなたの前回の出力は次の理由で不正でした:\n"
         f"{error}\n\n"
@@ -66,4 +84,5 @@ def render_repair(previous_output: str, error: str, schema: dict[str, object]) -
         "同じ判定内容のまま、スキーマに適合する JSON オブジェクトのみを再出力してください。"
         "JSON 以外の文字は一切出力しないでください。\n"
         f"{json.dumps(schema, ensure_ascii=False)}"
+        f"{suffix}"
     )

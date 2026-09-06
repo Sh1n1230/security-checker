@@ -33,10 +33,11 @@ from security_checker.models.enums import Severity
 from security_checker.observability.cost import load_price_table
 from security_checker.providers.detect import Detection, detect_all
 from security_checker.report.json_writer import write_json
+from security_checker.report.markdown import write_markdown
 from security_checker.report.terminal import render
 from security_checker.review import prompts
 from security_checker.review.structured import verdict_schema
-from security_checker.run import build_tasks, run_review, run_scan
+from security_checker.run import RunOutcome, build_tasks, run_review, run_scan
 
 app = typer.Typer(
     name="security-checker",
@@ -102,6 +103,17 @@ def _cli_overrides(
     return overrides
 
 
+def _write_reports(loaded: LoadedConfig, outcome: RunOutcome, *, quiet: bool) -> None:
+    """設定された形式で書き出す. terminal 以外はファイルとして残す (§18.1)."""
+    formats = loaded.config.output.formats
+    if "json" in formats:
+        write_json(outcome.report, outcome.output_dir)
+    if "markdown" in formats:
+        write_markdown(outcome.report, outcome.decision, outcome.output_dir)
+    if not quiet and "terminal" in formats:
+        render(outcome.report, outcome.decision, outcome.output_dir)
+
+
 @app.command()
 def scan(
     path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path("."),
@@ -152,11 +164,7 @@ def scan(
     except SecurityCheckerError as exc:
         _fail(str(exc), exc.exit_code)
 
-    if "json" in loaded.config.output.formats:
-        write_json(outcome.report, outcome.output_dir)
-    if not quiet and "terminal" in loaded.config.output.formats:
-        render(outcome.report, outcome.decision, outcome.output_dir)
-
+    _write_reports(loaded, outcome, quiet=quiet)
     raise typer.Exit(code=int(outcome.decision.exit_code))
 
 
@@ -223,11 +231,7 @@ def review(
     except SecurityCheckerError as exc:
         _fail(str(exc), exc.exit_code)
 
-    if "json" in loaded.config.output.formats:
-        write_json(outcome.report, outcome.output_dir)
-    if not quiet and "terminal" in loaded.config.output.formats:
-        render(outcome.report, outcome.decision, outcome.output_dir)
-
+    _write_reports(loaded, outcome, quiet=quiet)
     raise typer.Exit(code=int(outcome.decision.exit_code))
 
 

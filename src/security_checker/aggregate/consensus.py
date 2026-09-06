@@ -18,6 +18,9 @@ from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Agreement, FindingStatus, Severity
 from security_checker.models.verdict import ReviewVerdict, VerdictStatus
 
+#: 見出しに使う長さ. reasoning から作る場合の上限 (文の区切りで詰める)。
+SUMMARY_LIMIT = 200
+SUMMARY_HEAD_LIMIT = 160
 SINGLE_CONFIRMED_CONFIDENCE = 0.8
 SINGLE_LIKELY_CONFIDENCE = 0.5
 
@@ -122,7 +125,7 @@ class ConsensusAggregator:
         else:
             status = FindingStatus.REVIEW_REQUIRED
         summary = (
-            verdict.reasoning.split("\n")[0][:200]
+            _headline(verdict)
             if verdict.vulnerable
             else "Reviewer は「脆弱ではない」と判断しました。"
         )
@@ -155,8 +158,8 @@ class ConsensusAggregator:
         return NUMBER_SEVERITY[int(value)]
 
     def _summary(self, vulnerable: list[ReviewVerdict], votes: int, total: int) -> str:
-        head = vulnerable[0].vulnerability_type or vulnerable[0].reasoning.split("\n")[0]
-        return f"{head[:160]} ({votes}/{total} の Reviewer が脆弱と判断)"
+        head = _headline(vulnerable[0], limit=SUMMARY_HEAD_LIMIT)
+        return f"{head} ({votes}/{total} の Reviewer が脆弱と判断)"
 
     def _outcome(
         self,
@@ -193,6 +196,31 @@ class ConsensusAggregator:
             summary=summary,
             detail=detail,
         )
+
+
+def _headline(verdict: ReviewVerdict, limit: int = SUMMARY_LIMIT) -> str:
+    """Finding の 1 行見出し.
+
+    種別名 (`vulnerability_type`) を優先する。無い場合だけ reasoning を使うが、
+    **文字数で機械的に切らない**。reasoning は数百字の説明文なので、
+    途中で切れると読めない断片がレポートの見出しに残る。
+    """
+    if verdict.vulnerability_type:
+        return verdict.vulnerability_type.strip()
+    return _first_sentence(verdict.reasoning, limit)
+
+
+def _first_sentence(text: str, limit: int) -> str:
+    """先頭の 1 文を返す. 収まらなければ文・節の区切りまで戻して詰める."""
+    line = " ".join(text.split("\n")[0].split()).strip()
+    if len(line) <= limit:
+        return line
+    window = line[:limit]
+    for terminator in ("。", ". ", "! ", "? ", "、", " "):
+        cut = window.rfind(terminator)
+        if cut > limit // 2:
+            return window[: cut + len(terminator)].strip() + " …"
+    return window + " …"
 
 
 def _describe(verdict: ReviewVerdict) -> dict[str, object]:

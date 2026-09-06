@@ -20,6 +20,7 @@ from security_checker.context.builder import ContextBuilder
 from security_checker.context.facts import collect_repo_facts
 from security_checker.errors import ConfigError
 from security_checker.ids import new_run_id
+from security_checker.language import resolve_language
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import ScanStatus, Severity
 from security_checker.models.report import (
@@ -244,6 +245,7 @@ def build_reviewers(
     """設定の reviewers から Provider と Reviewer を作る (§9, §22)."""
     setup = ReviewerSetup()
     table = price_table or PriceTable()
+    language = resolve_language(config.output.language, environ)
     for reviewer_config in config.reviewers:
         provider = build_provider(reviewer_config, environ=environ, warnings=setup.warnings)
         reviewer = Reviewer(
@@ -259,6 +261,7 @@ def build_reviewers(
             if reviewer_config.transport == "process"
             else table.lookup(reviewer_config.model or ""),
             save_prompts=config.output.save_prompts,
+            language=language,
         )
         setup.runtimes.append(
             build_runtime(

@@ -209,13 +209,18 @@ OutputFormat = Literal["terminal", "json", "markdown", "sarif"]
 
 
 def _default_formats() -> list[OutputFormat]:
-    return ["terminal", "json"]
+    # markdown も既定に含める。report.json は機械可読用で人間が読む物ではないため、
+    # 既定のままだと「人間が読める保存済みレポート」が 1 つも残らない (§18.1)。
+    return ["terminal", "json", "markdown"]
 
 
 class OutputConfig(StrictModel):
     dir: str = ".security-checker/"
     formats: list[OutputFormat] = Field(default_factory=_default_formats)
     save_prompts: bool = False
+    #: レポート本文 (LLM が書く自然言語) の言語. "auto" はロケールから推定する。
+    #: 出力形式ごとに訳し直す場所はないため、ここが全形式に効く (設計書 §18)。
+    language: str = "auto"
 
 
 class GithubConfig(StrictModel):

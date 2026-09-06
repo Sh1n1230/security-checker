@@ -92,7 +92,20 @@ Reviewer が 1 個のときは `agreement: not_applicable` とし、「1 モデ�
 
 コードを外部に送ることについては [docs/security-model.md](docs/security-model.md) を参照してください。
 
-出力は `.security-checker/report.json`(`schema_version` 付き)と `.security-checker/raw/`。
+出力は `.security-checker/` 配下に、**人間向けの `report.md`** と機械可読の
+`report.json`(`schema_version` 付き)、各スキャナの生出力 `raw/`。`report.json` は 19 個の
+トップレベルキーを持つ機械可読レポートなので、**読むのは `report.md` かターミナル出力**です。
+
+レポート本文(判断理由・攻撃経路・対応方針)は LLM が書いた文章そのものです。言語は
+`output.language` で決まり、既定の `auto` はロケール(`LANG` など)から推定します。
+日本語環境ならそのまま日本語で出力されます。明示するなら:
+
+```yaml
+output:
+  language: ja      # auto | ja | en | ko | ... (未知のタグはそのまま LLM に渡す)
+```
+
+推定結果はトレースに記録されるので、後から「どの言語で書かせたか」を確認できます。
 設定は `security-checker.yml`(サンプルはリポジトリ直下)を自動探索し、
 **組み込み既定値 → `--preset` → 設定ファイル → ローカル設定 → 環境変数
 (`SECURITY_CHECKER__POLICY__FAIL_ON` 形式)→ CLI フラグ** の順に、後勝ちで合成します。

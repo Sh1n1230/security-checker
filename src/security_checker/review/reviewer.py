@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from security_checker.language import DEFAULT_LANGUAGE
 from security_checker.models.enums import Severity
 from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import ReviewVerdict, Usage, VerdictStatus
@@ -62,6 +63,7 @@ class Reviewer:
         seed: int | None = None,
         price: ModelPrice | None = None,
         save_prompts: bool = False,
+        language: str = DEFAULT_LANGUAGE,
     ) -> None:
         self.name = name
         self.provider = provider
@@ -71,6 +73,7 @@ class Reviewer:
         self.seed = seed
         self.price = price
         self.save_prompts = save_prompts
+        self.language = language
 
     @property
     def model(self) -> str:
@@ -79,7 +82,7 @@ class Reviewer:
     async def review(self, task: ReviewTask) -> ReviewOutcome:
         """1 候補をレビューする. スキーマ違反は 1 回だけ修復を試みる (§10.2)."""
         schema = verdict_schema()
-        system = prompts.render_system()
+        system = prompts.render_system(self.language)
         user = prompts.render_user(task, schema)
         started = time.monotonic()
         self._last_prompt = (system, user)
@@ -89,7 +92,9 @@ class Reviewer:
         try:
             judgement = parse_judgement(response.parsed, response.text)
         except SchemaViolationError as violation:
-            repair_user = prompts.render_repair(violation.raw_text, str(violation), schema)
+            repair_user = prompts.render_repair(
+                violation.raw_text, str(violation), schema, self.language
+            )
             repaired = await self._complete(system, repair_user, schema)
             usage = usage.merge(repaired.usage)
             try:
@@ -229,6 +234,7 @@ class Reviewer:
             "seed": self.seed,
             "max_output_tokens": self.max_output_tokens,
             "structured_mode": self.provider.capabilities.structured_output.value,
+            "language": self.language,
         }
         response_trace: dict[str, Any] = {
             "raw": response.text if response is not None else None,

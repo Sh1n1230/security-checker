@@ -223,3 +223,29 @@ def test_findings_merge_cwe(aggregator):
         policy=PolicyConfig(),
     )
     assert findings[0].cwe == ["CWE-89", "CWE-78"]
+
+
+def test_headline_prefers_the_vulnerability_type():
+    """見出しに数百字の reasoning の断片を置かない."""
+    from security_checker.aggregate.consensus import _headline
+
+    typed = verdict().model_copy(update={"vulnerability_type": "OS Command Injection"})
+    assert _headline(typed) == "OS Command Injection"
+
+
+def test_headline_falls_back_to_a_whole_sentence():
+    from security_checker.aggregate.consensus import _headline
+
+    reasoning = "これは一文目です。" + "二文目は非常に長い説明が続きます。" * 30
+    untyped = verdict().model_copy(update={"vulnerability_type": None, "reasoning": reasoning})
+    headline = _headline(untyped)
+    assert headline.startswith("これは一文目です。")
+    assert headline.endswith("…")  # 文の区切りまで戻して詰めた印
+
+
+def test_headline_never_cuts_mid_sentence():
+    from security_checker.aggregate.consensus import _first_sentence
+
+    text = "あ" * 500
+    assert _first_sentence(text, 200).endswith("…")
+    assert len(_first_sentence(text, 200)) <= 202
