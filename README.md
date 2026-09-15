@@ -307,3 +307,18 @@ cp -r skills/security-check skills/security-fix ~/.claude/skills/
 
 スコアはあくまで自動検出できる範囲の指標です。認証設計・権限管理などは
 [checklist/CHECKLIST.md](checklist/CHECKLIST.md) で手動確認してください。
+
+## 参加する
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — 開発環境、PR の出し方、**設計上の不変条件**、
+  プリセットの足し方（コードを書かずに新しい LLM を足す方法）
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — 行動規範（Contributor Covenant v2.1）
+- [SECURITY.md](SECURITY.md) — **脆弱性は公開 Issue ではなく非公開で報告してください**
+- [docs/DESIGN.md](docs/DESIGN.md) — 「なぜそうなっているか」はここに書いてあります
+- [docs/NEXT-STEPS.md](docs/NEXT-STEPS.md) — 残作業と、決める必要があること
+
+Issue と PR は日本語でも英語でも構いません。
+
+## ライセンス
+
+[MIT](LICENSE)
