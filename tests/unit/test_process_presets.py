@@ -18,9 +18,14 @@ from security_checker.providers.presets.loader import (
 from security_checker.providers.registry import build_process_provider, build_provider
 
 
-def test_bundled_process_presets_are_empty_but_loadable(tmp_path):
-    """同梱プリセットは意図的に空. 中立性のため既定値を持たない (§9.8)."""
-    assert load_process_presets(tmp_path) == {}
+def test_bundled_process_presets_are_loadable_without_user_presets(tmp_path):
+    """ユーザー側に 1 つも無くても同梱分は読める.
+
+    同梱プリセットがあっても既定 Reviewer は増えない (§9.8)。
+    中身の検証は test_bundled_presets.py。
+    """
+    presets = load_process_presets(tmp_path)
+    assert all(preset.source == "bundled" for preset in presets.values())
 
 
 def test_user_preset_is_loaded(tmp_path):

@@ -117,9 +117,10 @@ def test_preset_matching_by_host_and_model():
     assert provider.capabilities.structured_output is StructuredMode.JSON_SCHEMA
 
 
-def test_bundled_presets_are_empty_but_loadable(tmp_path):
-    """同梱プリセットは意図的に空。それでも設定直書きで動くことが前提 (§9.7)."""
-    assert load_http_presets(tmp_path) == {}
+def test_bundled_presets_are_loadable_without_user_presets(tmp_path):
+    """ユーザー側に 1 つも無くても同梱分は読める. 中身の検証は test_bundled_presets.py."""
+    presets = load_http_presets(tmp_path)
+    assert all(preset.source == "bundled" for preset in presets.values())
 
 
 def test_user_presets_are_loaded(tmp_path):
