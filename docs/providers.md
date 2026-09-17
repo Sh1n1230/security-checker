@@ -14,9 +14,31 @@
 `anthropic_messages` は「Anthropic 社の」ではなく「Messages API という形の」という意味です。
 その形を話すエンドポイントなら、提供元がどこであっても同じアダプタで扱えます。
 
-> **実装状況（2026-09 時点）**: `http` transport の方言は `openai_chat` と `ollama_chat` が
-> 実装済みです。`anthropic_messages` / `gemini_generate` は P3 の残りとして追加します。
+> **実装状況（2026-09 時点）**: `http` transport の方言は `openai_chat` / `ollama_chat` /
+> `anthropic_messages` が実装済みです。`gemini_generate` は P3 の残りとして追加します。
 > `process` transport は実装済みで、**API キーなしで使えます**。
+
+## Messages 形式のエンドポイント
+
+```yaml
+reviewers:
+  - name: r2
+    transport: http
+    dialect: anthropic_messages
+    base_url: https://<endpoint>       # /v1 は付けても付けなくても構いません
+    model: <model-id>
+    api_key_env: MY_API_KEY
+```
+
+この形は `openai_chat` と互換性がなく、違いは 2 つです。
+
+1. **`system` がメッセージではなく独立したフィールド**（アダプタが吸収します）
+2. **JSON Schema を直接指定する仕組みがない** — 代わりに**ツール呼び出しを強制**して
+   構造化出力を得ます。応答の `content[].input` がそのまま検証済みの構造化データになるので、
+   散文の混入を構造的に排除できます
+
+思考トークンを持つモデルでは、`capabilities.reasoning: true` を宣言してください。
+出力予算に余裕を足すため、思考で予算を使い切って本文が切れるのを防げます。
 
 ## ローカルのエンドポイント（API キー不要）
 
