@@ -44,8 +44,12 @@ reviewers:
 
 既定の Reviewer は**ありません**(特定のベンダーを事実上の標準にしないため)。
 ベンダー知識は `providers/presets/*.yml` の**データ**にのみ置き、コードには現れません。
-同梱プリセットは空ですが、`~/.config/security-checker/presets/<transport>/<name>.yml` に置けば
-自分用のプリセットを追加・上書きできます。
+
+同梱プリセットを使うと `base_url` などを省略できます(`http`: `openai` / `process`: `claude`。
+アルファベット順で、推奨の意味はありません)。**一覧に無いものも同じように動きます** —
+`dialect` + `base_url` や `command` を直接書くだけです。
+`~/.config/security-checker/presets/<transport>/<name>.yml` に置けば、自分用のプリセットを
+追加・上書きできます(PR 不要)。詳しくは [docs/providers.md](docs/providers.md)。
 
 ### API キーを持っていない場合 — `process` transport
 
