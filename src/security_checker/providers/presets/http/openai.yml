@@ -1,0 +1,23 @@
+# このファイルは **データ** であり、コードではない (設計書 §9)。
+# `openai_chat` という「形」を話すエンドポイントのうち、この base_url のものを名前で呼べるようにする。
+# 同じ形を話すサービスは他にも多数あり、そのどれも preset なしで動く:
+#   transport: http / dialect: openai_chat / base_url / model / api_key_env を書くだけでよい。
+#
+# 上書き: ~/.config/security-checker/presets/http/openai.yml に同名で置けば、こちらが使われる。
+name: openai
+dialect: openai_chat
+base_url: https://api.openai.com/v1
+api_key_env: OPENAI_API_KEY
+
+# 名前を指定しなくても、この host のエンドポイントを使っていればこのプリセットが引かれる。
+match:
+  host: api.openai.com
+
+capabilities:
+  # このエンドポイントは response_format による JSON Schema 指定を受け付ける。
+  # 受け付けなかった場合は実行時に json_mode → prompt_only へ自動で降格する (§10.2)。
+  structured_output: json_schema
+  # モデルによって実際の上限は異なる。ここは控えめな既定値であり、
+  # 設定側の capabilities で上書きできる (利用者の明示指定が最優先・§9.3)。
+  max_context_tokens: 128000
+  max_output_tokens: 16384

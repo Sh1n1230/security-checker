@@ -1,0 +1,175 @@
+# Reviewer を足す
+
+**このツールは「どの LLM を使うか」について立場を持ちません。**
+既定の Reviewer は 1 つもなく、「対応 LLM 一覧」も作りません。
+あなたが既に持っているものが正解です。
+
+分類の軸はベンダーではなく、次の 2 つです。
+
+| 軸 | 値 | 意味 |
+|---|---|---|
+| **transport** | `http` / `process` | どうやってモデルに到達するか |
+| **dialect** | `openai_chat` ほか | リクエストとレスポンスの「形」 |
+
+`anthropic_messages` は「Anthropic 社の」ではなく「Messages API という形の」という意味です。
+その形を話すエンドポイントなら、提供元がどこであっても同じアダプタで扱えます。
+
+> **実装状況（2026-09 時点）**: `http` transport の方言は `openai_chat` のみ実装済みです。
+> `anthropic_messages` / `gemini_generate` / `ollama_chat` は P3 で追加します。
+> `process` transport は実装済みで、**API キーなしで使えます**。
+
+---
+
+## ルート 1: HTTP エンドポイント（API キーを使う）
+
+`openai_chat` の形を話すサービスは多数あり、**そのどれも本体の変更なしに使えます**。
+
+```yaml
+reviewers:
+  - name: r1
+    transport: http              # 必須。省略時に推測で補完しません
+    dialect: openai_chat
+    base_url: https://<endpoint>/v1
+    model: <model-id>
+    api_key_env: MY_API_KEY      # 環境変数名のみ。平文キーの項目は存在しません
+    rate_limit: { rpm: 10 }      # 無料枠などの制限を宣言するとスケジューラが尊重します
+```
+
+同梱プリセットを使うと `base_url` と `api_key_env` を省略できます。
+
+```yaml
+reviewers:
+  - name: r1
+    transport: http
+    preset: openai               # base_url と api_key_env (OPENAI_API_KEY) が埋まります
+    model: <model-id>
+```
+
+`base_url` を書けばプリセットは要りません。**プリセットは省略記法にすぎません。**
+
+### 構造化出力の降格
+
+`json_schema` で送って 400 が返れば `json_mode` に、それも駄目なら `prompt_only` に自動で降格します。
+降格したことは `degraded_to` とトレースに残ります。未知のエンドポイントでも「まず動く」ようにするためです。
+
+---
+
+## ルート 2: 非対話コマンド（API キー不要）
+
+**手元の CLI に既にログインしているなら、その認証のままレビューさせられます。**
+契約は「stdin でプロンプトを受け取り、stdout にテキストを返し、exit 0 で終わる」だけです。
+
+```yaml
+reviewers:
+  - name: my-reviewer
+    transport: process
+    command: ["<your-command>", "<非対話フラグ>", "<ツール無効化フラグ>"]
+    prompt_via: stdin            # stdin | file
+    timeout_s: 300
+    concurrency: 1
+```
+
+同梱プリセットがある場合は名前で呼べます。
+
+```yaml
+reviewers:
+  - name: my-reviewer
+    transport: process
+    preset: claude
+```
+
+### まだ同梱されていないコマンドを使う（codex CLI など）
+
+**同梱プリセットに無いものが使えない、ということはありません。** `command` を直接書いてください。
+その際、次の 2 つを**あなたが確認して**指定します。本体からは検証できないためです。
+
+1. **非対話モード**のフラグ（プロンプトを渡して応答だけ返して終了する）
+2. **ツール実行・ファイル書き込みを無効化する**フラグ
+
+```sh
+<your-command> --help        # この 2 つに当たるフラグを確認する
+```
+
+```yaml
+reviewers:
+  - name: my-agent
+    transport: process
+    command: ["<your-command>", "<非対話フラグ>", "<ツール無効化フラグ>"]
+    prompt_via: stdin
+```
+
+指定できているかを本体は検証できないため、起動時に「書き込み能力の無効化は利用者の責任である」旨を
+警告します（同梱プリセットは `requires_readonly_flags: true` を申告しているため出ません）。
+
+動いたら、同じ内容を `~/.config/security-checker/presets/process/<name>.yml` に置けば
+名前で呼べるようになります。**PR は不要です。** 他の人にも役立つなら、そのまま PR もできます
+（採否基準は [CONTRIBUTING.md](../CONTRIBUTING.md)）。
+
+### 安全性（transport の性質によらず守るもの）
+
+起動対象は任意のコマンドで、その中にはファイルを書き換える能力を持つものが含まれます。
+**Security Reviewer がレビュー対象を勝手に編集してはいけない**ため、一律に次を強制します。
+
+1. **リポジトリの外で起動する。** cwd は毎回作り直す空の一時ディレクトリ。コードは stdin で渡します
+2. **シェルを経由しない。** argv のリストで `shell=False` 固定。プロンプトを引数に埋め込みません
+3. **実行後に一時ディレクトリの差分を検査する。** 書き込みがあれば警告し、トレースに残します
+4. **タイムアウト時はプロセスグループごと回収する**
+
+詳細は [process-transport.md](process-transport.md) を参照してください。
+**対象コマンドの利用規約（自動化利用の可否）は利用者が確認してください。**
+
+### 制約（正直に書きます）
+
+| 項目 | `http` | `process` |
+|---|---|---|
+| 構造化出力 | `json_schema` / `json_mode` | **`prompt_only` のみ** |
+| コスト計測 | 正確 | **不可**（`unknown`。トークンは推定値） |
+| レイテンシ | 数秒 | 数十秒〜数分（既定 timeout 300s） |
+| 並列度 | 数〜十数 | 既定 1 |
+| 決定性 | temperature 0 / seed | 対象に依存。制御できない前提で扱います |
+
+`process` は一般に「安価だが荒い」transport です。ただしこれは transport の性質であって、
+対象の優劣ではありません。**性質の異なる transport を混ぜると、一致度 (agreement) が情報量を持ちます。**
+
+---
+
+## ルート 3: 新しい方言のアダプタを書く（外部パッケージ）
+
+ここに到達するのは、**上の 2 つで表現できない API 形式が登場した場合だけ**です。
+「新しいベンダーが出たから」という理由でここに来ることはありません。
+
+```toml
+[project.entry-points."security_checker.providers"]
+my_provider = "my_plugin.provider:MyProvider"
+```
+
+`security_checker.testing.ProviderContractTests` を継承すれば、自作 Provider が契約を
+満たしているか検証できます（例外の正規化、`usage` の充足、リトライを内部で持たないこと等）。
+
+---
+
+## 環境から設定を作る
+
+```sh
+security-checker init
+```
+
+**おすすめは提示しません。** 同梱プリセットのコマンド名と環境変数名だけを手がかりに、
+あなたの環境で実際に使えるものを検出し、アルファベット順に並べます。選んだ結果が
+`security-checker.yml` として書き出され、以後は普通の設定ファイルとして編集できます。
+
+手元でだけ使う Reviewer は `security-checker.local.yml`（git 管理外）に書きます。
+
+```sh
+security-checker init --local --command '<your-command> --非対話 --ツール無効'
+```
+
+## 同梱プリセット一覧
+
+| transport | 名前 | 備考 |
+|---|---|---|
+| `http` | `openai` | `openai_chat` 方言 / `OPENAI_API_KEY` |
+| `process` | `claude` | 非対話 + ツール全無効で起動 / 認証はそのコマンド側の既存ログイン |
+
+アルファベット順です。順位づけ・推奨マークはありません。既定値にもなっていません。
+一覧に無いものも、`command` や `base_url` を直接書けば同じように動きます。
