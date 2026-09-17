@@ -1657,7 +1657,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'" },
     { name = "google-genai", marker = "extra == 'google'" },
-    { name = "httpx", extras = ["http2"], specifier = ">=0.27" },
+    { name = "httpx", extras = ["http2"], specifier = ">=0.28.1" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=3.13.0" },
     { name = "pydantic", specifier = ">=2" },
