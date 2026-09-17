@@ -22,7 +22,7 @@ from security_checker.providers.base import (
     StructuredMode,
 )
 from security_checker.providers.detect import command_version
-from security_checker.providers.http.dialects import DIALECTS
+from security_checker.providers.http.dialects import DIALECTS, DialectOptions
 from security_checker.providers.http.transport import HttpProvider
 from security_checker.providers.presets.loader import (
     BasePreset,
@@ -116,12 +116,15 @@ def build_http_provider(
             f"reviewer '{reviewer.name}': 未知の dialect '{dialect_name}'。"
             f"利用可能: {', '.join(sorted(DIALECTS))}"
         )
+    # 方言ごとの追加パラメータ。ここに「どの方言か」の分岐は作らない (P1)。
+    # 使わない方言は受け取って無視する。
+    options = DialectOptions(num_ctx=reviewer.num_ctx, keep_alive=reviewer.keep_alive)
 
     api_key_env = reviewer.api_key_env or (preset.api_key_env if preset else None)
     key_source = reviewer.model_copy(update={"api_key_env": api_key_env})
     return HttpProvider(
         name=reviewer.name,
-        dialect=factory(),
+        dialect=factory(options),
         base_url=base_url,
         model=reviewer.model,
         capabilities=resolve_capabilities(reviewer, preset),

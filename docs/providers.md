@@ -14,9 +14,32 @@
 `anthropic_messages` は「Anthropic 社の」ではなく「Messages API という形の」という意味です。
 その形を話すエンドポイントなら、提供元がどこであっても同じアダプタで扱えます。
 
-> **実装状況（2026-09 時点）**: `http` transport の方言は `openai_chat` のみ実装済みです。
-> `anthropic_messages` / `gemini_generate` / `ollama_chat` は P3 で追加します。
+> **実装状況（2026-09 時点）**: `http` transport の方言は `openai_chat` と `ollama_chat` が
+> 実装済みです。`anthropic_messages` / `gemini_generate` は P3 の残りとして追加します。
 > `process` transport は実装済みで、**API キーなしで使えます**。
+
+## ローカルのエンドポイント（API キー不要）
+
+`ollama_chat` 方言は `POST {base_url}/api/chat` を話します。
+
+```yaml
+reviewers:
+  - name: local
+    transport: http
+    dialect: ollama_chat
+    base_url: http://localhost:11434
+    model: <model-id>
+    num_ctx: 16384          # 文脈長。省略時は 8192
+    keep_alive: 10m         # 連続レビューでのモデル再ロードを避ける（任意）
+```
+
+**`num_ctx` を必ず送るのがこの方言の存在理由です。** 同じエンドポイントは `openai_chat` でも
+話せますが、その場合は文脈長を指定できず、エンドポイント側の既定値（2048）のまま
+**警告もなく黙って切り詰められます**。長いコード文脈を渡すこのツールでは判定が壊れるため、
+ローカルエンドポイントには `ollama_chat` を使ってください。
+
+モデルを取得していない場合は、「モデルを取得してください（例: `ollama pull <model>`）」という
+実行できる形のエラーになります。
 
 ---
 

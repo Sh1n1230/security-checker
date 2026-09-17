@@ -168,8 +168,12 @@ class HttpProvider:
             raise ProviderServerError(
                 f"{self.name}: サーバエラー ({status}): {detail}", provider=self.name
             )
+        # 方言が本文から次の行動を導けるなら、それを添える (§20.2)
+        hint = self.dialect_impl.explain_error(status, response.text)
         raise ProviderBadRequestError(
-            f"{self.name}: リクエストが拒否されました ({status}): {detail}", provider=self.name
+            f"{self.name}: リクエストが拒否されました ({status}): {detail}"
+            + (f" — {hint}" if hint else ""),
+            provider=self.name,
         )
 
 

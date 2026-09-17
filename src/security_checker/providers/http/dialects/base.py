@@ -26,6 +26,21 @@ class DialectResponse(BaseModel):
     model_reported: str | None = None
 
 
+class DialectOptions(BaseModel):
+    """方言ごとの追加パラメータ.
+
+    設定 (ReviewerConfig) から方言へ渡す値。**方言を特定する分岐を registry に
+    作らないため**、全方言が同じ型を受け取り、使わないものは無視する。
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    #: 文脈長の明示指定. 既定値のまま黙って切り詰める実装があるため、必ず送れるようにする
+    num_ctx: int | None = None
+    #: 連続レビューでモデルの再ロードを避けるための保持時間 (例: "5m")
+    keep_alive: str | None = None
+
+
 class Dialect(Protocol):
     """リクエスト / レスポンスの形の変換のみを担う."""
 
@@ -47,3 +62,11 @@ class Dialect(Protocol):
     def parse_response(self, payload: dict[str, Any]) -> DialectResponse: ...
 
     def health_payload(self, model: str) -> dict[str, Any]: ...
+
+    def explain_error(self, status: int, body: str) -> str | None:
+        """4xx の本文から、利用者が次に取れる行動を導けるなら文章にして返す.
+
+        エラーメッセージには「次の行動」を書く (設計書 §20.2)。
+        判断できなければ None を返し、transport の既定メッセージに任せる。
+        """
+        ...

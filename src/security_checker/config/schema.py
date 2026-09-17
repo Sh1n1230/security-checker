@@ -121,6 +121,8 @@ class ReviewerConfig(StrictModel):
     api_key_env: str | None = None
     max_output_tokens: int = Field(default=2000, gt=0)
     num_ctx: int | None = Field(default=None, gt=0)
+    #: モデルの保持時間 (例: "5m"). 連続レビューでの再ロードを避ける. ollama_chat のみ
+    keep_alive: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
     capabilities: ReviewerCapabilities = ReviewerCapabilities()
     seed: int | None = None

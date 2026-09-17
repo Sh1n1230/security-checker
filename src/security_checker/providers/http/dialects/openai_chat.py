@@ -11,7 +11,7 @@ from typing import Any
 from security_checker.models.verdict import Usage
 from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 from security_checker.providers.errors import ProviderResponseError
-from security_checker.providers.http.dialects.base import DialectResponse
+from security_checker.providers.http.dialects.base import DialectOptions, DialectResponse
 
 SCHEMA_NAME = "security_review_verdict"
 
@@ -20,6 +20,10 @@ class OpenAIChatDialect:
     """chat/completions 形式のリクエスト・レスポンス変換."""
 
     name = "openai_chat"
+
+    def __init__(self, options: DialectOptions | None = None) -> None:
+        # この形には文脈長やモデル保持の指定が無いため、受け取っても使わない
+        self.options = options or DialectOptions()
 
     def endpoint(self, base_url: str) -> str:
         return f"{base_url.rstrip('/')}/chat/completions"
@@ -122,6 +126,10 @@ class OpenAIChatDialect:
             "messages": [{"role": "user", "content": "ping"}],
             "max_tokens": 1,
         }
+
+    def explain_error(self, status: int, body: str) -> str | None:
+        """この形はサービスごとに本文が違いすぎるため、推測しない."""
+        return None
 
 
 def _as_int(value: Any) -> int:
