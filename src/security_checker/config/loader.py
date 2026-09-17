@@ -18,6 +18,7 @@ import yaml
 from pydantic import ValidationError
 
 from security_checker.config.schema import Config
+from security_checker.config.unimplemented import unimplemented_warnings
 from security_checker.errors import ConfigError
 
 CONFIG_FILENAMES = (
@@ -47,6 +48,8 @@ class LoadedConfig:
     config_path: Path | None = None
     preset: str | None = None
     local_config_path: Path | None = None
+    #: 受け付けたが実装が追いついていない項目の警告 (P9: 黙って無視しない)
+    warnings: list[str] = field(default_factory=list)
 
 
 def find_config_file(root: Path) -> Path | None:
@@ -206,6 +209,7 @@ def load_config(
         config_path=resolved_path,
         preset=preset,
         local_config_path=local_path,
+        warnings=unimplemented_warnings(config, origins),
     )
 
 

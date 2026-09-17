@@ -160,7 +160,7 @@ def scan(
     loaded = _load(root, config_path, preset, overrides)
 
     try:
-        outcome = asyncio.run(run_scan(loaded.config, root))
+        outcome = asyncio.run(run_scan(loaded.config, root, extra_warnings=loaded.warnings))
     except SecurityCheckerError as exc:
         _fail(str(exc), exc.exit_code)
 
@@ -227,7 +227,9 @@ def review(
         loaded.config_path.parent if loaded.config_path is not None else None
     )
     try:
-        outcome = asyncio.run(run_review(loaded.config, root, price_table=price_table))
+        outcome = asyncio.run(
+            run_review(loaded.config, root, price_table=price_table, extra_warnings=loaded.warnings)
+        )
     except SecurityCheckerError as exc:
         _fail(str(exc), exc.exit_code)
 
@@ -238,7 +240,7 @@ def review(
 def _dry_run(loaded: LoadedConfig, root: Path) -> None:
     """何が送信されるかを、送信前に全部見せる (設計書 §19.3)."""
     console = Console()
-    outcome = asyncio.run(run_scan(loaded.config, root))
+    outcome = asyncio.run(run_scan(loaded.config, root, extra_warnings=loaded.warnings))
     tasks, overflow = build_tasks(outcome.report.candidates, root, loaded.config)
 
     console.print(
@@ -448,6 +450,12 @@ def config_show(
     root = path.expanduser().resolve()
     loaded = _load(root, config_path, preset, {})
     console = Console()
+
+    # 受け付けたが効かない設定は、config show でも必ず見えるようにする (P9)。
+    # 既定の出力は JSON なので、警告は標準エラーに出して混ぜない。
+    warn_console = Console(stderr=True)
+    for message in loaded.warnings:
+        warn_console.print(f"[yellow]警告[/yellow]: {message}", highlight=False)
 
     if explain:
         console.print(f"[bold]preset[/bold]: {loaded.preset or '(なし)'}")

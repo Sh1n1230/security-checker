@@ -127,9 +127,13 @@ async def _execute_scanners(
     root: Path,
     raw_dir: Path,
     scanners: Sequence[Scanner] | None,
+    extra_warnings: Sequence[str] = (),
 ) -> tuple[list[ScanResult], list[ScannerRun], list[ReportWarning]]:
     """スキャナを並列実行し、結果・サマリ・警告に整形する."""
-    warnings: list[ReportWarning] = []
+    # 設定由来の警告を先頭に置く。「設定したのに効かない」は実行前から確定しているため。
+    warnings: list[ReportWarning] = [
+        ReportWarning(level="warn", source="config", message=message) for message in extra_warnings
+    ]
     if scanners is None:
         resolved, warnings_text = build_scanners(config)
     else:
@@ -192,10 +196,12 @@ async def run_scan(
     base_dir: Path | None = None,
     run_id: str | None = None,
     scanners: Sequence[Scanner] | None = None,
+    extra_warnings: Sequence[str] = (),
 ) -> RunOutcome:
     """スキャンを実行してレポートとポリシー判定を返す (LLM は使わない).
 
     `scanners` を渡すと registry の解決を飛ばす (テストと将来の埋め込み用途)。
+    `extra_warnings` は設定層で判明した警告 (未実装項目の指定など)。
     """
     started_at = utcnow()
     identifier = run_id or new_run_id()
@@ -203,7 +209,9 @@ async def run_scan(
     raw_dir = output_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    results, runs, warnings = await _execute_scanners(config, root, raw_dir, scanners)
+    results, runs, warnings = await _execute_scanners(
+        config, root, raw_dir, scanners, extra_warnings
+    )
     candidates = dedupe_and_sort(results)
     score = compute_score(candidates, runs)
     coverage = _coverage(runs, candidates, reviewed=0)
@@ -298,6 +306,7 @@ async def run_review(
     reviewer_setup: ReviewerSetup | None = None,
     price_table: PriceTable | None = None,
     environ: dict[str, str] | None = None,
+    extra_warnings: Sequence[str] = (),
 ) -> RunOutcome:
     """スキャン → 文脈構築 → LLM レビュー → 集約 → ポリシー判定."""
     started_at = utcnow()
@@ -312,7 +321,9 @@ async def run_review(
             "LLM を使わない `security-checker scan` を実行してください"
         )
 
-    results, runs, warnings = await _execute_scanners(config, root, raw_dir, scanners)
+    results, runs, warnings = await _execute_scanners(
+        config, root, raw_dir, scanners, extra_warnings
+    )
     candidates = dedupe_and_sort(results)
 
     aggregator, aggregator_warnings = build_aggregator(config.aggregation.strategy)

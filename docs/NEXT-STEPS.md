@@ -26,17 +26,13 @@
 
 ### 1.1 今すぐ直すべきもの（設計原則に違反している）
 
-P9（Fail Loudly）違反。**受け付けた設定が黙って無視されている。**
+**✅ 対処済み（2026-09-17）**: `config/unimplemented.py` が、受け付けたが効かない設定を検出して
+警告に積むようになりました（レポートの `warnings[]`・ターミナル・`config show` の 3 箇所に出ます）。
+実装が入った項目はこのモジュールからエントリを消します。
 
-| 設定 | 現状 | 影響 |
-|---|---|---|
-| `output.formats: [sarif]` | スキーマは受理するが、書き出し処理がない（`cli.py` の `_write_reports`） | **`--preset ci` が sarif を要求しているのに何も出ない**。CI に組み込むと「アップロード対象がない」状態になる |
-| `policy.baseline` | スキーマにフィールドがあるだけ | 抑制したつもりで何も抑制されない |
-| `target.mode: diff` | 受理するが常に全件スキャン | PR モードのつもりでコストが全件分かかる |
-| `github.*` | 受理するが未使用 | コメントが投稿されないことに気づけない |
-
-**対処:** 実装されるまでの間は、これらを指定したら ConfigError（exit 2）にするか、
-少なくともレポート冒頭の `warnings[]` に積む。osv/trivy の扱い（warning を出して無効化）と揃えるなら後者。
+対象は `output.formats: [sarif]`（P4）・`policy.baseline`（P5）・`target.mode: diff`（P4）・
+`github.*`（P4）・`logging.*`（P5）・`reviewers[].num_ctx`（P3）。
+`github.*` と `logging.*` は**利用者が明示的に設定したときだけ**警告します（既定値のままならノイズになるため）。
 
 ### 1.2 フェーズ計画上の未実装（DESIGN.md §32）
 
