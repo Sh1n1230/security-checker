@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 脆弱性の報告 (非公開)
+    url: https://github.com/Sh1n1230/security-checker/security/advisories/new
+    about: セキュリティ上の問題は公開 Issue ではなく、ここから非公開で報告してください (SECURITY.md)
+  - name: 行動規範
+    url: https://github.com/Sh1n1230/security-checker/blob/main/CODE_OF_CONDUCT.md
+    about: 嫌がらせ等は GitHub の Report content から通報してください
+  - name: 設計書を読む
+    url: https://github.com/Sh1n1230/security-checker/blob/main/docs/DESIGN.md
+    about: 「なぜそうなっているか」は、たいていここに書いてあります

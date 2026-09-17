@@ -1,0 +1,69 @@
+name: バグ報告
+description: 動かない・落ちる・結果がおかしい
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        セキュリティ上の脆弱性はここではなく [非公開の報告窓口](https://github.com/Sh1n1230/security-checker/security/advisories/new) からお願いします。
+        日本語でも英語でも構いません。
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 何が起きたか
+      description: 期待した挙動と、実際の挙動。エラーメッセージは全文を貼ってください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 再現手順
+      placeholder: |
+        1. `security-checker review . --preset ci` を実行
+        2. ...
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: 設定
+      description: |
+        `security-checker config show` の出力を貼ってください（API キーは常にマスクされます）。
+        **環境変数の値そのものは貼らないでください。**
+      render: yaml
+
+  - type: input
+    id: version
+    attributes:
+      label: バージョン
+      description: "`security-checker version` の出力"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: 関係する transport
+      multiple: true
+      options:
+        - http
+        - process
+        - どちらでもない / 分からない (scan のみなど)
+
+  - type: input
+    id: env
+    attributes:
+      label: 実行環境
+      placeholder: "macOS 15 / Python 3.12 / uv 0.5.x"
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 確認
+      options:
+        - label: 貼り付ける内容にシークレットや業務コードが含まれていないことを確認しました
+          required: true

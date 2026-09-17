@@ -1,0 +1,51 @@
+name: 機能の提案
+description: 新しい機能や改善の提案
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **新しい LLM への対応は、たいていコードを書かずに設定だけで終わります。**
+        `http` なら `dialect` + `base_url` + `model`、`process` なら `command` を書くだけです。
+        それで動かない場合のみ、この Issue を使ってください（[CONTRIBUTING.md](https://github.com/Sh1n1230/security-checker/blob/main/CONTRIBUTING.md)）。
+
+        プリセットの追加提案は専用のテンプレートを使ってください。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解決したい問題
+      description: 「何ができないか」を、実際に困った場面で書いてください。解決策そのものではなく。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提案する形
+      description: 設定ファイルや CLI で、どう書けるとよいか。
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 領域
+      options:
+        - providers (LLM への到達方法)
+        - scanners (候補の検出)
+        - context (LLM に渡す文脈)
+        - aggregate (複数 Reviewer の集約)
+        - policy (exit code / 抑制)
+        - report (terminal / json / markdown / SARIF)
+        - github (Action / PR コメント)
+        - その他
+
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: 設計上の不変条件との関係
+      description: このプロジェクトが構造として守っているものです。抵触する提案は却下されます。
+      options:
+        - label: Reviewer に書き込み・コード実行の能力を与える提案ではない（P3）
+          required: true
+        - label: 特定のベンダーをコードに埋め込む提案ではない（P1）
+          required: true

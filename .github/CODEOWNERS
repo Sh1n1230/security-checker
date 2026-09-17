@@ -1,0 +1,15 @@
+# すべての変更はリポジトリオーナーのレビュー対象。
+# 設計上の不変条件 (CONTRIBUTING.md) に触れる領域を明示的に列挙しておく。
+* @Sh1n1230
+
+# P3 (Reviewer はレビュー対象を書き換えない) の実体
+/src/security_checker/providers/process/ @Sh1n1230
+
+# §19.2 (検出したシークレットを LLM に送らない) の実体
+/src/security_checker/context/redact.py @Sh1n1230
+
+# ベンダー知識を置いてよい唯一の場所 (データのみ)
+/src/security_checker/providers/presets/ @Sh1n1230
+
+# 設計上の合意そのもの
+/docs/DESIGN.md @Sh1n1230

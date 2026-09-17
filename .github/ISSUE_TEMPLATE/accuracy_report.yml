@@ -1,0 +1,63 @@
+name: 判定の精度に関する報告 (誤検知・見逃し)
+description: LLM の判定が間違っていた（脆弱でないものを confirmed にした / 本物を false_positive にした）
+labels: [accuracy]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **見逃し（本物を `false_positive` と判定した）は特に重要です。**
+        このプロジェクトは Recall（検出率）を主指標に置いており、見逃しを増やさないことを必須条件にしています（設計書 §27）。
+
+        いただいたケースは、許可をいただければ評価用データセットに追加します。
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: どちらですか
+      options:
+        - 見逃し (本物なのに false_positive / none と判定された)
+        - 誤検知 (問題ないのに confirmed / likely と判定された)
+        - 重大度がおかしい
+        - CWE の分類がおかしい
+    validations:
+      required: true
+
+  - type: textarea
+    id: code
+    attributes:
+      label: 対象のコード
+      description: |
+        **再現できる最小のコード**を貼ってください。判定は周辺の文脈に依存するため、
+        呼び出し元も含めてください。**業務コードや非公開コードは貼らないでください。**
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: verdict
+    attributes:
+      label: 実際の判定
+      description: "`report.json` の該当 Finding、または `report.md` の該当部分。各 Reviewer の判定（誰が何と言ったか）まで含めてください。"
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 正しい判定と、その理由
+    validations:
+      required: true
+
+  - type: input
+    id: reviewers
+    attributes:
+      label: 使った Reviewer の構成
+      description: "transport と dialect（例: http/openai_chat が 1 つ + process が 1 つ、集約は consensus）。モデル名は任意です。"
+
+  - type: checkboxes
+    id: dataset
+    attributes:
+      label: 評価用データセットへの追加
+      options:
+        - label: このケースを評価用データセット（MIT ライセンスで公開）に追加してよい

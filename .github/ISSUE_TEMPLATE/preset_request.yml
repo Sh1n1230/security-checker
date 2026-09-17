@@ -1,0 +1,71 @@
+name: 同梱プリセットの追加提案
+description: あるコマンド / エンドポイントを名前で呼べるようにする（YAML データのみ・コードなし）
+labels: [preset]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        プリセットは**省略記法にすぎません。** 提案しなくても、`command` や
+        `dialect` + `base_url` を直接書けば今すぐ動きます。
+        また `~/.config/security-checker/presets/<transport>/<name>.yml` に置けば、
+        PR も Issue もなしに自分用のプリセットを使えます。
+
+        採否は**人気や提供元ではなく、下の客観条件と先着順だけ**で決めます。
+        一覧はアルファベット順で、順位づけや「おすすめ」表記は付けません（設計書 §9.7）。
+
+  - type: input
+    id: name
+    attributes:
+      label: プリセット名
+      description: 呼び出すときの名前（小文字・ハイフン区切り）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: transport
+      options:
+        - process (非対話コマンドを起動する)
+        - http (エンドポイントに POST する)
+    validations:
+      required: true
+
+  - type: textarea
+    id: yaml
+    attributes:
+      label: プリセットの中身
+      description: そのまま `providers/presets/<transport>/<name>.yml` になる内容を貼ってください。
+      render: yaml
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 動作を確認したバージョン
+      description: 対象コマンド / API のバージョン（プリセットが壊れたときの切り分けに使います）
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: criteria
+    attributes:
+      label: 採否基準（設計書 §9.7）
+      options:
+        - label: 非対話モードがあり、スクリプトから起動できる
+          required: true
+        - label: ツール実行・ファイル書き込みを無効化する手段があり、プリセットにその指定を含めた
+          required: true
+        - label: 出力を標準出力から取得できる
+          required: true
+        - label: 自動化利用が、提供元の利用規約で明示的に禁止されていない
+          required: true
+
+  - type: textarea
+    id: terms
+    attributes:
+      label: 利用規約の確認
+      description: 自動化利用について、規約のどこを確認したか（URL と該当箇所）。
+    validations:
+      required: true

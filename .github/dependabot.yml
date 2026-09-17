@@ -1,0 +1,25 @@
+# 依存の更新を自動で提案させる。セキュリティツール自身が古い依存を抱えないため。
+version: 2
+
+updates:
+  # GitHub Actions は SHA で固定しているため、人手では更新が漏れる。
+  # dependabot は SHA ピン留めのまま追随してコメントのバージョン表記も直す。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels: [dependencies]
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels: [dependencies]
+    groups:
+      # 開発ツールはまとめて 1 PR にする (個別に来ると数が多い)
+      dev-tools:
+        patterns: ["ruff", "mypy", "pytest*", "respx", "syrupy", "types-*"]
