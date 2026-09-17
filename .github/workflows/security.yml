@@ -139,28 +139,28 @@ jobs:
       # category はツールごとに分ける。同じ category に別ツールの結果を上げると互いに上書きし合う。
       - name: SARIF をアップロード (semgrep)
         if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.semgrep == 'true'
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: ${{ runner.temp }}/sarif/semgrep.sarif
           category: semgrep
 
       - name: SARIF をアップロード (gitleaks)
         if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.gitleaks == 'true'
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: ${{ runner.temp }}/sarif/gitleaks.sarif
           category: gitleaks
 
       - name: SARIF をアップロード (trivy)
         if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.trivy == 'true'
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: ${{ runner.temp }}/sarif/trivy.sarif
           category: trivy
 
       - name: SARIF をアップロード (osv-scanner)
         if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.osv == 'true'
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: ${{ runner.temp }}/sarif/osv.sarif
           category: osv-scanner
