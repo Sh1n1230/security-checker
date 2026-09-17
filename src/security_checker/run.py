@@ -326,7 +326,10 @@ async def run_review(
     )
     candidates = dedupe_and_sort(results)
 
-    aggregator, aggregator_warnings = build_aggregator(config.aggregation.strategy)
+    aggregator, aggregator_warnings = build_aggregator(
+        config.aggregation.strategy,
+        weights={reviewer.name: reviewer.weight for reviewer in config.reviewers},
+    )
     warnings.extend(
         ReportWarning(level="warn", source="aggregate", message=message)
         for message in aggregator_warnings

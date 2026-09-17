@@ -65,7 +65,10 @@ logging:
 # 書く (git 管理外・後勝ちで重なる)。`security-checker init --local` で生成できる。
 #
 # aggregation:
-#   strategy: consensus     # 複数 Reviewer 時の集約 (weighted / judge は P3)
+#   strategy: consensus     # 複数 Reviewer 時の集約: consensus | weighted (judge は P5)
+#   weighted:
+#     threshold: 0.6        # 重み付きスコアがこれ以上なら脆弱と判定する
+#   # 重みは reviewers[].weight で指定する。勘で決めず eval の結果を根拠にすること
 #
 # budget:
 #   max_candidates: 200     # レビューに回す候補の上限
