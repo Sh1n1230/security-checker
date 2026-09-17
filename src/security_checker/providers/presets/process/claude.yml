@@ -1,0 +1,42 @@
+# このファイルは **データ** であり、コードではない (設計書 §9)。
+# process transport は「stdin を受け取り stdout にテキストを返す非対話コマンド」なら
+# 何でも Reviewer にできる汎用機構で、プリセットはその省略記法にすぎない。
+# preset を使わず command を直接書いても、まったく同じように動く。
+#
+# 上書き: ~/.config/security-checker/presets/process/claude.yml に同名で置けば、こちらが使われる。
+#
+# 採否は §9.7 の客観条件のみで判断している (順位づけ・推奨ではない):
+#   1. 非対話モードがある                        -> -p
+#   2. ツール実行・書き込みを無効化する手段がある -> --restricted と --tools ""
+#   3. 出力を標準出力から取得できる              -> --output-format text
+#   4. 自動化利用が規約で明示的に禁止されていない
+#
+# 動作確認: 2.1.273 (Claude Code) / 2026-09-16
+name: claude
+command:
+  - claude
+  - "-p" # 非対話。応答を出力して終了する
+  - "--output-format"
+  - text
+  # 実行系ツールを外し、利用者・プロジェクトの設定ファイルを無視する。
+  # 手元の設定に左右されず、どの環境でも同じ条件で起動するために必要。
+  - "--restricted"
+  # 許可リスト方式でツールを全無効化する。拒否リスト (--disallowed-tools) は
+  # 対象にツールが増えたときに漏れるため、こちらを使う。
+  - "--tools"
+  - ""
+  - "--strict-mcp-config" # MCP サーバも読み込まない
+prompt_via: stdin
+parse: json_in_stdout
+
+capabilities:
+  # process transport の構造化出力は常に prompt_only (§9.7)。
+  # 応答から最初の JSON オブジェクトを抽出し、壊れていれば 1 回だけ修復を試みる。
+  structured_output: prompt_only
+  # 実際の上限はモデルによって変わる。設定側の capabilities で上書きできる。
+  max_context_tokens: 200000
+  max_output_tokens: 8192
+
+# §9.7 の安全要件を満たしていることの申告。
+# これが true の場合に限り、起動時の「書き込み能力の無効化は利用者の責任」警告を出さない。
+requires_readonly_flags: true

@@ -6,14 +6,35 @@
 
 from __future__ import annotations
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
 from security_checker.cli import app
 from security_checker.config.schema import Config
 from security_checker.errors import ExitCode
+from security_checker.providers.detect import Detection
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def no_detection(monkeypatch):
+    """検出結果は実行環境 (PATH・環境変数) で変わる. テストは環境に依存させない."""
+    monkeypatch.setattr("security_checker.cli.detect_all", lambda: [])
+
+
+@pytest.fixture
+def one_detection(monkeypatch):
+    detection = Detection(
+        transport="process",
+        name="detected",
+        available=True,
+        detail="テスト用",
+        config={"name": "detected", "transport": "process", "preset": "detected"},
+    )
+    monkeypatch.setattr("security_checker.cli.detect_all", lambda: [detection])
+    return detection
 
 
 def test_init_without_presets_generates_nothing_and_says_why(tmp_path):
@@ -80,6 +101,21 @@ def test_init_local_writes_the_gitignored_overlay(tmp_path):
     assert (tmp_path / "security-checker.yml").read_text(encoding="utf-8") == "version: 1\n"
     payload = yaml.safe_load((tmp_path / "security-checker.local.yml").read_text(encoding="utf-8"))
     assert payload["reviewers"][0]["command"] == ["my-cmd"]
+
+
+def test_init_with_a_command_does_not_prompt_about_detections(tmp_path, one_detection):
+    """--command は明示指定. 標準入力が無い場面 (CI) でも止まらないこと."""
+    result = runner.invoke(app, ["init", str(tmp_path), "--command", "my-cmd"])
+    assert result.exit_code == ExitCode.OK
+    payload = yaml.safe_load((tmp_path / "security-checker.yml").read_text(encoding="utf-8"))
+    assert [block["name"] for block in payload["reviewers"]] == ["my-cmd"]
+
+
+def test_init_yes_adopts_detections_alongside_the_command(tmp_path, one_detection):
+    result = runner.invoke(app, ["init", str(tmp_path), "--command", "my-cmd", "--yes"])
+    assert result.exit_code == ExitCode.OK
+    payload = yaml.safe_load((tmp_path / "security-checker.yml").read_text(encoding="utf-8"))
+    assert [block["name"] for block in payload["reviewers"]] == ["detected", "my-cmd"]
 
 
 def test_init_suggests_local_when_the_shared_config_exists(tmp_path):

@@ -352,7 +352,15 @@ def init(
     usable = _print_detections(console, detect_all())
     blocks: list[dict[str, Any]] = []
 
-    if usable and not yes:
+    if usable and command is not None and not yes:
+        # --command は「これを使う」という明示なので、検出分を対話で尋ねない。
+        # 尋ねると、CI やスクリプトから呼んだときに標準入力が無くて失敗する。
+        console.print(
+            "[dim]--command が指定されているため、検出されたものは採用しません。"
+            "検出分も使うなら --yes を付けるか、--command なしで実行してください[/dim]\n"
+        )
+        usable = []
+    elif usable and not yes:
         for index, item in enumerate(usable, start=1):
             console.print(f"    [bold]{index}[/bold]. {item.name} ({item.transport})")
         answer = typer.prompt(
