@@ -25,7 +25,7 @@ jobs:
     steps:
       # 可変タグ (@v5) は指す先が後から変わるため SHA で固定する。
       # 実際 actions/checkout の v5 タグは 93cb6ef (v5.0.1) から fbc6f39 (v5.1.0) へ移動している。
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: ツールをインストール
         run: |
@@ -170,7 +170,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: 全 .ps1 の構文リント
         shell: pwsh
