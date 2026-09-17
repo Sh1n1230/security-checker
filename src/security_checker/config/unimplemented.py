@@ -58,10 +58,15 @@ def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = N
         )
 
     for reviewer in config.reviewers:
-        if reviewer.num_ctx is not None:
-            warnings.append(
-                f"reviewer '{reviewer.name}': num_ctx は ollama_chat 方言 (移行計画 P3) 専用で、"
-                "現在は無視されます"
-            )
+        # num_ctx / keep_alive は ollama_chat 方言にしかない概念。
+        # 別の方言に書いても効かないので、そのことを伝える。
+        if reviewer.dialect == "ollama_chat":
+            continue
+        for field in ("num_ctx", "keep_alive"):
+            if getattr(reviewer, field) is not None:
+                warnings.append(
+                    f"reviewer '{reviewer.name}': {field} は ollama_chat 方言専用です。"
+                    f"dialect: {reviewer.dialect or '(未指定)'} では無視されます"
+                )
 
     return warnings
