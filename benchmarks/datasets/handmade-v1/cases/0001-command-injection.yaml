@@ -1,0 +1,39 @@
+# 真陽性: HTTP リクエストの値が検証なしにシェルへ渡る。
+id: hand-0001
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.dangerous-subprocess-use
+  category: sast
+  message: subprocess の呼び出しに shell=True が指定されています
+  path: app/upload.py
+  start_line: 12
+  end_line: 12
+  severity_reported: high
+  cwe: ["CWE-78"]
+code: |
+  import subprocess
+
+  from flask import Flask, request
+
+  app = Flask(__name__)
+
+
+  @app.post("/upload")
+  def upload():
+      filename = request.form["filename"]
+      return process_file(filename)
+
+
+  def process_file(filename):
+      subprocess.run("convert " + filename + " /tmp/out.png", shell=True)
+      return "ok"
+ground_truth:
+  vulnerable: true
+  cwe: ["CWE-78"]
+  severity: high
+  rationale: |
+    filename は POST のフォーム値をそのまま受け取り、検証もエスケープもされずに
+    shell=True のコマンド文字列へ連結されている。`; rm -rf /` のようなメタ文字を
+    注入でき、認証も要らない経路から到達できる。

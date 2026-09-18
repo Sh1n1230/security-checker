@@ -1,0 +1,40 @@
+# 誤検知: テスト用の固定値。本物の資格情報ではない。
+# 実運用の検出結果はこの種の FP が支配的なので、データセットにも多めに含める (§26.2)。
+id: hand-0004
+source: handmade
+language: python
+candidate:
+  scanner: gitleaks
+  rule_id: generic-api-key
+  category: secret
+  message: API キーらしき文字列が含まれています
+  path: tests/test_client.py
+  start_line: 6
+  end_line: 6
+  severity_reported: high
+  cwe: ["CWE-798"]
+code: |
+  import pytest
+
+  from myapp.client import Client
+
+  # ローカルのスタブサーバ相手にしか使わない固定値
+  TEST_TOKEN = "test-token-0000000000000000"
+
+
+  @pytest.fixture
+  def client(stub_server):
+      return Client(base_url=stub_server.url, token=TEST_TOKEN)
+
+
+  def test_client_sends_the_token(client, stub_server):
+      client.ping()
+      assert stub_server.last_request.headers["Authorization"] == f"Bearer {TEST_TOKEN}"
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    テストファイル内の固定値で、送信先はテスト内で立てたスタブサーバのみ。
+    外部サービスの資格情報ではなく、漏洩しても悪用できる先が存在しない。
+    ただし「本物の鍵に差し替えられる」リスクは残るので、指摘の価値としては info 相当。

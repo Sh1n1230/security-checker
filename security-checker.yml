@@ -14,6 +14,10 @@ target:
     - "**/.git/**"
     - "**/.security-checker/**"
     - "**/*.min.js"
+    # 評価用データセットは **意図的に脆弱なコード** を含む (設計書 §31.5)。
+    # 除外していること自体をここに書き残す。除外配下に本体パッケージは無い。
+    - "benchmarks/**"
+    - "tests/fixtures/**"
 
 scanners:
   semgrep:
