@@ -1,0 +1,39 @@
+# 誤検知: 文字列連結だが、唯一の呼び出し元で int に変換されている。
+# 到達可能性を見ないと「SQL インジェクション」と誤判定される典型例。
+id: hand-0002
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.sqlalchemy.security.sqlalchemy-execute-raw-query
+  category: sast
+  message: クエリが文字列連結で構築されています
+  path: app/db.py
+  start_line: 11
+  end_line: 11
+  severity_reported: high
+  cwe: ["CWE-89"]
+code: |
+  from flask import Flask, request
+
+  app = Flask(__name__)
+
+
+  def fetch_user(cur, user_id):
+      # user_id は下の呼び出し元で必ず int に変換されている
+      return cur.execute("select * from users where id = " + str(user_id))
+
+
+  @app.get("/users/<int:user_id>")
+  def get_user(user_id):
+      # ルート定義の <int:...> により、ここに届く時点で int である
+      with connection() as cur:
+          return fetch_user(cur, int(user_id))
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    唯一の到達経路であるルートが <int:user_id> を宣言しており、さらに呼び出し側で
+    int() を通している。攻撃者が文字列を注入する経路がないため、この連結は悪用できない。
+    ただし深層防御としてはプレースホルダを使うべきで、その指摘は info 相当。

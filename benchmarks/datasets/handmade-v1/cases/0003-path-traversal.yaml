@@ -1,0 +1,36 @@
+# 真陽性: リクエストのパラメータがそのままファイルパスに連結される。
+id: hand-0003
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.flask.security.injection.path-traversal-open
+  category: sast
+  message: ユーザー入力がファイルパスに使われています
+  path: app/files.py
+  start_line: 10
+  end_line: 10
+  severity_reported: medium
+  cwe: ["CWE-22"]
+code: |
+  import os
+
+  from flask import Flask, request, send_file
+
+  app = Flask(__name__)
+  BASE = "/var/app/reports"
+
+
+  @app.get("/report")
+  def report():
+      name = request.args.get("name", "")
+      return send_file(os.path.join(BASE, name))
+ground_truth:
+  vulnerable: true
+  cwe: ["CWE-22"]
+  severity: high
+  rationale: |
+    os.path.join は絶対パスや ../ を正規化しないため、name に "../../etc/passwd" や
+    "/etc/passwd" を渡すと BASE の外に出られる。認証もなく、GET で到達できる。
+    正解の severity をスキャナの medium より上げているのは、到達可能性と
+    読み出せる範囲の広さを考慮したため。
