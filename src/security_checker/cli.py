@@ -29,6 +29,8 @@ from security_checker.config.loader import (
 from security_checker.context.budget import estimate_tokens
 from security_checker.context.redact import redact_known_patterns
 from security_checker.errors import ConfigError, ExitCode, SecurityCheckerError
+from security_checker.eval.dataset import load_dataset
+from security_checker.eval.runner import run_eval, to_markdown
 from security_checker.models.enums import Severity
 from security_checker.observability.cost import load_price_table
 from security_checker.providers.detect import Detection, detect_all
@@ -466,6 +468,60 @@ def config_show(
         return
 
     print(json.dumps(loaded.config.masked_dump(), ensure_ascii=False, indent=2))
+
+
+@app.command("eval")
+def eval_command(
+    dataset_dir: Annotated[
+        Path, typer.Option("--dataset", "-d", help="評価データセットのディレクトリ")
+    ],
+    config_path: Annotated[
+        Path | None, typer.Option("--config", "-c", help="設定ファイル (Reviewer を含むもの)")
+    ] = None,
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="結果 JSON の保存先")
+    ] = None,
+    markdown: Annotated[
+        Path | None, typer.Option("--markdown", "-m", help="比較表 (Markdown) の保存先")
+    ] = None,
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="標準出力を抑制する")] = False,
+) -> None:
+    """ラベル付きデータセットでレビュー精度を測る (設計書 §27).
+
+    **主指標は Recall。** 見逃しを増やさずに誤検知を減らせているかを見る。
+    """
+    console = Console()
+    root = (config_path.parent if config_path is not None else Path.cwd()).resolve()
+    loaded = _load(root, config_path, None, {})
+    for message in loaded.warnings:
+        console.print(f"[yellow]警告[/yellow]: {message}", highlight=False)
+
+    try:
+        dataset = load_dataset(dataset_dir)
+        result = asyncio.run(run_eval(dataset, loaded.config))
+    except SecurityCheckerError as exc:
+        _fail(str(exc), exc.exit_code)
+
+    document = to_markdown(result)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    if markdown is not None:
+        markdown.parent.mkdir(parents=True, exist_ok=True)
+        markdown.write_text(document, encoding="utf-8")
+    if not quiet:
+        print(document)
+
+    # 見逃しがあれば、それ自体を失敗として扱う (§27.2 の必須条件)
+    if result.metrics.missed_true_positives:
+        _fail(
+            f"真陽性を {result.metrics.missed_true_positives} 件見逃しました: "
+            f"{', '.join(result.metrics.missed_case_ids)}",
+            ExitCode.POLICY_VIOLATION,
+        )
 
 
 @app.command()
