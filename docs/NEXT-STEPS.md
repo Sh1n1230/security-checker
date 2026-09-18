@@ -38,7 +38,7 @@
 
 | フェーズ | 未実装のもの | 設計書 |
 |---|---|---|
-| **P3 Multi-LLM** | `anthropic_messages`・`gemini_generate`（スキーマ変換層を含む）・`ollama_chat`（`num_ctx` 明示送信）の各方言 / `weighted` 集約 / 異なる transport の Reviewer 2 つで `review_required` が出る E2E | §9.4–9.6, §14.2 |
+| ~~**P3 Multi-LLM**~~ | **✅ 完了（2026-09-18）**: 4 方言すべて・`weighted` 集約・異なる transport の E2E | §9.4–9.6, §14.2 |
 | **P4 GitHub 統合** | `report/sarif.py`（§18.4 の規約込み）/ `github/pr.py`・`comment.py`（sticky・inline・重複投稿防止）/ diff モード / `action.yml` + `Dockerfile` / fork PR 用の `workflow_run` サンプル / `docs/github-actions.md` | §7.4, §18.3–18.4, §21 |
 | **P5 品質** | osv・trivy アダプタ / `judge` 集約（匿名化・fallback・disagreement 時のみ） / baseline・`.security-checker-ignore`・コード内注釈 / `rpd` の日次クォータ（`~/.cache/.../quota.json`） / `--estimate`（金額見積り） / `explain <finding-id>` / `providers list`・`providers check` / 構造化ログ（`observability/logging.py`） / `scanner_contract.py` / record・replay カセット | §16, §17.2, §22, §24, §25, §29.3 |
 | **P6 評価と公開** | `benchmarks/`・`eval` コマンド・自前データセット 100 件 / docs 一式（getting-started・configuration・providers・scanners・aggregation・prompts・evaluation・adr/） / 英語 README（正典）+ `README.ja.md` / `CONTRIBUTING.md`・`SECURITY.md`・`CODE_OF_CONDUCT.md`・`CODEOWNERS`・Issue/PR テンプレート・`dependabot.yml` / release-please・PyPI Trusted Publishing・GHCR | §26–27, §30–31 |

@@ -7,14 +7,15 @@
 
 ## v2 (開発中)
 
-Python 実装。移行計画(設計書 §32)のうち **P2.5「`process` transport」まで完了**しています。
+Python 実装。移行計画(設計書 §32)のうち **P3「Multi-LLM」まで完了**しています。
 
 | フェーズ | 内容 | 状態 |
 |---|---|---|
 | P1 | models / config / CLI の骨格、`scan` サブコマンド、semgrep + gitleaks アダプタ | ✅ 完了 |
 | P2 | 単一 LLM レビュー(`http` transport / Context Builder / Structured Output) | ✅ 完了 |
 | P2.5 | `process` transport(API キーなしで動く) | ✅ 完了 |
-| P3〜P7 | Multi-LLM / GitHub 統合 / Judge / 評価と公開 | 未着手 |
+| P3 | 4 方言 (`openai_chat` / `ollama_chat` / `anthropic_messages` / `gemini_generate`)、`weighted` 集約 | ✅ 完了 |
+| P4〜P7 | GitHub 統合 / Judge / 評価と公開 | 未着手 |
 
 ```sh
 uv sync --group dev                      # 開発環境
