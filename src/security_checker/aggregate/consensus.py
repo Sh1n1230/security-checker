@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import statistics
+from collections.abc import Mapping
 
 from security_checker.aggregate.agreement import compute_agreement
 from security_checker.aggregate.base import (
@@ -29,6 +30,11 @@ class ConsensusAggregator:
     """「脆弱」と判定した Reviewer 数と比率で status を決める."""
 
     name = "consensus"
+
+    def __init__(self, weights: Mapping[str, float] | None = None) -> None:
+        # 多数決に重みの概念は無い。registry に戦略ごとの分岐を作らないため、
+        # 受け取るだけ受け取って使わない (§13)。
+        self.weights = dict(weights or {})
 
     def aggregate(
         self,
