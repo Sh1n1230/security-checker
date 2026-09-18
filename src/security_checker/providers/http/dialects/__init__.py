@@ -10,12 +10,13 @@ from security_checker.providers.http.dialects.base import (
     DialectOptions,
     DialectResponse,
 )
+from security_checker.providers.http.dialects.gemini_generate import GeminiGenerateDialect
 from security_checker.providers.http.dialects.ollama_chat import OllamaChatDialect
 from security_checker.providers.http.dialects.openai_chat import OpenAIChatDialect
 
-# P3 で gemini_generate を追加する
 DIALECTS: dict[str, Callable[..., Dialect]] = {
     AnthropicMessagesDialect.name: AnthropicMessagesDialect,
+    GeminiGenerateDialect.name: GeminiGenerateDialect,
     OllamaChatDialect.name: OllamaChatDialect,
     OpenAIChatDialect.name: OpenAIChatDialect,
 }
@@ -26,6 +27,7 @@ __all__ = [
     "Dialect",
     "DialectOptions",
     "DialectResponse",
+    "GeminiGenerateDialect",
     "OllamaChatDialect",
     "OpenAIChatDialect",
 ]

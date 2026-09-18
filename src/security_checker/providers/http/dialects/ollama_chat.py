@@ -29,7 +29,7 @@ class OllamaChatDialect:
         self.num_ctx = resolved.num_ctx or DEFAULT_NUM_CTX
         self.keep_alive = resolved.keep_alive
 
-    def endpoint(self, base_url: str) -> str:
+    def endpoint(self, base_url: str, model: str) -> str:
         return f"{base_url.rstrip('/')}/api/chat"
 
     def headers(self, api_key: str | None) -> dict[str, str]:

@@ -46,7 +46,9 @@ class Dialect(Protocol):
 
     name: str
 
-    def endpoint(self, base_url: str) -> str: ...
+    def endpoint(self, base_url: str, model: str) -> str:
+        """送信先 URL. モデル名を URL に含める形もあるため model を受け取る."""
+        ...
 
     def headers(self, api_key: str | None) -> dict[str, str]: ...
 
