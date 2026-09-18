@@ -30,7 +30,7 @@ def make_request(**overrides: Any) -> CompletionRequest:
 
 
 def test_endpoint_and_headers(dialect: OpenAIChatDialect) -> None:
-    assert dialect.endpoint("https://x/v1/") == "https://x/v1/chat/completions"
+    assert dialect.endpoint("https://x/v1/", "m") == "https://x/v1/chat/completions"
     assert dialect.headers("k")["Authorization"] == "Bearer k"
     assert "Authorization" not in dialect.headers(None)
 

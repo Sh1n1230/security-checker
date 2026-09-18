@@ -25,7 +25,8 @@ class OpenAIChatDialect:
         # この形には文脈長やモデル保持の指定が無いため、受け取っても使わない
         self.options = options or DialectOptions()
 
-    def endpoint(self, base_url: str) -> str:
+    def endpoint(self, base_url: str, model: str) -> str:
+        # この形はモデルをペイロードで送るため、URL には現れない
         return f"{base_url.rstrip('/')}/chat/completions"
 
     def headers(self, api_key: str | None) -> dict[str, str]:

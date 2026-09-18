@@ -39,7 +39,7 @@ class AnthropicMessagesDialect:
         # この形には文脈長やモデル保持の指定が無いため、受け取っても使わない
         self.options = options or DialectOptions()
 
-    def endpoint(self, base_url: str) -> str:
+    def endpoint(self, base_url: str, model: str) -> str:
         # base_url に /v1 を含めて書く人と含めない人の両方がいる。
         # どちらでも同じ URL になるよう正規化する (二重の /v1 を作らない)。
         trimmed = base_url.rstrip("/")

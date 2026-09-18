@@ -45,10 +45,10 @@ def test_endpoint_normalises_a_base_url_with_or_without_v1(
 ) -> None:
     """どちらの書き方でも同じ URL になる (二重の /v1 を作らない)."""
     expected = "https://endpoint.test/v1/messages"
-    assert dialect.endpoint("https://endpoint.test") == expected
-    assert dialect.endpoint("https://endpoint.test/") == expected
-    assert dialect.endpoint("https://endpoint.test/v1") == expected
-    assert dialect.endpoint("https://endpoint.test/v1/") == expected
+    assert dialect.endpoint("https://endpoint.test", "m") == expected
+    assert dialect.endpoint("https://endpoint.test/", "m") == expected
+    assert dialect.endpoint("https://endpoint.test/v1", "m") == expected
+    assert dialect.endpoint("https://endpoint.test/v1/", "m") == expected
 
 
 def test_headers_use_the_dedicated_key_header(dialect: AnthropicMessagesDialect) -> None:

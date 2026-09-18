@@ -15,8 +15,32 @@
 その形を話すエンドポイントなら、提供元がどこであっても同じアダプタで扱えます。
 
 > **実装状況（2026-09 時点）**: `http` transport の方言は `openai_chat` / `ollama_chat` /
-> `anthropic_messages` が実装済みです。`gemini_generate` は P3 の残りとして追加します。
-> `process` transport は実装済みで、**API キーなしで使えます**。
+> `anthropic_messages` / `gemini_generate` の 4 つすべてが実装済みです。
+> `process` transport も実装済みで、**API キーなしで使えます**。
+
+## generateContent 形式のエンドポイント
+
+```yaml
+reviewers:
+  - name: r3
+    transport: http
+    dialect: gemini_generate
+    base_url: https://<endpoint>/v1beta   # model は URL に自動で組み込まれます
+    model: <model-id>
+    api_key_env: MY_API_KEY
+```
+
+この形の特徴は 2 つです。
+
+1. **モデル名が URL に入ります**（`{base_url}/models/{model}:generateContent`）。
+   鍵はクエリ文字列ではなくヘッダで送ります（URL はログや履歴に残りうるため）
+2. **構造化出力のスキーマが OpenAPI のサブセット**です。JSON Schema をそのまま送ると 400 になるので、
+   送る前に変換します。`$ref` は展開し、`anyOf` の null との union は `nullable` に畳み、
+   `additionalProperties` / `maxLength` / `pattern` / `minimum` のような**値の制約は落とします**
+
+落ちた制約はプロンプト側のスキーマ提示には残るため、完全に失われるわけではありません。
+それでもスキーマが拒否される場合は `capabilities.structured_output: json_mode` を指定してください
+（エラーメッセージにもそう出ます）。
 
 ## Messages 形式のエンドポイント
 

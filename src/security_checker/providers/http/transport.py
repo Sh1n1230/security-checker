@@ -120,7 +120,7 @@ class HttpProvider:
 
     async def _post(self, payload: dict[str, Any], *, timeout_s: float) -> dict[str, Any]:
         headers = {**self.dialect_impl.headers(self._api_key), **self._extra_headers}
-        url = self.dialect_impl.endpoint(self.base_url)
+        url = self.dialect_impl.endpoint(self.base_url, self.model)
         try:
             response = await self._client.post(
                 url, json=payload, headers=headers, timeout=timeout_s

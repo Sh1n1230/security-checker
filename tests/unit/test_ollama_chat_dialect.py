@@ -63,7 +63,7 @@ def test_keep_alive_is_omitted_when_unset(dialect: OllamaChatDialect) -> None:
 
 
 def test_endpoint_and_headers(dialect: OllamaChatDialect) -> None:
-    assert dialect.endpoint("http://localhost:11434/") == "http://localhost:11434/api/chat"
+    assert dialect.endpoint("http://localhost:11434/", "m") == "http://localhost:11434/api/chat"
     # ローカル前提だが、認証付きプロキシの背後でも使えるようにする
     assert dialect.headers("k")["Authorization"] == "Bearer k"
     assert "Authorization" not in dialect.headers(None)
