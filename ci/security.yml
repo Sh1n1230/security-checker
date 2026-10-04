@@ -1,6 +1,7 @@
 # このファイルを検査したいリポジトリの .github/workflows/ にコピーして使う。
 # 検査の手順は security-checker 本体の action.yml にあり、ここには呼び出しだけを書く。
-# タグはあとから付け替えられるため、コミット SHA で固定する (`@<SHA> # v1.1.0` の形)。
+# タグはあとから付け替えられるため、コミット SHA で固定する。<SHA> は次で調べられる:
+#   git ls-remote https://github.com/Sh1n1230/security-checker refs/tags/v1.1.0
 # Dependabot (package-ecosystem: github-actions) を入れておけば、新しいリリースに SHA ごと追随する。
 name: Security Check
 
@@ -21,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: Sh1n1230/security-checker@v1.1.0 # SHA での固定を推奨 (上記)
+      - uses: Sh1n1230/security-checker@<SHA> # v1.1.0
         # with:
         #   min-score: 70        # このスコア未満なら失敗 (0 で判定しない)
         #   url: https://...     # 稼働中の Web サービスも検査する
