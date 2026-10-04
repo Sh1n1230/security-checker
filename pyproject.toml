@@ -5,18 +5,25 @@ build-backend = "hatchling.build"
 [project]
 name = "security-checker"
 version = "2.0.0.dev0"
-description = "拡張可能な AI Security Review プラットフォーム"
+description = "AI security review: independent LLMs triage findings from semgrep, gitleaks, osv-scanner and trivy"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
 authors = [{ name = "Sh1n1230" }]
-keywords = ["security", "sast", "llm", "code-review", "sarif"]
+keywords = ["security", "sast", "llm", "code-review", "sarif", "semgrep", "gitleaks", "github-actions"]
 classifiers = [
   "Development Status :: 3 - Alpha",
+  "Environment :: Console",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Security",
+  "Topic :: Software Development :: Quality Assurance",
+  "Typing :: Typed",
 ]
 dependencies = [
   "httpx[http2]>=0.28.1",
@@ -39,6 +46,8 @@ security-checker = "security_checker.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/Sh1n1230/security-checker"
+Documentation = "https://github.com/Sh1n1230/security-checker/tree/main/docs"
+Changelog = "https://github.com/Sh1n1230/security-checker/blob/main/CHANGELOG.md"
 Issues = "https://github.com/Sh1n1230/security-checker/issues"
 
 [dependency-groups]

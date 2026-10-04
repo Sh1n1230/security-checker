@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # security-checker-hook: pre-commit
 # コミット前にステージ済みの変更をシークレット検査する。
-# 導入: tools/install_hooks.sh   /   一時的に外す: git commit --no-verify
+# 導入: contrib/host-audit/install_hooks.sh   /   一時的に外す: git commit --no-verify
 set -uo pipefail
 
 if command -v gitleaks >/dev/null 2>&1; then

@@ -10,12 +10,12 @@
 
 | 項目 | 状態 |
 |---|---|
-| フェーズ | P1〜P5 実装済み。P4 は自リポジトリでの稼働確認待ち。P6 はリリース準備まで。P7 未着手 |
+| フェーズ | P1〜P5 完了（P4 の完了条件 = main の Security タブに `security-checker` の alert、を確認）。v1 撤去済み。P6 はリリース準備まで。P7 未着手 |
 | 品質 | pytest 654 件すべて成功 / カバレッジ 94% / mypy --strict・ruff エラーなし |
 | Scanner | semgrep・gitleaks・osv・trivy |
 | Aggregator | consensus・weighted・judge |
 | レポート | terminal・json・markdown・**sarif**、PR コメント (`comment`) |
-| 残っている人間の作業 | §2 の D1・D2・D8・D9・D12・D13、§3 Step 4 の 5〜6・Step 6・Step 7 |
+| 残っている人間の作業 | §2 の D1・D2・D12・D13、§3 Step 6・Step 7、**Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests" を有効化**（無効のままだと release-please がリリース PR を作れず Release workflow が落ちる） |
 
 以下は 2026-09-11 時点の記録。
 
@@ -57,7 +57,7 @@ P4 で `sarif`・`diff`・`github.*` は実装し、警告から外した。
 | ~~**P5 品質**~~ | **✅ 実装済み（2026-10-04）**: osv・trivy アダプタ / `judge` 集約 / baseline・`.security-checker-ignore`・コード内注釈 / `rpd`（+ 受け付けていたが効いていなかった `tpm`） / `--estimate` / `explain` / `providers list`・`check` / 構造化ログ / `scanner_contract.py` / カセット（仕組みのみ。**実 LLM の記録はまだ無い**） | §16, §17.2, §22, §24, §25, §29.3 |
 | **P6 評価と公開** | **済（2026-10-04）**: データセット 100 件（TP 48 / FP 52）/ docs 一式・`adr/` / 英語 README（正典）+ `README.ja.md` / `release.yml`（release-please・PyPI Trusted Publishing・GHCR。公開は変数で無効化中）/ CI の Docker ビルド確認。**残り（人間の作業）**: 実 LLM での eval と D12 / D1 の配布名確保と Trusted Publisher 登録 / `v2.0.0` リリース / README 以外の docs の英語化 | §26–27, §30–31 |
 | **P7 ゲート** | v1 の生 SARIF 4 category の撤去 / Ruleset に "Require code scanning results"（`security-checker`） | §18.4.5 |
-| **v1 撤去** | `check.sh`・`check.ps1`・`lib/`・`ci/security.yml` の削除 / `tools/` → `contrib/host-audit/` へ移設 / `skills/` を v2 CLI 向けに書き換え / README の v1 節の整理 | §5「v1 資産の扱い」 |
+| ~~**v1 撤去**~~ | **✅ 完了（2026-10-04）**: `check.sh`・`check.ps1`・`lib/` を削除、`tools/` → `contrib/host-audit/`、`skills/` を v2 CLI 向けに書き換え、README の v1 節を整理、`security-windows` ジョブを `.ps1` 構文リントのみの `ps1-lint` に縮小。`ci/security.yml` は v2 の利用サンプルになったため残す | §5「v1 資産の扱い」 |
 
 ### 1.3 テストの穴（L3 自己適用の不変条件, §31.5）
 
@@ -90,8 +90,8 @@ P4 で `sarif`・`diff`・`github.*` は実装し、警告から外した。
 | **D5** | **このリポジトリ自身の dogfooding に使う Reviewer。** `security-checker.local.yml` に Claude Code の CLI（`claude-cli`）が入っているが、開発にも Claude Code を使っている。「開発に使う AI とレビューする AI を分ける」（§9）という原則と、自分のリポジトリで矛盾する | 自リポジトリでは開発に使っていない系統を Reviewer にする。`claude-cli` は他プロジェクト用と割り切るなら、そのままでよい | P3 の E2E 前 |
 | **D6** | **無料 HTTP エンドポイントにコードを送ってよいか。** `openrouter/free` は、振り分け先のモデル提供者がプロンプトを学習・記録する可能性がある | 公開リポジトリのコードに限って許容する。非公開コードには使わない（→ `docs/security-model.md` に明記） | 他リポジトリで使う前 |
 | **D7** | **`process` Reviewer の禁止ツールを列挙する書き方の妥当性。** `--disallowed-tools` は拒否リストなので、対象 CLI にツールが増えると漏れる（空の一時 cwd で起動しているので被害は限定的） | 対象 CLI が許可リスト方式か「ツール全無効」の指定を持っているなら、そちらに切り替える | 次に local 設定を触るとき |
-| **D8** | **v1 資産の撤去時期** | P4 完了時（v2 で CI が回るようになった時点）に削除。`tools/` は `contrib/host-audit/` に移す。別リポジトリ化（R12）は v2.1 以降 | P4 完了時 |
-| **D9** | **脆弱性の報告窓口。** 公開リポジトリなのに Private vulnerability reporting が無効 | 今すぐ有効化し、`SECURITY.md` にその旨を書く | 今すぐ |
+| ~~**D8**~~ | **✅ 完了（2026-10-04）。** v1 資産の撤去時期 | P4 完了時（v2 で CI が回るようになった時点）に削除。`tools/` は `contrib/host-audit/` に移す。別リポジトリ化（R12）は v2.1 以降 | P4 完了時 |
+| ~~**D9**~~ | **✅ 有効化済み（2026-10-04 確認）。** 脆弱性の報告窓口 | 今すぐ有効化し、`SECURITY.md` にその旨を書く | 今すぐ |
 | **D10** | **ドキュメントの正典言語**（§30.1 は英語を正典としている） | **決定（2026-09-15）: 当面は日本語のまま。** 英語化は P6 でまとめて行う | P6 |
 | **D11** | **v2.0 に同梱するプリセット** | **決定（2026-09-15）: 客観条件を満たすものを同梱する。** 対象は `process`: codex CLI・claude CLI、`http`: OpenAI 互換エンドポイント。アルファベット順・順位づけなし | P3 中 |
 | **D12** | **既定の Reviewer 数・集約戦略** | 決めない。D4 の評価結果を見てから決める（R2） | P6 |

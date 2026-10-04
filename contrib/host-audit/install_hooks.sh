@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 対象リポジトリに security-checker の git フックを導入する。
 #
-# 導入されるもの (tools/hooks/ の実体をコピーする):
+# 導入されるもの (contrib/host-audit/hooks/ の実体をコピーする):
 #   pre-commit … コミット前にステージ済みの変更をシークレット検査 (gitleaks)
 #   pre-push   … 保護ブランチへの直接 push と force push を止める
 #

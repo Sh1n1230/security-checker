@@ -6,7 +6,7 @@
 # ただし --no-verify で外せるため、最終的な防御ではない。
 # 実効的な強制は GitHub の Ruleset (サーバ側) が担う。docs/DESIGN.md §31.6 を参照。
 #
-# 導入: tools/install_hooks.sh   /   一時的に外す: git push --no-verify
+# 導入: contrib/host-audit/install_hooks.sh   /   一時的に外す: git push --no-verify
 set -uo pipefail
 
 PROTECTED='^refs/heads/(main|master)$'
