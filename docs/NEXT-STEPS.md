@@ -145,7 +145,7 @@ git diff --stat main docs/design-v2
 
 ### Step 6. P6 評価と公開
 
-1. `eval` コマンドとデータセット 100 件。**Recall を主指標、FN 増加数 0 を必須条件**にする（§27.2）
+1. `eval` コマンドとデータセット 100 件（`eval` コマンドは実装済み・#21。データセットはまだ土台のみ）。**Recall を主指標、FN 増加数 0 を必須条件**にする（§27.2）
 2. 結果を見て D12（既定の Reviewer 数・戦略）を決める。効果がなければ README に「1 モデルで十分」と正直に書く
 3. docs 一式、英語 README、OSS 付帯ファイル（§31.4）
 4. release-please → PyPI（Trusted Publishing、D1 の名前で）→ GHCR → `v2.0.0`

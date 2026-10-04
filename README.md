@@ -15,7 +15,9 @@ Python 実装。移行計画(設計書 §32)のうち **P3「Multi-LLM」まで�
 | P2 | 単一 LLM レビュー(`http` transport / Context Builder / Structured Output) | ✅ 完了 |
 | P2.5 | `process` transport(API キーなしで動く) | ✅ 完了 |
 | P3 | 4 方言 (`openai_chat` / `ollama_chat` / `anthropic_messages` / `gemini_generate`)、`weighted` 集約 | ✅ 完了 |
-| P4〜P7 | GitHub 統合 / Judge / 評価と公開 | 未着手 |
+| P4〜P5 | GitHub 統合 / Judge | 未着手 |
+| P6 | 評価と公開 | 🚧 `eval` コマンドとデータセットの土台まで([docs/evaluation.md](docs/evaluation.md)) |
+| P7 | ゲート | 未着手 |
 
 ```sh
 uv sync --group dev                      # 開発環境
@@ -25,6 +27,7 @@ uv run security-checker review .         # スキャン結果を LLM Reviewer �
 uv run security-checker review . --dry-run       # 送信予定の内容を送信前に全部見る
 uv run security-checker config show --explain    # 解決された設定と、その決定元
 uv run security-checker init                     # 環境を検出して設定を生成する
+uv run security-checker eval --dataset benchmarks/datasets/handmade-v1  # ラベル付きデータでレビュー精度を測る
 ```
 
 ### Reviewer の設定 (review 用)
@@ -233,7 +236,7 @@ jobs:
       security-events: write # SARIF を Code Scanning に登録するため
     steps:
       - uses: actions/checkout@<SHA> # vX.Y.Z
-      - uses: Sh1n1230/security-checker@<SHA> # v1.1.0
+      - uses: Sh1n1230/security-checker@<SHA> # vX.Y.Z
         with:
           min-score: 70 # このスコア未満なら失敗 (0 で判定しない)
 ```
@@ -247,7 +250,8 @@ jobs:
 
 出力として `score` と `rank` を返します。本体はワークスペースの外に展開されるので、
 security-checker 自身のファイル(`uv.lock` など)が検査対象に混ざることはありません。
-タグは付け替えられるため、参照はコミット SHA で固定し、更新は Dependabot に任せてください。
+タグは付け替えられるため、参照は[最新のリリース](https://github.com/Sh1n1230/security-checker/releases/latest)の
+コミット SHA で固定し、更新は Dependabot に任せてください。
 
 ## GitHub Code Scanning 連携
 
