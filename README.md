@@ -139,7 +139,7 @@ output:
 ## v1 の3つの使い方
 
 1. **CLI**: `./check.sh <対象ディレクトリ>` (Windowsは `pwsh ./check.ps1 <対象ディレクトリ>`) でスコア(100点満点)とランクを出す
-2. **CI**: [ci/security.yml](ci/security.yml) を GitHub Actions にコピーして push 毎に自動検査(GitHub Code Scanning への SARIF 登録つき)
+2. **CI**: GitHub Actions から `uses: Sh1n1230/security-checker@<SHA>` で呼んで push 毎に自動検査(GitHub Code Scanning への SARIF 登録つき)。[ci/security.yml](ci/security.yml) をコピーすれば始められます
 3. **手動チェックリスト**: [checklist/CHECKLIST.md](checklist/CHECKLIST.md) でツールで測れない項目を確認
 
 ## セットアップ
@@ -219,22 +219,52 @@ pwsh ./tools/windows/run_all.ps1 [-Project <dir>] [-Domain example.com]
 
 詳細な検出内容は `reports/summary.json` と各 `reports/*_raw.json` に保存されます。
 
+## GitHub Actions で使う
+
+検査の手順はリポジトリ直下の [action.yml](action.yml)(composite action)にまとまっています。
+各リポジトリのワークフローには呼び出しの数行だけを書きます([ci/security.yml](ci/security.yml) がそのサンプル)。
+
+```yaml
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # SARIF を Code Scanning に登録するため
+    steps:
+      - uses: actions/checkout@<SHA> # vX.Y.Z
+      - uses: Sh1n1230/security-checker@<SHA> # v1.1.0
+        with:
+          min-score: 70 # このスコア未満なら失敗 (0 で判定しない)
+```
+
+| 入力 | 既定値 | 内容 |
+|---|---|---|
+| `min-score` | `70` | このスコア未満ならジョブを失敗させる。`0` で判定しない |
+| `url` | (なし) | 稼働中の Web サービスも検査する |
+| `upload-sarif` | `true` | SARIF を Code Scanning に登録する。GitHub Advanced Security の無いプライベートリポジトリでは `false` |
+| `token` | `github.token` | スキャナの最新版を GitHub API で調べる際のレート制限回避用 |
+
+出力として `score` と `rank` を返します。本体はワークスペースの外に展開されるので、
+security-checker 自身のファイル(`uv.lock` など)が検査対象に混ざることはありません。
+タグは付け替えられるため、参照はコミット SHA で固定し、更新は Dependabot に任せてください。
+
 ## GitHub Code Scanning 連携
 
-`ci/security.yml` は、スコア判定に加えて 4 つのスキャナの SARIF を GitHub Code Scanning に
+この action は、スコア判定に加えて 4 つのスキャナの SARIF を GitHub Code Scanning に
 アップロードします。Security タブに履歴が残り、指摘が PR の Files changed に直接表示されます。
 
 必要な設定:
 
-- ワークフローの job に `permissions: security-events: write`(`ci/security.yml` に記載済み)
+- ワークフローの job に `permissions: security-events: write`(`ci/security.yml` に記載済み)。不要なら `upload-sarif: false`
 - パブリックリポジトリなら追加費用なし。**プライベートリポジトリでは GitHub Advanced Security が必要**です
 
 注意点:
 
 - **fork からの PR ではアップロードできません。** `GITHUB_TOKEN` が read-only に降格されるためで、
-  ワークフローはこの場合スキップして、その旨をジョブサマリに残します。
+  action はこの場合スキップして、その旨をジョブサマリに残します。
 - 空の SARIF を上げると Code Scanning 上の既存アラートが「解決済み」として閉じられ、
-  スキャナの故障が「指摘ゼロ」に見えてしまいます。ワークフローは生成に失敗したスキャナの
+  スキャナの故障が「指摘ゼロ」に見えてしまいます。action は生成に失敗したスキャナの
   結果をアップロードせず、ジョブを失敗させます。
 - Ruleset の **"Require code scanning results"** でマージ条件にもできますが、
   上記の fork PR の制約があるため、外部からの PR を受け付けるリポジトリでは慎重に判断してください。
