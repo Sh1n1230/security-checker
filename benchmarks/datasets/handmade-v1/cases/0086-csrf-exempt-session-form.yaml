@@ -1,0 +1,34 @@
+# 真陽性: Cookie セッションで認証する画面の送金処理から CSRF 保護を外している。
+id: hand-0086
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.django.security.audit.csrf-exempt
+  category: sast
+  message: csrf_exempt で CSRF 保護を無効にしています
+  path: wallet/views.py
+  start_line: 6
+  end_line: 6
+  severity_reported: medium
+  cwe:
+  - CWE-352
+code: |
+  from django.contrib.auth.decorators import login_required
+  from django.shortcuts import redirect
+  from django.views.decorators.csrf import csrf_exempt
+
+
+  @csrf_exempt  # フォームの送信がたまに 403 になるので外した
+  @login_required
+  def transfer(request):
+      transfer_points(request.user, request.POST["to"], int(request.POST["amount"]))
+      return redirect("wallet:home")
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-352
+  severity: high
+  rationale: |
+    Cookie セッション (login_required) で認証する状態変更処理から CSRF 保護を外している。
+    利用者が罠サイトを開くだけで、本人の権限でポイントを攻撃者に送金させられる。

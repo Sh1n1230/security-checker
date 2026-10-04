@@ -1,0 +1,41 @@
+# 誤検知: 自分で書いたローカルキャッシュを読むだけの pickle。
+id: hand-0010
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.deserialization.avoid-pickle
+  category: sast
+  message: pickle を使っています
+  path: tools/cache.py
+  start_line: 11
+  end_line: 11
+  severity_reported: medium
+  cwe:
+  - CWE-502
+code: |
+  import pickle
+  from pathlib import Path
+
+  CACHE = Path.home() / ".cache" / "mytool" / "index.pkl"
+
+
+  def load_index():
+      if not CACHE.exists():
+          return None
+      with CACHE.open("rb") as f:
+          return pickle.load(f)
+
+
+  def save_index(index):
+      CACHE.parent.mkdir(parents=True, exist_ok=True)
+      with CACHE.open("wb") as f:
+          pickle.dump(index, f)
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: info
+  rationale: |
+    読むのは同じツールが利用者のホームディレクトリに書いたファイルだけで、外部からの入力経路が無い。
+    ホームディレクトリに書き込める攻撃者は既に利用者と同等の権限を持っている。
+    設計上の好みとして JSON にする余地はあるが、脆弱性ではない。

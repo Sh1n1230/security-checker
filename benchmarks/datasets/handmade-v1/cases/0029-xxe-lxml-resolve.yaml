@@ -1,0 +1,35 @@
+# 真陽性: アップロードされた XML を外部実体解決ありで解析する。
+id: hand-0029
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.use-defused-xml
+  category: sast
+  message: XML パーサが外部実体を解決します
+  path: app/invoices.py
+  start_line: 5
+  end_line: 5
+  severity_reported: medium
+  cwe:
+  - CWE-611
+code: |
+  from lxml import etree
+  from flask import Flask, request
+
+  app = Flask(__name__)
+  parser = etree.XMLParser(resolve_entities=True, no_network=False)
+
+
+  @app.post("/invoices")
+  def upload_invoice():
+      tree = etree.fromstring(request.data, parser)
+      return {"total": tree.findtext("total")}
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-611
+  severity: high
+  rationale: |
+    外部実体の解決とネットワークアクセスを明示的に有効にしたパーサで、リクエスト本文を解析している。
+    `<!ENTITY x SYSTEM "file:///etc/passwd">` を total に展開させてファイルを読み出せる。

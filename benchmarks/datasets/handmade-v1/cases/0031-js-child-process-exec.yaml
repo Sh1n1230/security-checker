@@ -1,0 +1,36 @@
+# 真陽性: Express のクエリ値を child_process.exec に連結する。
+id: hand-0031
+source: handmade
+language: javascript
+candidate:
+  scanner: semgrep
+  rule_id: javascript.lang.security.detect-child-process
+  category: sast
+  message: child_process.exec にユーザー入力が渡っています
+  path: src/routes/ping.js
+  start_line: 7
+  end_line: 7
+  severity_reported: high
+  cwe:
+  - CWE-78
+code: |
+  const { exec } = require("child_process");
+  const express = require("express");
+  const router = express.Router();
+
+  router.get("/ping", (req, res) => {
+    const host = req.query.host;
+    exec(`ping -c 1 ${host}`, (err, stdout) => {
+      res.send(stdout);
+    });
+  });
+
+  module.exports = router;
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-78
+  severity: critical
+  rationale: |
+    host クエリがシェルに解釈される文字列へ埋め込まれ、出力も返している。`8.8.8.8; cat /etc/passwd`
+    で任意コマンドを実行して結果を読める。

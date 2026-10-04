@@ -1,0 +1,32 @@
+# 真陽性: 利用者のアップロード (本人確認書類) を置くバケットが公開読み取り。
+id: hand-0079
+source: handmade
+language: hcl
+candidate:
+  scanner: trivy
+  rule_id: AVD-AWS-0092
+  category: config
+  message: S3 バケットの ACL が public-read です
+  path: infra/storage.tf
+  start_line: 7
+  end_line: 7
+  severity_reported: high
+  cwe:
+  - CWE-732
+code: |
+  resource "aws_s3_bucket" "kyc_documents" {
+    bucket = "example-kyc-documents"
+  }
+
+  resource "aws_s3_bucket_acl" "kyc_documents" {
+    bucket = aws_s3_bucket.kyc_documents.id
+    acl    = "public-read"
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-732
+  severity: critical
+  rationale: |
+    本人確認書類 (KYC) を置くバケットが誰でも読める。オブジェクトのキーが推測・列挙されれば
+    大量の個人情報が認証なしに漏れる。

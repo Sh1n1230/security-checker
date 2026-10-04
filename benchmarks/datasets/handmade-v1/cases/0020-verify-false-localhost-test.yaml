@@ -1,0 +1,30 @@
+# 誤検知: テストで自己署名のローカルサーバに繋ぐだけ。
+id: hand-0020
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.requests.security.disabled-cert-validation
+  category: sast
+  message: TLS 証明書の検証が無効です
+  path: tests/test_tls_server.py
+  start_line: 6
+  end_line: 6
+  severity_reported: high
+  cwe:
+  - CWE-295
+code: |
+  import requests
+
+
+  def test_server_serves_health(tls_server):
+      # tls_server はテスト内で起動した自己署名証明書の 127.0.0.1 サーバ
+      response = requests.get(f"https://127.0.0.1:{tls_server.port}/health", verify=False)
+      assert response.status_code == 200
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    テストコードで、接続先はテスト内で起動した 127.0.0.1 の自己署名サーバに固定されている。
+    本番の通信経路ではなく、守るべき秘密も送っていない。

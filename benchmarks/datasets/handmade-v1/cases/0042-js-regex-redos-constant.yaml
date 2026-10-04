@@ -1,0 +1,31 @@
+# 誤検知: 正規表現は固定で、入力長も上限で切っている。
+id: hand-0042
+source: handmade
+language: javascript
+candidate:
+  scanner: semgrep
+  rule_id: javascript.lang.security.audit.detect-non-literal-regexp
+  category: sast
+  message: 動的に構築した正規表現を使っています
+  path: src/validate.js
+  start_line: 2
+  end_line: 2
+  severity_reported: medium
+  cwe:
+  - CWE-1333
+code: |
+  const SLUG = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
+  const slugPattern = new RegExp(SLUG);
+
+  function isSlug(value) {
+    return typeof value === "string" && value.length <= 64 && slugPattern.test(value);
+  }
+
+  module.exports = { isSlug };
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    RegExp の元はモジュール内の定数で、利用者が式を変えられない。パターンも区切り文字で
+    分割された線形のもので、さらに入力長を 64 で切っているため ReDoS にならない。

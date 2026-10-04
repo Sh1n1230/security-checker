@@ -1,0 +1,30 @@
+# 誤検知: math/rand をおすすめ表示の並べ替えに使っているだけ。
+id: hand-0048
+source: handmade
+language: go
+candidate:
+  scanner: semgrep
+  rule_id: go.lang.security.audit.crypto.math_random.math-random-used
+  category: sast
+  message: 暗号学的に安全でない乱数を使っています
+  path: internal/feed/shuffle.go
+  start_line: 7
+  end_line: 7
+  severity_reported: medium
+  cwe:
+  - CWE-338
+code: |
+  package feed
+
+  import "math/rand"
+
+  // Shuffle はおすすめ記事の表示順を毎回変える
+  func Shuffle(items []Item) {
+      rand.Shuffle(len(items), func(i, j int) { items[i], items[j] = items[j], items[i] })
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    表示順のばらつきに使っているだけで、予測されても秘密や認可に影響しない。

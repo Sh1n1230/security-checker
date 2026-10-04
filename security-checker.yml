@@ -5,7 +5,7 @@ version: 1
 
 target:
   root: .
-  mode: auto # auto | full | diff (diff は P4 で有効化)
+  mode: auto # auto | full | diff (auto: PR の文脈なら diff)
   exclude:
     - "**/vendor/**"
     - "**/node_modules/**"
@@ -26,7 +26,8 @@ scanners:
     timeout_s: 600
   gitleaks:
     enabled: true
-  # osv / trivy のアダプタは P5 で実装する
+  # osv (依存の既知脆弱性) / trivy (設定ファイルの誤設定) は導入済みなら有効にできる。
+  # このリポジトリでは CI に入れていないため無効にしている
   osv: { enabled: false }
   trivy: { enabled: false }
 
@@ -38,9 +39,10 @@ output:
   dir: .security-checker/
   formats: [terminal, json]
 
-logging:
-  level: info
-  format: text
+# 構造化ログ (標準エラー)。この節を書いたときだけ出力される (既定はノイズにしないため無効)
+# logging:
+#   level: info     # debug | info | warn | error
+#   format: json    # text | json
 # reviewers を定義すると `security-checker review` が使えるようになる。
 # 既定の Reviewer は持たない (特定ベンダーを標準にしないため)。
 # API キーは api_key_env で環境変数名のみを指定する (平文の api_key はスキーマに存在しない)。
@@ -52,7 +54,7 @@ logging:
 #     base_url: https://<endpoint>/v1
 #     model: <model-id>
 #     api_key_env: MY_API_KEY
-#     rate_limit: { rpm: 10 }
+#     rate_limit: { rpm: 10, tpm: 200000, rpd: 250 }   # rpd は ~/.cache に日次で数える
 #
 # API キーを持っていない場合は process transport を使う。認証は起動される
 # コマンド側の既存ログインに委ねる。書き込み能力の無効化は利用者の責任
@@ -69,10 +71,22 @@ logging:
 # 書く (git 管理外・後勝ちで重なる)。`security-checker init --local` で生成できる。
 #
 # aggregation:
-#   strategy: consensus     # 複数 Reviewer 時の集約: consensus | weighted (judge は P5)
+#   strategy: consensus     # 複数 Reviewer 時の集約: consensus | weighted | judge
 #   weighted:
 #     threshold: 0.6        # 重み付きスコアがこれ以上なら脆弱と判定する
 #   # 重みは reviewers[].weight で指定する。勘で決めず eval の結果を根拠にすること
+#   judge:
+#     reviewer: r3                # Judge 役 (一次レビューには参加しない)
+#     fallback: consensus         # Judge が失敗したとき / Judge に回さない候補
+#     only_on_disagreement: true  # 割れた候補だけを Judge に回す
+#
+# policy:
+#   baseline: .security-checker-baseline.json   # `security-checker baseline update` で作る
+#
+# github:                   # PR コメント (`security-checker comment` / GitHub Action)
+#   inline_min_status: likely   # confirmed | likely | review_required
+#   max_inline_comments: 20
+#   comment_on_clean: false     # 指摘ゼロで既存コメントが無ければ何も投稿しない
 #
 # budget:
 #   max_candidates: 200     # レビューに回す候補の上限

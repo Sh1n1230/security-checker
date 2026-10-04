@@ -1,0 +1,30 @@
+# 真陽性: ログイン後のリダイレクト先を検証していない。
+id: hand-0039
+source: handmade
+language: javascript
+candidate:
+  scanner: semgrep
+  rule_id: javascript.express.security.audit.express-open-redirect
+  category: sast
+  message: ユーザー入力の URL にリダイレクトしています
+  path: src/routes/login.js
+  start_line: 5
+  end_line: 5
+  severity_reported: medium
+  cwe:
+  - CWE-601
+code: |
+  router.post("/login", async (req, res) => {
+    const user = await authenticate(req.body.email, req.body.password);
+    if (!user) return res.status(401).send("invalid");
+    req.session.userId = user.id;
+    res.redirect(req.query.next || "/");
+  });
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-601
+  severity: low
+  rationale: |
+    next に `https://evil.example/` を渡すと、正規のログイン直後に外部サイトへ誘導できる。
+    フィッシングの踏み台になるが、それ単体で資格情報や権限は奪えないため low。

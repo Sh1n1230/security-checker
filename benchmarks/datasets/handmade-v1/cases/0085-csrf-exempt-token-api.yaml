@@ -1,0 +1,34 @@
+# 誤検知: CSRF 保護を外しているが、Cookie を使わない Bearer トークン認証の API。
+id: hand-0085
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.django.security.audit.csrf-exempt
+  category: sast
+  message: csrf_exempt で CSRF 保護を無効にしています
+  path: api/views.py
+  start_line: 7
+  end_line: 7
+  severity_reported: medium
+  cwe:
+  - CWE-352
+code: |
+  from django.http import JsonResponse
+  from django.views.decorators.csrf import csrf_exempt
+
+  from api.auth import require_bearer_token
+
+
+  @csrf_exempt
+  @require_bearer_token  # Authorization: Bearer ヘッダのみで認証。Cookie セッションは使わない
+  def create_item(request):
+      item = Item.objects.create(owner=request.api_user, name=request.POST["name"])
+      return JsonResponse({"id": item.id})
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    CSRF はブラウザが自動で付ける Cookie を悪用する攻撃。この API は Authorization ヘッダの
+    トークンだけで認証し、ブラウザが他サイトからのリクエストに自動で付ける資格情報が無いので成立しない。

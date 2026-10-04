@@ -1,0 +1,29 @@
+# 真陽性: 本番コードの認可チェックを assert で書いている (python -O で消える)。
+id: hand-0088
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.assert-used
+  category: sast
+  message: assert は最適化実行時に除去されます
+  path: app/admin.py
+  start_line: 2
+  end_line: 2
+  severity_reported: low
+  cwe:
+  - CWE-703
+code: |
+  def delete_user(current_user, target_id: int) -> None:
+      assert current_user.is_admin, "admin only"
+      User.objects.filter(id=target_id).delete()
+
+  # Dockerfile: CMD ["python", "-O", "-m", "gunicorn", "app.wsgi"]
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-703
+  severity: high
+  rationale: |
+    本番は python -O で起動されており、assert 文はバイトコードから除去される。認可チェックが
+    丸ごと消え、ログインできる誰でも任意の利用者を削除できる。

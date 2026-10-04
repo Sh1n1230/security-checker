@@ -1,0 +1,35 @@
+# 真陽性: リクエスト本文を yaml.load (FullLoader 以前の unsafe) で読む。
+id: hand-0011
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.deserialization.avoid-pyyaml-load
+  category: sast
+  message: yaml.load に安全でない Loader を指定しています
+  path: app/import_api.py
+  start_line: 9
+  end_line: 9
+  severity_reported: high
+  cwe:
+  - CWE-502
+code: |
+  import yaml
+  from flask import Flask, request
+
+  app = Flask(__name__)
+
+
+  @app.post("/import")
+  def import_config():
+      config = yaml.load(request.data, Loader=yaml.UnsafeLoader)
+      apply(config)
+      return "imported"
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-502
+  severity: critical
+  rationale: |
+    UnsafeLoader は !!python/object/apply などのタグで任意の Python オブジェクトを生成でき、
+    リクエスト本文から直接読み込んでいるため認証なしに任意コード実行になる。

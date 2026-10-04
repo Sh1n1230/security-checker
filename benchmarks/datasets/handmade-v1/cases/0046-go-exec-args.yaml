@@ -1,0 +1,35 @@
+# 誤検知: exec.Command に引数を分けて渡している (シェルを経由しない)。
+id: hand-0046
+source: handmade
+language: go
+candidate:
+  scanner: semgrep
+  rule_id: go.lang.security.audit.dangerous-exec-command
+  category: sast
+  message: exec.Command に変数が渡っています
+  path: internal/git/clone.go
+  start_line: 10
+  end_line: 10
+  severity_reported: high
+  cwe:
+  - CWE-78
+code: |
+  package git
+
+  import (
+      "context"
+      "os/exec"
+  )
+
+  // Clone は設定ファイルに書かれたリポジトリ URL を取得する (利用者入力ではない)
+  func Clone(ctx context.Context, url, dest string) error {
+      cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--", url, dest)
+      return cmd.Run()
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    シェルを介さず引数を分けて渡し、`--` でオプションの終わりを明示しているため url が
+    `--upload-pack=...` のようなオプションとして解釈されることも無い。値も設定ファイル由来。

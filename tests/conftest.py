@@ -20,3 +20,18 @@ def raw_fixture():
 @pytest.fixture
 def fixture_dir() -> Path:
     return FIXTURE_DIR
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    # 実 LLM の応答をカセットに記録する (鍵が必要・手動実行のみ。設計書 §25.3)
+    parser.addoption(
+        "--record",
+        action="store_true",
+        default=False,
+        help="実 LLM を呼んで tests/cassettes/ に記録し直す",
+    )
+
+
+@pytest.fixture
+def record_mode(request: pytest.FixtureRequest) -> bool:
+    return bool(request.config.getoption("--record"))

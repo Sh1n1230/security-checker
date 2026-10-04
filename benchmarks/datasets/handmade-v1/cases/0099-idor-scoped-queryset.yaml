@@ -1,0 +1,33 @@
+# 誤検知: クエリを利用者のスコープで絞っている (ルールが get_object_or_404 だけを見ている)。
+id: hand-0099
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.django.security.audit.missing-object-permission
+  category: sast
+  message: オブジェクト単位の権限確認が見当たりません
+  path: billing/views.py
+  start_line: 10
+  end_line: 10
+  severity_reported: medium
+  cwe:
+  - CWE-639
+code: |
+  from django.contrib.auth.decorators import login_required
+  from django.http import FileResponse
+  from django.shortcuts import get_object_or_404
+
+  from billing.models import Invoice
+
+
+  @login_required
+  def download_invoice(request, invoice_id: int):
+      invoice = get_object_or_404(Invoice.objects.filter(owner=request.user), id=invoice_id)
+      return FileResponse(invoice.pdf.open("rb"))
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    検索対象を owner=request.user のクエリセットに絞っているため、他人の請求書の ID を渡しても 404 になる。

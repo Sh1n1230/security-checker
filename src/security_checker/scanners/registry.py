@@ -9,13 +9,17 @@ from typing import Any
 from security_checker.config.schema import Config, ScannerConfig
 from security_checker.scanners.base import Scanner
 from security_checker.scanners.gitleaks import GitleaksScanner
+from security_checker.scanners.osv import OsvScanner
 from security_checker.scanners.semgrep import SemgrepScanner
+from security_checker.scanners.trivy import TrivyScanner
 
 ENTRY_POINT_GROUP = "security_checker.scanners"
 
 BUILTIN_SCANNERS: dict[str, Callable[[Any], Scanner]] = {
     "semgrep": SemgrepScanner,
     "gitleaks": GitleaksScanner,
+    "osv": OsvScanner,
+    "trivy": TrivyScanner,
 }
 
 
@@ -45,7 +49,6 @@ def build_scanners(config: Config) -> tuple[list[Scanner], list[str]]:
             continue
         factory = factories.get(name)
         if factory is None:
-            # P1 時点では osv / trivy のアダプタは未実装 (P5 で追加する)。
             warnings.append(f"scanner '{name}' は未実装のため無効化しました")
             continue
         scanners.append(factory(scanner_settings))

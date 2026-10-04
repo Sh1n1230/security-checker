@@ -1,0 +1,25 @@
+# 誤検知: テストコードの assert (最適化で消えることを問題にしている)。
+id: hand-0087
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.assert-used
+  category: sast
+  message: assert は最適化実行時に除去されます
+  path: tests/test_orders.py
+  start_line: 3
+  end_line: 3
+  severity_reported: low
+  cwe:
+  - CWE-703
+code: |
+  def test_total_includes_tax(order_factory):
+      order = order_factory(items=[100, 200], tax_rate=0.1)
+      assert order.total == 330
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    pytest のテストの assert で、本番コードの入力検証や認可に使われていない。

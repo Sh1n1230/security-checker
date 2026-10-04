@@ -1,0 +1,35 @@
+# 誤検知: PreparedStatement でバインドしている (ルールが文字列連結の有無を見ていない)。
+id: hand-0050
+source: handmade
+language: java
+candidate:
+  scanner: semgrep
+  rule_id: java.lang.security.audit.sqli.jdbc-sqli
+  category: sast
+  message: SQL にユーザー入力が含まれています
+  path: src/main/java/com/example/user/UserRepository.java
+  start_line: 9
+  end_line: 9
+  severity_reported: high
+  cwe:
+  - CWE-89
+code: |
+  package com.example.user;
+
+  import java.sql.Connection;
+  import java.sql.PreparedStatement;
+  import java.sql.ResultSet;
+
+  public class UserRepository {
+      public ResultSet findByEmail(Connection conn, String email) throws Exception {
+          PreparedStatement stmt = conn.prepareStatement("SELECT id, name FROM users WHERE email = ?");
+          stmt.setString(1, email);
+          return stmt.executeQuery();
+      }
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    SQL は固定文字列で、email は setString でバインドされる。注入経路は無い。

@@ -1,0 +1,27 @@
+# 誤検知: innerHTML に入れるのはコード内の固定文字列だけ。
+id: hand-0034
+source: handmade
+language: javascript
+candidate:
+  scanner: semgrep
+  rule_id: javascript.browser.security.insecure-document-method
+  category: sast
+  message: innerHTML にデータを代入しています
+  path: web/spinner.js
+  start_line: 4
+  end_line: 4
+  severity_reported: medium
+  cwe:
+  - CWE-79
+code: |
+  const SPINNER = '<div class="spinner" role="status"><span class="sr-only">Loading</span></div>';
+
+  export function showSpinner(container) {
+    container.innerHTML = SPINNER;
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    代入されるのはモジュール内の定数で、外部の値が入り込む経路が無い。

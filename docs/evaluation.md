@@ -44,6 +44,23 @@ TP にも FN にも数えず、**「人間に渡した」という第 3 の結�
 Provider のエラーは採点対象から外し、`errors` として別に数えます。
 **故障を「精度の問題」に化けさせない**ためです。
 
+## 同梱のデータセット
+
+`benchmarks/datasets/handmade-v1/` に 100 件 (真陽性 48 / 誤検知 52) あります。
+
+| カテゴリ | 件数 | 主な題材 |
+|---|---|---|
+| sast | 67 | コマンド / SQL インジェクション、デシリアライズ、パストラバーサル、XSS、SSRF、XXE、CSRF、IDOR、乱数、TLS 検証 |
+| secret | 15 | 本番設定・CI・フロントエンドへの直書き、`.env.example`・ドキュメント例・テスト用の値 |
+| config | 10 | Kubernetes・Dockerfile・Terraform (S3・セキュリティグループ) |
+| dependency | 8 | 到達する脆弱性 / 使っていない機能・開発依存・インストールされない extra |
+
+言語は Python・JavaScript / TypeScript・Go・Java と設定ファイル。
+誤検知のケースは「スキャナのルールは正しく反応したが、文脈 (到達可能性・用途・対策済み) を見れば
+問題ではない」ものを中心にしています。LLM レビューの価値はそこにあるためです。
+
+シークレットの値はすべてダミーです。リポジトリ自身の gitleaks 検査からは `.gitleaks.toml` で除外しています。
+
 ## ケースを足す
 
 `benchmarks/datasets/<name>/cases/<id>.yaml` に 1 件 1 ファイルで置きます。

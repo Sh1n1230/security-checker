@@ -1,0 +1,35 @@
+# 真陽性: 利用者が登録した URL にサーバから無制限にリクエストする (SSRF)。
+id: hand-0025
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.flask.security.injection.ssrf-requests
+  category: sast
+  message: ユーザー入力の URL にリクエストしています
+  path: app/webhooks.py
+  start_line: 10
+  end_line: 10
+  severity_reported: medium
+  cwe:
+  - CWE-918
+code: |
+  import requests
+  from flask import Flask, request
+
+  app = Flask(__name__)
+
+
+  @app.post("/webhooks/test")
+  def test_webhook():
+      url = request.json["url"]
+      response = requests.get(url, timeout=5)
+      return {"status": response.status_code, "body": response.text[:500]}
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-918
+  severity: high
+  rationale: |
+    任意の URL にサーバから接続し、応答本文の先頭を返している。`http://169.254.169.254/latest/meta-data/`
+    のようなクラウドのメタデータや内部サービスを読み出せる。応答を返すため blind ではなく high。

@@ -1,0 +1,33 @@
+# 真陽性: mysql2 のクエリをテンプレートリテラルで組み立てる。
+id: hand-0037
+source: handmade
+language: javascript
+candidate:
+  scanner: semgrep
+  rule_id: javascript.lang.security.audit.sqli.node-mysql-sqli
+  category: sast
+  message: SQL をテンプレートリテラルで組み立てています
+  path: src/routes/orders.js
+  start_line: 5
+  end_line: 5
+  severity_reported: high
+  cwe:
+  - CWE-89
+code: |
+  const db = require("../db");
+
+  async function listOrders(req, res) {
+    const status = req.query.status;
+    const [rows] = await db.query(`SELECT * FROM orders WHERE user_id = ${req.user.id} AND status = '${status}'`);
+    res.json(rows);
+  }
+
+  module.exports = { listOrders };
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-89
+  severity: high
+  rationale: |
+    status クエリがエスケープなしで SQL に埋め込まれる。ログイン済みの利用者が
+    `x' OR '1'='1` で他人の注文を含む全件を読める。認証が必要なため critical ではなく high。

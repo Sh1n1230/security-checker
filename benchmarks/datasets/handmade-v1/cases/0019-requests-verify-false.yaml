@@ -1,0 +1,38 @@
+# 真陽性: 決済 API への通信で証明書検証を無効にしている。
+id: hand-0019
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.requests.security.disabled-cert-validation
+  category: sast
+  message: TLS 証明書の検証が無効です
+  path: app/payments.py
+  start_line: 12
+  end_line: 12
+  severity_reported: high
+  cwe:
+  - CWE-295
+code: |
+  import os
+  import requests
+
+  API = "https://api.payments.example.com/v1/charges"
+
+
+  def charge(amount: int, token: str) -> dict:
+      response = requests.post(
+          API,
+          json={"amount": amount, "source": token},
+          headers={"Authorization": f"Bearer {os.environ['PAYMENT_KEY']}"},
+          verify=False,
+      )
+      return response.json()
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-295
+  severity: high
+  rationale: |
+    本番の決済 API に API キーを付けて送る通信で証明書検証を切っている。経路上の攻撃者が
+    証明書を偽装して API キーとカード情報を盗める。経路上にいる必要があるため critical ではなく high。

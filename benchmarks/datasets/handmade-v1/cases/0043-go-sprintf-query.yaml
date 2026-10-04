@@ -1,0 +1,37 @@
+# 真陽性: fmt.Sprintf で SQL を組み立てる。
+id: hand-0043
+source: handmade
+language: go
+candidate:
+  scanner: semgrep
+  rule_id: go.lang.security.audit.database.string-formatted-query
+  category: sast
+  message: フォーマット文字列で SQL を組み立てています
+  path: internal/store/users.go
+  start_line: 11
+  end_line: 11
+  severity_reported: high
+  cwe:
+  - CWE-89
+code: |
+  package store
+
+  import (
+      "database/sql"
+      "fmt"
+      "net/http"
+  )
+
+  func FindUser(db *sql.DB, r *http.Request) (*sql.Rows, error) {
+      name := r.URL.Query().Get("name")
+      query := fmt.Sprintf("SELECT id, email FROM users WHERE name = '%s'", name)
+      return db.Query(query)
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-89
+  severity: high
+  rationale: |
+    name クエリパラメータが引用符の中にそのまま埋め込まれる。`' OR '1'='1` で全利用者のメールを
+    取得できる。プレースホルダ ($1 / ?) を使うべき。

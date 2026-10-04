@@ -1,0 +1,37 @@
+# 誤検知: CSI ドライバのノードプラグインは仕様上 privileged が必要。
+id: hand-0076
+source: handmade
+language: yaml
+candidate:
+  scanner: trivy
+  rule_id: KSV-0017
+  category: config
+  message: 特権コンテナが有効です
+  path: deploy/csi/node.yaml
+  start_line: 14
+  end_line: 14
+  severity_reported: high
+  cwe:
+  - CWE-250
+code: |
+  apiVersion: apps/v1
+  kind: DaemonSet
+  metadata:
+    name: csi-node
+    namespace: kube-system
+  spec:
+    template:
+      spec:
+        containers:
+          - name: csi-driver
+            image: registry.example.com/csi-driver:2.4.1
+            # ホストのブロックデバイスをマウントするため必須 (CSI の node plugin)
+            securityContext:
+              privileged: true
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: info
+  rationale: |
+    CSI の node plugin はホストのデバイスをマウントする役割上 privileged が必須で、外部からの
+    リクエストを受けない。設定は意図どおり。kube-system に置き RBAC で触れる人を絞ることが本筋。

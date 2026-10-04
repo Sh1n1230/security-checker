@@ -1,0 +1,36 @@
+# 誤検知: subprocess に引数をリストで渡しており、シェルを経由しない。
+id: hand-0006
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.subprocess-shell-true
+  category: sast
+  message: subprocess の呼び出しにユーザー入力が含まれています
+  path: app/thumbnail.py
+  start_line: 11
+  end_line: 11
+  severity_reported: high
+  cwe:
+  - CWE-78
+code: |
+  import subprocess
+  from pathlib import Path
+
+  UPLOAD_DIR = Path("/srv/uploads")
+
+
+  def make_thumbnail(name: str) -> None:
+      source = (UPLOAD_DIR / Path(name).name).resolve()
+      if source.parent != UPLOAD_DIR:
+          raise ValueError("invalid name")
+      subprocess.run(["convert", str(source), "-resize", "128x128", "thumb.png"], check=True)
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    引数はリストで渡され shell=True も無いため、メタ文字はシェルに解釈されない。
+    ファイル名も Path(name).name で basename に落とした上でディレクトリを検証している。
+    `-` で始まる名前がオプションとして解釈される余地は理論上あるが、convert の位置引数の前に
+    固定オプションが無いため実害のある注入にはならない。

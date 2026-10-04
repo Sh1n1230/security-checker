@@ -1,0 +1,40 @@
+# 誤検知: Sprintf で埋めるのはプレースホルダの個数だけで、値はバインドしている。
+id: hand-0044
+source: handmade
+language: go
+candidate:
+  scanner: semgrep
+  rule_id: go.lang.security.audit.database.string-formatted-query
+  category: sast
+  message: フォーマット文字列で SQL を組み立てています
+  path: internal/store/users.go
+  start_line: 15
+  end_line: 15
+  severity_reported: high
+  cwe:
+  - CWE-89
+code: |
+  package store
+
+  import (
+      "database/sql"
+      "fmt"
+      "strings"
+  )
+
+  func FindUsers(db *sql.DB, ids []int64) (*sql.Rows, error) {
+      marks := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+      args := make([]any, len(ids))
+      for i, id := range ids {
+          args[i] = id
+      }
+      query := fmt.Sprintf("SELECT id, email FROM users WHERE id IN (%s)", marks)
+      return db.Query(query, args...)
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    Sprintf で埋めるのは "?" を連ねた文字列だけで、利用者の値 (ids) はすべてバインド引数で渡る。
+    IN 句の可変長プレースホルダを作る定番の書き方で、注入経路は無い。

@@ -7,8 +7,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
@@ -49,7 +52,15 @@ def render_user(task: ReviewTask, schema: dict[str, object]) -> str:
             candidate=task.candidate,
             primary=primary,
             primary_text=_sanitize(primary.numbered()) if primary is not None else "",
-            callers=task.code_context.callers,
+            callers=[
+                {
+                    "path": caller.path,
+                    "start_line": caller.start_line,
+                    "end_line": caller.end_line,
+                    "text": _sanitize(caller.numbered()),
+                }
+                for caller in task.code_context.callers
+            ],
             facts=task.repo_facts,
             notes=task.notes,
             schema=json.dumps(schema, ensure_ascii=False, indent=2),
@@ -57,10 +68,70 @@ def render_user(task: ReviewTask, schema: dict[str, object]) -> str:
     )
 
 
+_DELIMITERS = (
+    "<<<UNTRUSTED_CODE>>>",
+    "<<<END_UNTRUSTED_CODE>>>",
+    "<<<UNTRUSTED_OPINIONS>>>",
+    "<<<END_UNTRUSTED_OPINIONS>>>",
+)
+
+
 def _sanitize(text: str) -> str:
-    """コード中にデリミタが現れたらエスケープする (§19.4-2)."""
-    return text.replace("<<<UNTRUSTED_CODE>>>", "<<<UNTRUSTED_CODE_ESCAPED>>>").replace(
-        "<<<END_UNTRUSTED_CODE>>>", "<<<END_UNTRUSTED_CODE_ESCAPED>>>"
+    """信頼できない文字列にデリミタが現れたらエスケープする (§19.4-2).
+
+    コードだけでなく、Judge に渡す他の Reviewer の意見にも使う。意見はコードを読んだ
+    モデルの出力なので、コード由来の文字列をそのまま含みうる。
+    """
+    for delimiter in _DELIMITERS:
+        text = text.replace(delimiter, delimiter[:-3] + "_ESCAPED>>>")
+    return text
+
+
+@dataclass(frozen=True)
+class PeerOpinion:
+    """Judge に渡す 1 Reviewer の意見. モデル名・Provider 名を含めない (§16 匿名化)."""
+
+    label: str
+    vulnerable: bool
+    severity: str
+    confidence: float
+    false_positive_probability: float
+    exploitability: str
+    reasoning: str
+    attack_path: list[str] = field(default_factory=list)
+    needs_more_context: list[str] = field(default_factory=list)
+
+    def sanitized(self) -> dict[str, Any]:
+        return {
+            "label": self.label,
+            "vulnerable": self.vulnerable,
+            "severity": self.severity,
+            "confidence": self.confidence,
+            "false_positive_probability": self.false_positive_probability,
+            "exploitability": self.exploitability,
+            "reasoning": _sanitize(self.reasoning),
+            "attack_path": [_sanitize(step) for step in self.attack_path],
+            "needs_more_context": [_sanitize(item) for item in self.needs_more_context],
+        }
+
+
+def render_judge_system(language: str = DEFAULT_LANGUAGE) -> str:
+    base = _environment().get_template(f"judge_system.{PROMPT_VERSION}.jinja").render()
+    instruction = output_language_instruction(language)
+    return f"{base}\n{instruction}\n" if instruction else base
+
+
+def render_judge_user(
+    task: ReviewTask, schema: dict[str, object], opinions: Sequence[PeerOpinion]
+) -> str:
+    """Judge 用の user プロンプト. 元の文脈 (コード) も必ず渡す (§16-2)."""
+    return (
+        _environment()
+        .get_template(f"judge_user.{PROMPT_VERSION}.jinja")
+        .render(
+            review=render_user(task, schema),
+            opinions=[opinion.sanitized() for opinion in opinions],
+        )
     )
 
 

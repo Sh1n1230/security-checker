@@ -1,0 +1,89 @@
+# fork からの PR にも PR コメントと Code Scanning の結果を付けるための workflow (設計書 §18.4.3, §21.2)。
+# ci/security.yml と一緒に .github/workflows/ に置く。詳しくは docs/github-actions.md。
+#
+# 仕組み:
+#   1. fork PR では security.yml (pull_request) がスキャンだけを行う。権限もシークレットも無い。
+#   2. その完了をきっかけに、この workflow が**既定ブランチの定義で**権限付きで動く。
+#
+# 守っていること:
+#   - security.yml の成果物 (artifact) は使わない。fork 側は pull_request の workflow を書き換えられるので、
+#     成果物は偽造できる。偽の「指摘ゼロ」を Code Scanning に上げられると、ゲートが素通りになる。
+#   - 代わりに、既定ブランチの action と設定で PR のコードを**読むだけ**で検査し直す。
+#     PR のコードは一切実行しない (ビルド・テスト・npm install などをここに足さないこと)。
+#   - untrusted-target: true で、PR が置いた security-checker.yml / .local.yml を読ませない。
+#     読ませると、その中の `command` がシークレット付きで実行される。
+#   - 設定の reviewers には transport: http だけを使う。process (手元の AI CLI など) は
+#     ツールを持ちうるため、信用できないコードに向けない。
+name: Security Check (fork PR publish)
+
+on:
+  workflow_run:
+    workflows: [Security Check] # security.yml の name と一致させる
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.event == 'pull_request'
+      && github.event.workflow_run.head_repository.full_name != github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+    steps:
+      - name: PR を特定する
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          # fork PR では workflow_run.pull_requests が空なので、head から引き当てる
+          pr=$(gh api -X GET "repos/${REPO}/pulls" -f state=open -f "head=${HEAD_OWNER}:${HEAD_BRANCH}" \
+            --jq "map(select(.head.sha == \"${HEAD_SHA}\")) | first")
+          number=$(jq -r '.number // empty' <<<"$pr")
+          base=$(jq -r '.base.ref // empty' <<<"$pr")
+          if [[ ! "$number" =~ ^[0-9]+$ ]]; then
+            echo "PR が見つからないか、既に新しいコミットが push されています。スキップします"
+            exit 0
+          fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+      # 既定ブランチ (信頼できる側) を取得する。action と設定はここから使う
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.pr.outputs.number != ''
+        with:
+          path: trusted
+          fetch-depth: 0
+          persist-credentials: false
+
+      # PR のコードは「読むだけ」の対象として、別の作業ツリーに展開する
+      - name: PR のコードを展開する (実行はしない)
+        if: steps.pr.outputs.number != ''
+        env:
+          NUMBER: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          git -C trusted fetch --no-tags origin "refs/pull/${NUMBER}/head"
+          git -C trusted worktree add --detach "$GITHUB_WORKSPACE/pr" "$HEAD_SHA"
+
+      # action は SHA で固定した security-checker 本体 (この workflow 自体が既定ブランチの定義)
+      - uses: Sh1n1230/security-checker@<SHA> # <最新のタグ>
+        if: steps.pr.outputs.number != ''
+        with:
+          target: pr
+          config: trusted/security-checker.yml
+          untrusted-target: "true"
+          base: origin/${{ steps.pr.outputs.base }}
+          pr-number: ${{ steps.pr.outputs.number }}
+          head-sha: ${{ github.event.workflow_run.head_sha }}
+        env:
+          YOUR_PROVIDER_API_KEY: ${{ secrets.YOUR_PROVIDER_API_KEY }}

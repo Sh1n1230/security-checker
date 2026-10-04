@@ -1,0 +1,35 @@
+# 誤検知: ast.literal_eval はリテラルしか評価しない。
+id: hand-0014
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.eval-detected
+  category: sast
+  message: eval 系の関数を使っています
+  path: app/settings.py
+  start_line: 9
+  end_line: 9
+  severity_reported: high
+  cwe:
+  - CWE-95
+code: |
+  import ast
+  import os
+
+
+  def env_list(name: str, default: list[str]) -> list[str]:
+      raw = os.environ.get(name)
+      if raw is None:
+          return default
+      value = ast.literal_eval(raw)
+      if not isinstance(value, list):
+          raise ValueError(f"{name} must be a list literal")
+      return [str(v) for v in value]
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    ast.literal_eval は数値・文字列・リストなどのリテラルしか受け付けず、関数呼び出しや属性参照を
+    評価しない。入力も運用者が設定する環境変数で、外部から届かない。

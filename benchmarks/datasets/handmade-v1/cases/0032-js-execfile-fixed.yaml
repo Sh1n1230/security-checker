@@ -1,0 +1,35 @@
+# 誤検知: execFile に固定コマンドと検証済みの引数を配列で渡している。
+id: hand-0032
+source: handmade
+language: javascript
+candidate:
+  scanner: semgrep
+  rule_id: javascript.lang.security.detect-child-process
+  category: sast
+  message: child_process を使っています
+  path: src/routes/ping.js
+  start_line: 9
+  end_line: 9
+  severity_reported: high
+  cwe:
+  - CWE-78
+code: |
+  const { execFile } = require("child_process");
+  const net = require("net");
+  const express = require("express");
+  const router = express.Router();
+
+  router.get("/ping", (req, res) => {
+    const host = String(req.query.host || "");
+    if (!net.isIP(host)) return res.status(400).send("ip only");
+    execFile("ping", ["-c", "1", host], (err, stdout) => res.send(stdout));
+  });
+
+  module.exports = router;
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    execFile はシェルを経由せず、引数は配列で渡される。host は net.isIP で IP アドレスに限定されており、
+    `-` から始まるオプション注入もできない。

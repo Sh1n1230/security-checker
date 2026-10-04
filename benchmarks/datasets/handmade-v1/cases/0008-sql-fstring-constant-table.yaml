@@ -1,0 +1,31 @@
+# 誤検知: f-string だが埋め込むのはコード内の固定の許可リストだけ。
+id: hand-0008
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.formatted-sql-query
+  category: sast
+  message: f-string で SQL を組み立てています
+  path: app/reports.py
+  start_line: 8
+  end_line: 8
+  severity_reported: high
+  cwe:
+  - CWE-89
+code: |
+  ALLOWED = {"daily": "report_daily", "weekly": "report_weekly"}
+
+
+  def load_report(db, period: str, since: str):
+      table = ALLOWED.get(period)
+      if table is None:
+          raise ValueError("unknown period")
+      return db.execute(f"SELECT * FROM {table} WHERE created_at >= ?", (since,)).fetchall()
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    埋め込まれるのは ALLOWED 辞書の値 (コード内の固定文字列) だけで、利用者の値は
+    辞書のキー照合にしか使われない。since はプレースホルダで渡されている。注入経路は無い。

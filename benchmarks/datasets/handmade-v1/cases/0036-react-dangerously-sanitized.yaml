@@ -1,0 +1,35 @@
+# 誤検知: DOMPurify でサニタイズしてから dangerouslySetInnerHTML に渡す。
+id: hand-0036
+source: handmade
+language: typescript
+candidate:
+  scanner: semgrep
+  rule_id: typescript.react.security.audit.react-dangerouslysetinnerhtml
+  category: sast
+  message: dangerouslySetInnerHTML を使っています
+  path: web/components/Post.tsx
+  start_line: 9
+  end_line: 9
+  severity_reported: medium
+  cwe:
+  - CWE-79
+code: |
+  import DOMPurify from "dompurify";
+  import { marked } from "marked";
+
+  export function Post({ post }: { post: { title: string; body: string } }) {
+    const html = DOMPurify.sanitize(marked.parse(post.body) as string);
+    return (
+      <article>
+        <h1>{post.title}</h1>
+        <div dangerouslySetInnerHTML={{ __html: html }} />
+      </article>
+    );
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    DOMPurify.sanitize がスクリプト・イベントハンドラ属性・javascript: URL を除去してから
+    描画している。既定設定の DOMPurify を迂回する既知の手法は無い。

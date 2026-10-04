@@ -1,0 +1,36 @@
+# 真陽性: 検索語を f-string で SQL に埋め込んでいる。
+id: hand-0007
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.formatted-sql-query
+  category: sast
+  message: f-string で SQL を組み立てています
+  path: app/search.py
+  start_line: 11
+  end_line: 11
+  severity_reported: high
+  cwe:
+  - CWE-89
+code: |
+  import sqlite3
+  from flask import Flask, request
+
+  app = Flask(__name__)
+
+
+  @app.get("/search")
+  def search():
+      term = request.args["q"]
+      db = sqlite3.connect("app.db")
+      rows = db.execute(f"SELECT title FROM posts WHERE title LIKE '%{term}%'").fetchall()
+      return {"results": [r[0] for r in rows]}
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-89
+  severity: high
+  rationale: |
+    q パラメータが未検証のまま SQL 文字列に埋め込まれる。`' UNION SELECT password FROM users --`
+    で他テーブルを読める。認証不要のエンドポイントだが、影響はデータ読み出しに限られるため high。

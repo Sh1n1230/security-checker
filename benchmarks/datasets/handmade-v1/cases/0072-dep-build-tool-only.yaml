@@ -1,0 +1,31 @@
+# 誤検知: ビルド時にしか動かないツールの脆弱性 (入力は自分のソースだけ)。
+id: hand-0072
+source: handmade
+language: javascript
+candidate:
+  scanner: osv
+  rule_id: GHSA-dataset-build-0003
+  category: dependency
+  message: CSS 圧縮ツールに既知の脆弱性があります (ReDoS)
+  path: package-lock.json
+  start_line: 3
+  end_line: 3
+  severity_reported: medium
+  cwe:
+  - CWE-1333
+code: |
+  {
+    "devDependencies": {
+      "css-minify-tool": "3.0.1"
+    },
+    "scripts": {
+      "build": "css-minify-tool src/styles/*.css -o dist/app.css"
+    }
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    ReDoS は細工した CSS を食わせると発生するが、このツールはビルド時にリポジトリ内の自分の CSS を
+    処理するだけで、外部の入力を受け取る経路が無い。実行時のアプリにも含まれない。

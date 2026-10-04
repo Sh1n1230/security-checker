@@ -1,0 +1,35 @@
+# 真陽性: 請求書の取得で所有者を確認していない (IDOR)。
+id: hand-0098
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.django.security.audit.missing-object-permission
+  category: sast
+  message: オブジェクト単位の権限確認が見当たりません
+  path: billing/views.py
+  start_line: 10
+  end_line: 10
+  severity_reported: medium
+  cwe:
+  - CWE-639
+code: |
+  from django.contrib.auth.decorators import login_required
+  from django.http import FileResponse
+  from django.shortcuts import get_object_or_404
+
+  from billing.models import Invoice
+
+
+  @login_required
+  def download_invoice(request, invoice_id: int):
+      invoice = get_object_or_404(Invoice, id=invoice_id)
+      return FileResponse(invoice.pdf.open("rb"))
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-639
+  severity: high
+  rationale: |
+    ログインさえしていれば invoice_id を連番で変えるだけで他社の請求書 PDF を取得できる。
+    owner=request.user の条件が無い。ID が連番の整数で列挙も容易。

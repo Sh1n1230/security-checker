@@ -1,0 +1,31 @@
+# 誤検知: 構造化ログのフィールドとして渡しており、ログ行の偽造ができない。
+id: hand-0092
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.flask.security.audit.logging-user-input
+  category: sast
+  message: ユーザー入力をログに出力しています
+  path: app/login.py
+  start_line: 8
+  end_line: 8
+  severity_reported: low
+  cwe:
+  - CWE-117
+code: |
+  import structlog
+  from flask import request
+
+  log = structlog.get_logger()
+
+
+  def on_failed_login():
+      log.warning("login.failed", username=request.form.get("username", ""))
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    structlog の JSON 出力ではフィールド値がエスケープされ、改行を含めても 1 行の JSON に収まる。
+    ログ行の偽造 (改行注入) は成立しない。パスワードも記録していない。

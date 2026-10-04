@@ -1,9 +1,16 @@
 # このファイルを検査したいリポジトリの .github/workflows/ にコピーして使う。
+# 詳しい説明は docs/github-actions.md を参照。
+#
 # 検査の手順は security-checker 本体の action.yml にあり、ここには呼び出しだけを書く。
 # タグはあとから付け替えられるため、コミット SHA で固定する。<SHA> は次で調べられる:
 #   git ls-remote https://github.com/Sh1n1230/security-checker refs/tags/<最新のタグ>
-# (最新のタグは https://github.com/Sh1n1230/security-checker/releases/latest)
 # Dependabot (package-ecosystem: github-actions) を入れておけば、新しいリリースに SHA ごと追随する。
+#
+# fork からの PR では、シークレットが渡らず GITHUB_TOKEN も read-only になる。
+# この workflow はその場合スキャンのみを行い、コメントと SARIF の登録をスキップする (黙って緑にしない)。
+# fork PR でもコメントと Code Scanning を使うなら security-fork-publish.yml も置く。
+#
+# pull_request_target は使わないこと。fork のコードを書き込み権限とシークレット付きで動かすことになる。
 name: Security Check
 
 on:
@@ -19,12 +26,20 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: write # PR コメント (sticky サマリ + inline)
       security-events: write # SARIF を Code Scanning にアップロードするため
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # diff モードで merge-base を求めるのに必要
+          persist-credentials: false
 
       - uses: Sh1n1230/security-checker@<SHA> # <最新のタグ>
         # with:
-        #   min-score: 70        # このスコア未満なら失敗 (0 で判定しない)
-        #   url: https://...     # 稼働中の Web サービスも検査する
+        #   preset: ci           # 構成の形 (minimal / frugal / thorough / ci)
+        #   fail-on: high        # この重大度以上の confirmed / likely で失敗
+        #   mode: auto           # PR は差分のみ、push は全件
         #   upload-sarif: false  # プライベートリポジトリで GitHub Advanced Security が無い場合
+        env:
+          # 設定ファイルの api_key_env で参照している変数だけを渡す
+          YOUR_PROVIDER_API_KEY: ${{ secrets.YOUR_PROVIDER_API_KEY }}

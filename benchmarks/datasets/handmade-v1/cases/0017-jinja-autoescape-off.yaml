@@ -1,0 +1,34 @@
+# 真陽性: autoescape を切った Jinja2 環境でコメント本文を描画する。
+id: hand-0017
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.flask.security.xss.audit.direct-use-of-jinja2
+  category: sast
+  message: autoescape が無効な Jinja2 環境を使っています
+  path: app/render.py
+  start_line: 3
+  end_line: 3
+  severity_reported: medium
+  cwe:
+  - CWE-79
+code: |
+  from jinja2 import Environment, FileSystemLoader
+
+  env = Environment(loader=FileSystemLoader("templates"), autoescape=False)
+
+
+  def render_comments(comments):
+      # comments は利用者が投稿した本文をそのまま含む
+      template = env.get_template("comments.html")
+      return template.render(comments=comments)
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-79
+  severity: medium
+  rationale: |
+    HTML テンプレートを autoescape 無しで描画し、利用者が投稿した本文をそのまま埋め込んでいる。
+    保存型 XSS になる。他の利用者のセッションで操作されうるが、認証情報の直接窃取は Cookie の
+    属性次第のため medium。

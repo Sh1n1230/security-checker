@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -31,11 +32,28 @@ from security_checker.context.redact import redact_known_patterns
 from security_checker.errors import ConfigError, ExitCode, SecurityCheckerError
 from security_checker.eval.dataset import load_dataset
 from security_checker.eval.runner import run_eval, to_markdown
+from security_checker.github.client import (
+    DEFAULT_API_URL,
+    GithubClient,
+    context_from_env,
+    post_comments,
+)
+from security_checker.github.pr import DiffScope, prepare_scope
 from security_checker.models.enums import Severity
-from security_checker.observability.cost import load_price_table
+from security_checker.models.report import Report
+from security_checker.observability import logging as log
+from security_checker.observability.cost import PriceTable, load_price_table
+from security_checker.observability.estimate import estimate_run
+from security_checker.observability.explain import explain as explain_finding
+from security_checker.observability.explain import load_report
+from security_checker.observability.explain import render as render_explanation
+from security_checker.policy.baseline import write_baseline
+from security_checker.policy.suppress import SuppressionRules, load_rules
+from security_checker.providers.check import catalog, check_reviewer
 from security_checker.providers.detect import Detection, detect_all
 from security_checker.report.json_writer import write_json
 from security_checker.report.markdown import write_markdown
+from security_checker.report.sarif import write_sarif
 from security_checker.report.terminal import render
 from security_checker.review import prompts
 from security_checker.review.structured import verdict_schema
@@ -105,6 +123,80 @@ def _cli_overrides(
     return overrides
 
 
+BaseOption = Annotated[
+    str | None,
+    typer.Option(
+        "--base",
+        help="diff モードの比較基準 (例: origin/main)。PR の文脈では GITHUB_BASE_REF から決まる",
+    ),
+]
+FormatOption = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--format",
+        "-f",
+        help="出力形式 (複数指定可): terminal/json/markdown/sarif。設定の formats を置き換える",
+    ),
+]
+LogFormatOption = Annotated[
+    str | None,
+    typer.Option("--log-format", help="構造化ログを標準エラーに出す: text | json"),
+]
+LogLevelOption = Annotated[
+    str | None, typer.Option("--log-level", help="debug | info | warn | error")
+]
+
+
+def _configure_logging(loaded: LoadedConfig) -> None:
+    """logging.* を利用者が指定したときだけログを出す (既定はノイズにしない)."""
+    if not any(
+        key.startswith("logging.") and layer != "default" for key, layer in loaded.origins.items()
+    ):
+        log.disable()
+        return
+    log.configure(level=loaded.config.logging.level, fmt=loaded.config.logging.format)
+
+
+def _logging_overrides(fmt: str | None, level: str | None) -> dict[str, Any]:
+    logging: dict[str, Any] = {}
+    if fmt is not None:
+        logging["format"] = fmt
+    if level is not None:
+        logging["level"] = level
+    return {"logging": logging} if logging else {}
+
+
+FullOption = Annotated[
+    bool, typer.Option("--full", help="diff モードにせず、全件を検査する (target.mode: full)")
+]
+
+
+def _suppression(loaded: LoadedConfig, root: Path) -> SuppressionRules:
+    """baseline / ignore / 注釈 (§17.2). baseline の相対パスは設定ファイルの場所が基準."""
+    try:
+        return load_rules(
+            loaded.config,
+            root,
+            config_dir=loaded.config_path.parent if loaded.config_path is not None else None,
+            untrusted_target=loaded.untrusted_target,
+        )
+    except SecurityCheckerError as exc:
+        _fail(str(exc), exc.exit_code)
+
+
+def _diff_scope(
+    loaded: LoadedConfig, root: Path, base: str | None, full: bool
+) -> tuple[DiffScope | None, list[str]]:
+    """target.mode と --base / --full から検査範囲を決める (§7.4)."""
+    mode = "full" if full else loaded.config.target.mode
+    if base is not None and mode == "auto":
+        mode = "diff"
+    try:
+        return prepare_scope(mode, root, base)
+    except SecurityCheckerError as exc:
+        _fail(str(exc), exc.exit_code)
+
+
 def _write_reports(loaded: LoadedConfig, outcome: RunOutcome, *, quiet: bool) -> None:
     """設定された形式で書き出す. terminal 以外はファイルとして残す (§18.1)."""
     formats = loaded.config.output.formats
@@ -112,6 +204,8 @@ def _write_reports(loaded: LoadedConfig, outcome: RunOutcome, *, quiet: bool) ->
         write_json(outcome.report, outcome.output_dir)
     if "markdown" in formats:
         write_markdown(outcome.report, outcome.decision, outcome.output_dir)
+    if "sarif" in formats:
+        write_sarif(outcome.report, outcome.output_dir)
     if not quiet and "terminal" in formats:
         render(outcome.report, outcome.decision, outcome.output_dir)
 
@@ -143,6 +237,11 @@ def scan(
         Path | None,
         typer.Option("--output-dir", "-o", help="レポート出力先 (既定: .security-checker/)"),
     ] = None,
+    formats: FormatOption = None,
+    base: BaseOption = None,
+    full: FullOption = False,
+    log_format: LogFormatOption = None,
+    log_level: LogLevelOption = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="ターミナル出力を抑制する")] = False,
 ) -> None:
     """スキャナのみで検査する (LLM を使わない)."""
@@ -156,13 +255,24 @@ def scan(
         strict=strict,
         exclude=exclude,
         output_dir=output_dir,
-        formats=None,
+        formats=formats,
         semgrep_config=None,
     )
+    overrides.update(_logging_overrides(log_format, log_level))
     loaded = _load(root, config_path, preset, overrides)
+    _configure_logging(loaded)
+    diff, diff_warnings = _diff_scope(loaded, root, base, full)
 
     try:
-        outcome = asyncio.run(run_scan(loaded.config, root, extra_warnings=loaded.warnings))
+        outcome = asyncio.run(
+            run_scan(
+                loaded.config,
+                root,
+                extra_warnings=[*loaded.warnings, *diff_warnings],
+                diff=diff,
+                suppression=_suppression(loaded, root),
+            )
+        )
     except SecurityCheckerError as exc:
         _fail(str(exc), exc.exit_code)
 
@@ -201,6 +311,18 @@ def review(
         bool,
         typer.Option("--dry-run", help="LLM に送信せず、送信予定の内容を表示する"),
     ] = False,
+    estimate: Annotated[
+        bool,
+        typer.Option("--estimate", help="LLM に送信せず、使用量と金額の見積りだけを表示する"),
+    ] = False,
+    min_score: Annotated[
+        int | None, typer.Option("--min-score", min=0, max=100, help="スコア下限 (下回れば exit 1)")
+    ] = None,
+    formats: FormatOption = None,
+    base: BaseOption = None,
+    full: FullOption = False,
+    log_format: LogFormatOption = None,
+    log_level: LogLevelOption = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="ターミナル出力を抑制する")] = False,
 ) -> None:
     """スキャン結果を LLM Reviewer でレビューする."""
@@ -210,27 +332,40 @@ def review(
 
     overrides = _cli_overrides(
         fail_on=fail_on,
-        min_score=None,
+        min_score=min_score,
         strict=strict,
         exclude=exclude,
         output_dir=output_dir,
-        formats=None,
+        formats=formats,
         semgrep_config=None,
     )
     if max_candidates is not None:
         overrides["budget"] = {"max_candidates": max_candidates}
+    overrides.update(_logging_overrides(log_format, log_level))
     loaded = _load(root, config_path, preset, overrides)
-
-    if dry_run:
-        _dry_run(loaded, root)
-        raise typer.Exit(code=int(ExitCode.OK))
+    _configure_logging(loaded)
+    diff, diff_warnings = _diff_scope(loaded, root, base, full)
 
     price_table = load_price_table(
         loaded.config_path.parent if loaded.config_path is not None else None
     )
+    if dry_run:
+        _dry_run(loaded, root, diff, diff_warnings)
+        raise typer.Exit(code=int(ExitCode.OK))
+    if estimate:
+        _estimate(loaded, root, diff, price_table)
+        raise typer.Exit(code=int(ExitCode.OK))
+
     try:
         outcome = asyncio.run(
-            run_review(loaded.config, root, price_table=price_table, extra_warnings=loaded.warnings)
+            run_review(
+                loaded.config,
+                root,
+                price_table=price_table,
+                extra_warnings=[*loaded.warnings, *diff_warnings],
+                diff=diff,
+                suppression=_suppression(loaded, root),
+            )
         )
     except SecurityCheckerError as exc:
         _fail(str(exc), exc.exit_code)
@@ -239,10 +374,73 @@ def review(
     raise typer.Exit(code=int(outcome.decision.exit_code))
 
 
-def _dry_run(loaded: LoadedConfig, root: Path) -> None:
+def _estimate(
+    loaded: LoadedConfig, root: Path, diff: DiffScope | None, price_table: PriceTable
+) -> None:
+    """何件・いくらかかるかを、送信前に見せる (設計書 §24.3)."""
+    console = Console()
+    outcome = asyncio.run(
+        run_scan(
+            loaded.config,
+            root,
+            extra_warnings=loaded.warnings,
+            diff=diff,
+            suppression=_suppression(loaded, root),
+        )
+    )
+    tasks, overflow = build_tasks(outcome.report.candidates, root, loaded.config)
+    result = estimate_run(tasks, loaded.config, price_table)
+    console.print(
+        f"[bold]estimate[/bold]: 候補 {len(outcome.report.candidates)} 件中 {len(tasks)} 件を"
+        f"レビュー予定 (上限超過 {len(overflow)} 件 / 抑制 {len(outcome.report.suppressed)} 件 / "
+        f"diff 外 {len(outcome.report.outside_diff)} 件)"
+    )
+    for item in result.reviewers:
+        usd = f"${item.usd:.4f}" if item.usd is not None else "unknown"
+        console.print(
+            f"  {item.name:<20} {item.calls:>4} 回  入力 約 {item.input_tokens:,}  "
+            f"出力 最大 {item.max_output_tokens:,}  {usd}"
+            + (f"  [dim]{item.note}[/dim]" if item.note else "")
+        )
+    total = result.total_usd
+    budget = loaded.config.budget.max_usd
+    console.print(
+        "[bold]合計[/bold]: "
+        + (
+            f"約 ${total:.4f} (上限寄りの見積り)"
+            if total is not None
+            else "unknown (価格不明を含む)"
+        )
+        + (f" / 予算 budget.max_usd ${budget}" if budget is not None else "")
+    )
+    if total is not None and budget is not None and total > budget:
+        console.print(
+            "[yellow]見積りが予算を超えています。[/yellow]実行すると予算に達した時点で停止し、"
+            "それまでの結果を出力します"
+        )
+
+
+def _dry_run(
+    loaded: LoadedConfig, root: Path, diff: DiffScope | None, diff_warnings: list[str]
+) -> None:
     """何が送信されるかを、送信前に全部見せる (設計書 §19.3)."""
     console = Console()
-    outcome = asyncio.run(run_scan(loaded.config, root, extra_warnings=loaded.warnings))
+    outcome = asyncio.run(
+        run_scan(
+            loaded.config,
+            root,
+            extra_warnings=[*loaded.warnings, *diff_warnings],
+            diff=diff,
+            suppression=_suppression(loaded, root),
+        )
+    )
+    for message in diff_warnings:
+        console.print(f"[yellow]警告[/yellow]: {message}", highlight=False)
+    if diff is not None:
+        console.print(
+            f"[bold]diff[/bold]: {diff.base} との差分 ({len(diff.changed_files)} ファイル) "
+            f"に関係する候補だけを送信します (対象外 {len(outcome.report.outside_diff)} 件)"
+        )
     tasks, overflow = build_tasks(outcome.report.candidates, root, loaded.config)
 
     console.print(
@@ -468,6 +666,222 @@ def config_show(
         return
 
     print(json.dumps(loaded.config.masked_dump(), ensure_ascii=False, indent=2))
+
+
+baseline_app = typer.Typer(help="既知の候補の記録 (段階導入用)", no_args_is_help=True)
+app.add_typer(baseline_app, name="baseline")
+
+DEFAULT_BASELINE = ".security-checker-baseline.json"
+
+
+@baseline_app.command("update")
+def baseline_update(
+    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path("."),
+    config_path: Annotated[
+        Path | None, typer.Option("--config", "-c", help="設定ファイル (既定は自動探索)")
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output", "-o", help=f"書き出し先 (既定: policy.baseline か {DEFAULT_BASELINE})"
+        ),
+    ] = None,
+) -> None:
+    """いまの検出をすべて baseline に記録する (設計書 §17.2).
+
+    記録した候補は以後 suppressed として残り、レビューとゲートの対象から外れる。
+    新しく増えたものだけが CI を落とす。LLM は使わない (スキャナの検出を記録する)。
+    """
+    root = path.expanduser().resolve()
+    if not root.is_dir():
+        _fail(f"検査対象が見つかりません: {path}", ExitCode.CONFIG_ERROR)
+    loaded = _load(root, config_path, None, {})
+    config_dir = loaded.config_path.parent if loaded.config_path is not None else root
+    configured = loaded.config.policy.baseline
+    destination = output or (config_dir / (configured or DEFAULT_BASELINE))
+
+    # 既存の baseline は外して、いまの検出をすべて記録し直す。ignore と注釈は効かせる
+    config = loaded.config.model_copy(
+        update={"policy": loaded.config.policy.model_copy(update={"baseline": None})}
+    )
+    rules = load_rules(
+        config, root, config_dir=config_dir, untrusted_target=loaded.untrusted_target
+    )
+    try:
+        outcome = asyncio.run(run_scan(config, root, suppression=rules, diff=None))
+    except SecurityCheckerError as exc:
+        _fail(str(exc), exc.exit_code)
+    if outcome.report.has_failed_scanner:
+        # 壊れた run を baseline にすると、失敗したスキャナの既存の検出が「新規」扱いになる
+        failed = ", ".join(r.scanner for r in outcome.report.scanners if r.status.value == "failed")
+        _fail(f"スキャナが失敗したため baseline を更新しません: {failed}", ExitCode.EXECUTION_ERROR)
+
+    write_baseline(destination, outcome.report.candidates, tool_version=__version__)
+    console = Console()
+    console.print(
+        f"[green]baseline を書き出しました[/green]: {destination} "
+        f"({len(outcome.report.candidates)} 件)"
+    )
+    if configured is None:
+        shown = (
+            destination.relative_to(config_dir)
+            if destination.is_relative_to(config_dir)
+            else destination
+        )
+        console.print(f"有効にするには設定に次を書いてください:\n  policy:\n    baseline: {shown}")
+
+
+@app.command()
+def comment(
+    report_path: Annotated[
+        Path, typer.Argument(help="review / scan が書き出した report.json")
+    ] = Path(".security-checker/report.json"),
+    config_path: Annotated[
+        Path | None, typer.Option("--config", "-c", help="github.* を読む設定ファイル")
+    ] = None,
+    repo: Annotated[
+        str | None, typer.Option("--repo", help="owner/name (既定: GITHUB_REPOSITORY)")
+    ] = None,
+    pr: Annotated[
+        int | None, typer.Option("--pr", help="PR 番号 (既定: イベントペイロード)")
+    ] = None,
+    sha: Annotated[
+        str | None, typer.Option("--sha", help="inline コメントを付けるコミット (既定: PR の head)")
+    ] = None,
+    report_url: Annotated[
+        str | None, typer.Option("--report-url", help="サマリに載せる full report のリンク")
+    ] = None,
+    inline: Annotated[
+        bool | None,
+        typer.Option("--inline/--no-inline", help="inline コメントを付けるか (既定: 設定に従う)"),
+    ] = None,
+) -> None:
+    """report.json を PR にコメントする (sticky サマリ + inline, 設計書 §21.3).
+
+    レビューと投稿を分けてあるのは、fork PR の workflow_run パターンのため。
+    書き込み権限を持つ側は PR のコードを実行せず、成果物の report.json だけを読む (§21.2)。
+    トークンは環境変数 GITHUB_TOKEN (または GH_TOKEN) から読む。
+    """
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token:
+        _fail("GITHUB_TOKEN (または GH_TOKEN) が設定されていません", ExitCode.CONFIG_ERROR)
+    if not report_path.is_file():
+        _fail(f"レポートが見つかりません: {report_path}", ExitCode.CONFIG_ERROR)
+    try:
+        report = Report.model_validate_json(report_path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        _fail(f"レポートを読めません ({report_path}): {exc}", ExitCode.CONFIG_ERROR)
+
+    root = (config_path.parent if config_path is not None else Path.cwd()).resolve()
+    loaded = _load(root, config_path, None, {})
+    settings = loaded.config.github
+    if inline is not None:
+        settings = settings.model_copy(update={"inline_comments": inline})
+
+    try:
+        context = context_from_env(repository=repo, number=pr, head_sha=sha)
+        api_url = os.environ.get("GITHUB_API_URL") or DEFAULT_API_URL
+        with GithubClient(token, api_url=api_url) as client:
+            result = post_comments(client, context, report, settings, report_url=report_url)
+    except SecurityCheckerError as exc:
+        _fail(str(exc), exc.exit_code)
+
+    console = Console()
+    for message in result.warnings:
+        err_console.print(f"[yellow]警告[/yellow]: {message}", highlight=False)
+    console.print(
+        f"summary: {result.summary_action}"
+        + (f" ({result.summary_url})" if result.summary_url else "")
+    )
+    console.print(
+        f"inline: 投稿 {result.inline_posted} / 投稿済み {result.inline_already_posted} / "
+        f"diff 外 {result.inline_outside_diff} / 上限超過 {result.inline_over_limit}"
+    )
+
+
+providers_app = typer.Typer(help="LLM Provider の一覧と疎通確認", no_args_is_help=True)
+app.add_typer(providers_app, name="providers")
+
+
+@providers_app.command("list")
+def providers_list() -> None:
+    """使える transport・方言・プリセット・プラグインを一覧する (設計書 §29.3)."""
+    console = Console()
+    found = catalog()
+    console.print("[bold]transport: http[/bold]  方言: " + ", ".join(found.dialects))
+    console.print("[bold]transport: process[/bold]  任意のコマンド (command を直接書けば動く)")
+    for title, presets in (
+        ("http プリセット", found.http_presets),
+        ("process プリセット", found.process_presets),
+    ):
+        console.print(f"[bold]{title}[/bold]")
+        if not presets:
+            console.print("  [dim](なし)[/dim]")
+        for name, source in presets.items():
+            console.print(f"  {name} [dim]({source})[/dim]")
+    console.print("[bold]プラグイン[/bold] (entry_points: security_checker.providers)")
+    for name in found.plugins or ["(なし)"]:
+        console.print(f"  {name}")
+    for message in found.warnings:
+        err_console.print(f"[yellow]警告[/yellow]: {message}", highlight=False)
+
+
+@providers_app.command("check")
+def providers_check(
+    name: Annotated[
+        str | None, typer.Argument(help="確認する Reviewer の name (省略で全部)")
+    ] = None,
+    path: Annotated[Path, typer.Option("--path", help="設定を探すディレクトリ")] = Path("."),
+    config_path: Annotated[
+        Path | None, typer.Option("--config", "-c", help="設定ファイル (既定は自動探索)")
+    ] = None,
+    no_probe: Annotated[
+        bool,
+        typer.Option("--no-probe", help="構造化出力の往復確認 (LLM を 1 回呼ぶ) を省く"),
+    ] = False,
+) -> None:
+    """設定した Reviewer の疎通・capability・スキーマ対応を実地で確かめる (設計書 §29.3).
+
+    構造化出力の確認では、合成した数行のコードを 1 件だけ送る (課金が発生しうる)。
+    リポジトリのコードは送らない。
+    """
+    root = path.expanduser().resolve()
+    loaded = _load(root, config_path, None, {})
+    reviewers = [r for r in loaded.config.reviewers if name is None or r.name == name]
+    if not reviewers:
+        _fail(
+            f"Reviewer '{name}' は設定にありません" if name else "reviewers が設定されていません",
+            ExitCode.CONFIG_ERROR,
+        )
+    console = Console()
+    failed = False
+    for reviewer in reviewers:
+        result = asyncio.run(check_reviewer(reviewer, probe=not no_probe))
+        mark = "[green]✓[/green]" if result.ok else "[red]✗[/red]"
+        console.print(f"{mark} [bold]{result.name}[/bold] ({result.transport})")
+        for step in result.steps:
+            step_mark = "[green]ok[/green]" if step.ok else "[red]NG[/red]"
+            console.print(f"    {step.label:<8} {step_mark}  {step.detail}", highlight=False)
+        for suggestion in result.suggestions:
+            console.print(f"    [yellow]→[/yellow] {suggestion}", highlight=False)
+        failed = failed or not result.ok
+    raise typer.Exit(code=int(ExitCode.EXECUTION_ERROR if failed else ExitCode.OK))
+
+
+@app.command("explain")
+def explain_command(
+    finding_id: Annotated[str, typer.Argument(help="候補 / Finding の ID (先頭一致可)")],
+    report_path: Annotated[Path, typer.Option("--report", "-r", help="report.json")] = Path(
+        ".security-checker/report.json"
+    ),
+) -> None:
+    """その判定に至った全 Reviewer の判断と、全呼び出しの記録を表示する (設計書 §24.2)."""
+    try:
+        report = load_report(report_path)
+        result = explain_finding(report, finding_id, report_path=report_path)
+    except SecurityCheckerError as exc:
+        _fail(str(exc), exc.exit_code)
+    print(render_explanation(result), end="")
 
 
 @app.command("eval")

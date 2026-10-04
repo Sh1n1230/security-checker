@@ -12,7 +12,8 @@ from security_checker.errors import ConfigError
 
 ENTRY_POINT_GROUP = "security_checker.aggregators"
 
-# judge は P5 で追加する
+# judge は LLM 呼び出しを伴うため、同期の Aggregator ではなく run.review_and_aggregate が扱う
+# (fallback 戦略で集約したあと、割れた候補だけを Judge に回す。aggregate/judge.py)
 BUILTIN_AGGREGATORS: dict[str, Callable[..., Aggregator]] = {
     ConsensusAggregator.name: ConsensusAggregator,
     WeightedAggregator.name: WeightedAggregator,
@@ -42,6 +43,10 @@ def build_aggregator(
     plugins, warnings = discover_plugin_aggregators()
     factories = {**plugins, **BUILTIN_AGGREGATORS}
     factory = factories.get(strategy)
+    if factory is None and strategy == "judge":
+        raise ConfigError(
+            "judge は単独の Aggregator ではありません。run.review_and_aggregate を使ってください"
+        )
     if factory is None:
         raise ConfigError(
             f"未知の aggregation.strategy '{strategy}'。利用可能: {', '.join(sorted(factories))}"

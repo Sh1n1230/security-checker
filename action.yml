@@ -1,220 +1,340 @@
-# security-checker を GitHub Actions から呼ぶための composite action。
-# 検査手順をここ 1 か所にまとめ、各リポジトリには呼び出しの数行だけを置く。
+# security-checker v2 を GitHub Actions から呼ぶための composite action (設計書 §21)。
+# 使い方とサンプル workflow は docs/github-actions.md を参照。
 #
 #   jobs:
 #     security:
 #       runs-on: ubuntu-latest
 #       permissions:
 #         contents: read
+#         pull-requests: write   # PR コメント用
 #         security-events: write # SARIF を Code Scanning に登録するため
 #       steps:
 #         - uses: actions/checkout@<SHA> # vX.Y.Z
+#           with: { fetch-depth: 0 }     # diff モードで merge-base を求めるのに必要
 #         - uses: Sh1n1230/security-checker@<SHA> # vX.Y.Z
 #
-# 検査対象はワークスペース全体。本体は $GITHUB_ACTION_PATH (ワークスペースの外) に展開されるため、
+# 本体は $GITHUB_ACTION_PATH (ワークスペースの外) からインストールされるため、
 # security-checker 自身のファイルが検査対象に混ざることはない。
+#
+# 設計書 §21.1 は Docker コンテナアクションを最終形としているが、GHCR へのイメージ公開 (P6) までは
+# composite で配る。composite なら Code Scanning へのアップロードに公式の upload-sarif を使える。
 name: security-checker
-description: gitleaks / semgrep / osv-scanner / trivy で検査してスコアを判定し、SARIF を Code Scanning に登録する
+description: スキャナの検出を LLM でレビューし、PR コメントと SARIF (Code Scanning) で報告する
 author: Sh1n1230
 branding:
   icon: shield
   color: green
 
 inputs:
-  min-score:
-    description: このスコア未満なら失敗させる (0 で判定しない)
-    default: "70"
-  url:
-    description: 稼働中の Web サービスも検査する場合の URL
+  config:
+    description: 設定ファイルのパス (空ならリポジトリ直下の security-checker.yml などを自動探索)
     default: ""
+  preset:
+    description: プリセット名 (minimal / frugal / thorough / ci)
+    default: ""
+  target:
+    description: 検査対象ディレクトリ
+    default: "."
+  mode:
+    description: 'auto | full | diff (auto: PR なら差分のみ)'
+    default: auto
+  review:
+    description: >-
+      auto | true | false。auto は設定に reviewers があれば LLM レビュー、無ければスキャンのみ。
+      fork からの PR ではシークレットが渡らないため、常にスキャンのみになる
+    default: auto
+  fail-on:
+    description: 'この重大度以上で失敗させる: critical | high | medium | low | none'
+    default: high
+  min-score:
+    description: このスコア未満なら失敗させる (0 で判定しない。v1 と同じ入力名)
+    default: "0"
+  comment:
+    description: PR に sticky サマリと inline コメントを投稿するか
+    default: "true"
   upload-sarif:
     description: >-
       SARIF を GitHub Code Scanning に登録するか。
       プライベートリポジトリで GitHub Advanced Security が無い場合は false にする
     default: "true"
   token:
-    description: スキャナの最新版を GitHub API で解決するときに使うトークン (レート制限の回避)
+    description: PR コメントとスキャナの取得に使うトークン
     default: ${{ github.token }}
+  url:
+    description: (v1 互換のため受け付けるが、v2 では未対応。指定すると警告を出す)
+    default: ""
+  # --- workflow_run パターン用 (docs/github-actions.md)。通常の pull_request では空のままでよい ---
+  pr-number:
+    description: 結果を紐づける PR 番号。workflow_run から呼ぶときに指定する
+    default: ""
+  head-sha:
+    description: PR の head コミット。pr-number と一緒に指定する
+    default: ""
+  base:
+    description: diff モードの比較基準 (例 origin/main)。空なら GITHUB_BASE_REF から決まる
+    default: ""
+  untrusted-target:
+    description: >-
+      true にすると、検査対象のツリーから設定を一切読まない (config に対象外のファイルが必須)。
+      fork PR のコードを権限付きで検査するときは必ず true にする
+    default: "false"
 
 outputs:
   score:
-    description: 100 点満点のスコア
-    value: ${{ steps.check.outputs.score }}
+    description: 100 点満点のスコア (補助指標)
+    value: ${{ steps.result.outputs.score }}
   rank:
     description: A / B / C / D のランク
-    value: ${{ steps.check.outputs.rank }}
+    value: ${{ steps.result.outputs.rank }}
+  report-dir:
+    description: レポート一式 (report.json / report.md / report.sarif) のディレクトリ
+    value: ${{ steps.run.outputs.dir }}
+  report-json:
+    description: report.json のパス
+    value: ${{ steps.result.outputs.report-json }}
+  confirmed-count:
+    description: confirmed の件数
+    value: ${{ steps.result.outputs.confirmed-count }}
+  review-required-count:
+    description: review_required の件数
+    value: ${{ steps.result.outputs.review-required-count }}
+  exit-code:
+    description: security-checker の終了コード (0 成功 / 1 ポリシー違反 / 2 設定エラー / 3 実行エラー)
+    value: ${{ steps.run.outputs.exit-code }}
 
 runs:
   using: composite
   steps:
-    - name: スキャナをインストール
+    - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+    - name: スキャナと security-checker をインストール
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
       run: |
         set -euo pipefail
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq jq
-        latest() { # latest <owner/repo> → 先頭の v を除いた最新のバージョン
-          curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
-            "https://api.github.com/repos/$1/releases/latest" | jq -r .tag_name | sed 's/^v//'
-        }
         BIN="$RUNNER_TEMP/security-checker-bin"
         mkdir -p "$BIN"
-        # gitleaks
-        ver=$(latest gitleaks/gitleaks)
-        curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${ver}/gitleaks_${ver}_linux_x64.tar.gz" \
-          | tar xz -C "$BIN" gitleaks
-        # trivy
-        # 公式 install.sh の `curl | sh` は使わない。取得したスクリプトを検証せず実行することになり、
-        # セキュリティツール自身の推奨と矛盾するため。
-        ver=$(latest aquasecurity/trivy)
-        curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${ver}/trivy_${ver}_Linux-64bit.tar.gz" \
-          | tar xz -C "$BIN" trivy
-        # osv-scanner
-        curl -fsSL -o "$BIN/osv-scanner" \
-          https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64
-        chmod +x "$BIN/osv-scanner"
-        # semgrep
-        pipx install --quiet semgrep
-        echo "$BIN" >> "$GITHUB_PATH"
-
-    - name: セキュリティ検査を実行
-      id: check
-      shell: bash
-      env:
-        MIN_SCORE: ${{ inputs.min-score }}
-        TARGET_URL: ${{ inputs.url }}
-      run: |
-        # 既定の shell は pipefail 無しのため、check.sh の失敗が tee に隠れる。
-        # 「壊れているのに緑」を防ぐために必須。
-        set -o pipefail
-        args=(.)
-        [[ "$MIN_SCORE" != "0" ]] && args+=(--min-score "$MIN_SCORE")
-        [[ -n "$TARGET_URL" ]] && args+=(--url "$TARGET_URL")
-        result="$RUNNER_TEMP/security-checker-result.txt"
-        rc=0
-        bash "$GITHUB_ACTION_PATH/check.sh" "${args[@]}" | tee "$result" || rc=$?
-        {
-          echo '## Security Check 結果'
-          echo '```'
-          cat "$result"
-          echo '```'
-        } >> "$GITHUB_STEP_SUMMARY"
-        summary="$GITHUB_ACTION_PATH/reports/summary.json"
-        if [[ -f "$summary" ]]; then
-          echo "score=$(jq -r .total_score "$summary")" >> "$GITHUB_OUTPUT"
-          echo "rank=$(jq -r .rank "$summary")" >> "$GITHUB_OUTPUT"
-        fi
-        exit "$rc"
-
-    # --- ここから Code Scanning 連携 ---
-    # スコア判定で落ちても SARIF は出す (落ちた時ほど中身が見たい)
-    - name: SARIF を生成
-      if: always() && inputs.upload-sarif == 'true'
-      id: sarif
-      shell: bash
-      run: |
-        # GitHub の既定シェルは `bash -e` で、set -uo pipefail では解除されない。
-        # このステップはスキャナの終了コードを自分で解釈するため -e を明示的に外す。
-        # (osv-scanner の exit 128 = 対象マニフェスト無し で打ち切られる事故があった)
-        set +e
-        set -uo pipefail
-        SARIF_DIR="$RUNNER_TEMP/sarif"
-        mkdir -p "$SARIF_DIR"
-        FAILED=""
-
-        # 生成結果を検証する。空の SARIF をアップロードすると Code Scanning 上の既存 alert が
-        # 「解決済み」として閉じられ、ツールの故障が「指摘ゼロ」に化ける。これは絶対に避ける。
-        check() { # check <名前> <終了コード> <許容する終了コードのCSV>
-          local name="$1" rc="$2" allowed="$3" out="$SARIF_DIR/$1.sarif"
-          if [[ ",${allowed}," != *",${rc},"* ]] || ! jq -e '.runs[0].tool.driver.name' "$out" >/dev/null 2>&1; then
-            echo "::error::${name} の SARIF 生成に失敗しました (exit ${rc})。誤って「指摘ゼロ」を登録しないよう、この結果はアップロードしません"
-            rm -f "$out"
-            FAILED="${FAILED} ${name}"
-            return
-          fi
-          echo "- \`${name}\`: $(jq '.runs[0].results | length' "$out") 件" >> "$GITHUB_STEP_SUMMARY"
-          # hashFiles() は GITHUB_WORKSPACE 外を見られないため、アップロード可否は出力で伝える
-          echo "${name}=true" >> "$GITHUB_OUTPUT"
+        latest() { # latest <owner/repo> → 先頭の v を除いた最新のバージョン
+          # gh は GitHub ホストのランナーに標準で入っている。curl の出力をインタプリタに流さない
+          local tag
+          tag=$(gh api "repos/$1/releases/latest" --jq .tag_name)
+          echo "${tag#v}"
         }
+        # 取得物は公式のチェックサムで検証する。`curl | sh` の install スクリプトは使わない
+        cd "$RUNNER_TEMP"
+        ver=$(latest gitleaks/gitleaks)
+        base="https://github.com/gitleaks/gitleaks/releases/download/v${ver}"
+        file="gitleaks_${ver}_linux_x64.tar.gz"
+        curl -fsSLO "$base/$file"
+        curl -fsSL "$base/gitleaks_${ver}_checksums.txt" | grep " ${file}\$" | sha256sum -c -
+        tar xzf "$file" -C "$BIN" gitleaks
+        ver=$(latest aquasecurity/trivy)
+        base="https://github.com/aquasecurity/trivy/releases/download/v${ver}"
+        file="trivy_${ver}_Linux-64bit.tar.gz"
+        curl -fsSLO "$base/$file"
+        curl -fsSL "$base/trivy_${ver}_checksums.txt" | grep " ${file}\$" | sha256sum -c -
+        tar xzf "$file" -C "$BIN" trivy
+        ver=$(latest google/osv-scanner)
+        base="https://github.com/google/osv-scanner/releases/download/v${ver}"
+        curl -fsSLo "$BIN/osv-scanner" "$base/osv-scanner_linux_amd64"
+        (cd "$BIN" && curl -fsSL "$base/osv-scanner_SHA256SUMS" | grep " osv-scanner_linux_amd64\$" \
+          | sed 's/osv-scanner_linux_amd64/osv-scanner/' | sha256sum -c -)
+        chmod +x "$BIN/osv-scanner"
+        echo "$BIN" >> "$GITHUB_PATH"
+        uv tool install --quiet semgrep
+        # 本体はアクションのチェックアウト (= 呼び出し側が SHA で固定したもの) から入れる
+        uv tool install --quiet "$GITHUB_ACTION_PATH"
+        echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
 
-        echo '## Code Scanning へ登録する SARIF' >> "$GITHUB_STEP_SUMMARY"
-
-        semgrep scan --config p/default --sarif --quiet --metrics=off . > "$SARIF_DIR/semgrep.sarif"
-        check semgrep $? 0
-
-        # gitleaks 8.19+ は `dir`。`detect --no-git --source` は非推奨
-        gitleaks dir . --report-format sarif \
-          --report-path "$SARIF_DIR/gitleaks.sarif" --exit-code 0 >/dev/null 2>&1
-        check gitleaks $? 0
-
-        trivy fs --scanners misconfig,vuln,secret --format sarif --quiet \
-          -o "$SARIF_DIR/trivy.sarif" .
-        check trivy $? 0
-
-        # osv-scanner: 0=脆弱性なし 1=脆弱性あり 128=対象のマニフェストが無い
-        osv-scanner scan --recursive --format sarif . > "$SARIF_DIR/osv.sarif"
-        osv_rc=$?
-        if [[ "$osv_rc" == "128" ]]; then
-          rm -f "$SARIF_DIR/osv.sarif"
-          echo "- \`osv-scanner\`: 依存マニフェストが無いためスキップ" >> "$GITHUB_STEP_SUMMARY"
-        else
-          check osv "$osv_rc" 0,1
-        fi
-
-        if [[ -n "$FAILED" ]]; then
-          echo "::error::SARIF を生成できなかったスキャナがあります:${FAILED}"
-          exit 1
-        fi
-
-    # fork からの PR では GITHUB_TOKEN が read-only に降格され security-events: write が付かない。
-    # アップロードは必ず失敗するので、明示的にスキップして理由を残す (黙って緑にしない)。
-    - name: アップロード可否を判定
-      if: always() && inputs.upload-sarif == 'true'
+    - name: 実行モードを決める
       id: ctx
       shell: bash
       env:
         EVENT_NAME: ${{ github.event_name }}
+        PR_NUMBER: ${{ inputs.pr-number }}
         HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         REPO: ${{ github.repository }}
+        REVIEW: ${{ inputs.review }}
+        SECURITY_CHECKER_UNTRUSTED_TARGET: ${{ inputs.untrusted-target == 'true' && '1' || '' }}
+        CONFIG: ${{ inputs.config }}
+        PRESET: ${{ inputs.preset }}
+        TARGET: ${{ inputs.target }}
+        URL: ${{ inputs.url }}
       run: |
-        if [[ "$EVENT_NAME" != "pull_request" || "$HEAD_REPO" == "$REPO" ]]; then
-          echo "upload=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "upload=false" >> "$GITHUB_OUTPUT"
+        set -euo pipefail
+        fork=false
+        if [[ "$EVENT_NAME" == pull_request* && -n "$HEAD_REPO" && "$HEAD_REPO" != "$REPO" ]]; then
+          fork=true
+        fi
+        echo "fork=$fork" >> "$GITHUB_OUTPUT"
+        # PR に結果を書くか. workflow_run から pr-number 付きで呼ばれた場合も PR として扱う
+        pr=false
+        if [[ "$EVENT_NAME" == pull_request* || -n "$PR_NUMBER" ]]; then
+          pr=true
+        fi
+        if [[ -n "$PR_NUMBER" && ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+          echo "::error::pr-number が数値ではありません: $PR_NUMBER"
+          exit 2
+        fi
+        echo "pr=$pr" >> "$GITHUB_OUTPUT"
+
+        args=()
+        [[ -n "$CONFIG" ]] && args+=(--config "$CONFIG")
+        [[ -n "$PRESET" ]] && args+=(--preset "$PRESET")
+        reviewers=$(security-checker config show "$TARGET" ${args[@]+"${args[@]}"} 2>/dev/null \
+          | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["reviewers"]))' || echo 0)
+
+        command=scan
+        case "$REVIEW" in
+          true) command=review ;;
+          auto) [[ "$reviewers" != "0" ]] && command=review ;;
+        esac
+        if [[ "$command" == review && "$fork" == true ]]; then
+          # fork PR にはシークレットが渡らない。黙って 0 件にせず、スキャンのみと明示する (§21.2)
+          command=scan
+          {
+            echo '> [!WARNING]'
+            echo '> fork からの PR のため、LLM レビューを行わずスキャンのみを実行しました。'
+            echo '> スキャナの検出は判定前の候補で、誤検出を含みます。'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        echo "command=$command" >> "$GITHUB_OUTPUT"
+        if [[ -n "$URL" ]]; then
+          echo "::warning::inputs.url は v2 では未対応です (Web 検査は v1 のみ)。無視します"
+        fi
+
+    - name: セキュリティレビューを実行
+      id: run
+      shell: bash
+      env:
+        COMMAND: ${{ steps.ctx.outputs.command }}
+        SECURITY_CHECKER_UNTRUSTED_TARGET: ${{ inputs.untrusted-target == 'true' && '1' || '' }}
+        CONFIG: ${{ inputs.config }}
+        PRESET: ${{ inputs.preset }}
+        TARGET: ${{ inputs.target }}
+        MODE: ${{ inputs.mode }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        MIN_SCORE: ${{ inputs.min-score }}
+        BASE: ${{ inputs.base }}
+      run: |
+        set -uo pipefail
+        dir="$RUNNER_TEMP/security-checker"
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+        args=("$COMMAND" "$TARGET" -o "$dir" -f terminal -f json -f markdown -f sarif --fail-on "$FAIL_ON")
+        [[ -n "$CONFIG" ]] && args+=(--config "$CONFIG")
+        [[ -n "$PRESET" ]] && args+=(--preset "$PRESET")
+        [[ "$MIN_SCORE" != "0" ]] && args+=(--min-score "$MIN_SCORE")
+        # auto は CLI が GITHUB_BASE_REF から決める. base を明示したら diff にする
+        if [[ "$MODE" == full ]]; then
+          args+=(--full)
+        elif [[ -n "$BASE" ]]; then
+          args+=(--base "$BASE")
+        elif [[ "$MODE" == diff ]]; then
+          if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
+            args+=(--base "origin/${GITHUB_BASE_REF}")
+          else
+            echo "::warning::mode: diff ですが比較の基準が無いため、全件を検査します"
+            args+=(--full)
+          fi
+        fi
+        rc=0
+        security-checker "${args[@]}" || rc=$?
+        echo "exit-code=$rc" >> "$GITHUB_OUTPUT"
+        if [[ -f "$dir/report.md" ]]; then
+          cat "$dir/report.md" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        # 2 (設定エラー) はレポートが無いのでここで止める。それ以外は報告を済ませてから最後に落とす
+        if [[ "$rc" == "2" ]]; then
+          exit 2
+        fi
+
+    - name: 結果を出力に書く
+      id: result
+      if: always() && steps.run.outputs.dir != ''
+      shell: bash
+      env:
+        DIR: ${{ steps.run.outputs.dir }}
+      run: |
+        set -euo pipefail
+        report="$DIR/report.json"
+        [[ -f "$report" ]] || exit 0
+        echo "report-json=$report" >> "$GITHUB_OUTPUT"
+        python3 - "$report" >> "$GITHUB_OUTPUT" <<'PY'
+        import json, sys
+        report = json.load(open(sys.argv[1], encoding="utf-8"))
+        counts = report.get("finding_counts") or {}
+        print(f"score={report['score']['value']}")
+        print(f"rank={report['score']['rank']}")
+        print(f"confirmed-count={counts.get('confirmed', 0)}")
+        print(f"review-required-count={counts.get('review_required', 0)}")
+        PY
+
+    # 失敗したスキャナを含む SARIF を上げると、既存の alert が「解決済み」として閉じる (§18.4.2)。
+    # fork PR では security-events: write が付かないため必ず失敗する (§18.4.3)。
+    - name: SARIF のアップロード可否を判定
+      id: sarif
+      if: always() && inputs.upload-sarif == 'true' && steps.run.outputs.dir != ''
+      shell: bash
+      env:
+        DIR: ${{ steps.run.outputs.dir }}
+        FORK: ${{ steps.ctx.outputs.fork }}
+      run: |
+        set -euo pipefail
+        sarif="$DIR/report.sarif"
+        if [[ ! -f "$sarif" ]]; then
+          echo "::error::report.sarif がありません。誤って「指摘ゼロ」を登録しないよう、アップロードしません"
+          exit 0
+        fi
+        if [[ "$FORK" == true ]]; then
           {
             echo '> [!WARNING]'
             echo '> fork からの PR のため SARIF を Code Scanning にアップロードしていません。'
-            echo '> 検出結果はこのジョブのログにのみ残ります。'
+            echo '> workflow_run パターンを使うとアップロードできます (docs/github-actions.md)。'
           } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
         fi
+        ok=$(python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); print(all(i.get("executionSuccessful") for r in s["runs"] for i in r["invocations"]))' "$sarif")
+        if [[ "$ok" != "True" ]]; then
+          echo "::error::失敗したスキャナがあるため SARIF をアップロードしません (既存の alert が誤って閉じるのを防ぐ)"
+          exit 0
+        fi
+        echo "upload=true" >> "$GITHUB_OUTPUT"
 
-    # category はツールごとに分ける。同じ category に別ツールの結果を上げると互いに上書きし合う。
-    - name: SARIF をアップロード (semgrep)
-      if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.semgrep == 'true'
+    # tool 名と category は security-checker に固定する。Ruleset はこの名前をキーにする (§18.4.4)
+    - name: SARIF をアップロード
+      if: always() && steps.sarif.outputs.upload == 'true'
       uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
       with:
-        sarif_file: ${{ runner.temp }}/sarif/semgrep.sarif
-        category: semgrep
+        sarif_file: ${{ steps.run.outputs.dir }}/report.sarif
+        category: security-checker
+        # workflow_run から呼ぶときは PR に紐づける。指定しないと既定ブランチの結果になる (§18.4.3)
+        ref: ${{ inputs.pr-number != '' && format('refs/pull/{0}/head', inputs.pr-number) || '' }}
+        sha: ${{ inputs.pr-number != '' && inputs.head-sha || '' }}
 
-    - name: SARIF をアップロード (gitleaks)
-      if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.gitleaks == 'true'
-      uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
-      with:
-        sarif_file: ${{ runner.temp }}/sarif/gitleaks.sarif
-        category: gitleaks
+    - name: PR にコメント
+      if: >-
+        always() && inputs.comment == 'true' && steps.ctx.outputs.fork != 'true'
+        && steps.ctx.outputs.pr == 'true' && steps.result.outputs.report-json != ''
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        REPORT: ${{ steps.result.outputs.report-json }}
+        CONFIG: ${{ inputs.config }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        args=(comment "$REPORT" --report-url "$RUN_URL")
+        [[ -n "$CONFIG" ]] && args+=(--config "$CONFIG")
+        [[ -n "$PR_NUMBER" ]] && args+=(--pr "$PR_NUMBER")
+        [[ -n "$HEAD_SHA" ]] && args+=(--sha "$HEAD_SHA")
+        security-checker "${args[@]}"
 
-    - name: SARIF をアップロード (trivy)
-      if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.trivy == 'true'
-      uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
-      with:
-        sarif_file: ${{ runner.temp }}/sarif/trivy.sarif
-        category: trivy
-
-    - name: SARIF をアップロード (osv-scanner)
-      if: always() && steps.ctx.outputs.upload == 'true' && steps.sarif.outputs.osv == 'true'
-      uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
-      with:
-        sarif_file: ${{ runner.temp }}/sarif/osv.sarif
-        category: osv-scanner
+    - name: 判定
+      if: always() && steps.run.outputs.exit-code != ''
+      shell: bash
+      env:
+        RC: ${{ steps.run.outputs.exit-code }}
+      run: exit "$RC"

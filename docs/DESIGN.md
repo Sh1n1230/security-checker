@@ -1433,6 +1433,8 @@ Reviewer C ─┘
    でないと Judge は「多数決の言い換え」しかできない。
 3. **Judge 自身の出力も ReviewVerdict スキーマ**に従わせる。追加で `judge_rationale`
    (どの Reviewer の論点を採用/棄却したか)を持たせる。
+   **(P5 実装時)** 採否の理由は独立したフィールドではなく `reasoning` に書かせる。スキーマを 1 つに保ち、
+   修復リトライの経路を共有するため。`aggregation.detail.judge.rationale` に記録される。
 4. **Judge は自分では新しい脆弱性を発見しない**。渡された論点の評価に徹するようプロンプトで縛る。
 5. **フォールバック必須**: Judge が失敗(schema_error / rate limit / 予算超過)したら
    `judge.fallback`(既定 consensus)に自動で切り替え、その事実を `detail` に記録する。
@@ -1625,9 +1627,14 @@ SARIF は「このツールがこの run で見つけた全て」として解釈
 
 対応は §21.2 で既に推奨している `workflow_run` パターンに寄せる。
 
-- `pull_request` の workflow ではスキャンして SARIF を **artifact として出すだけ**。
-- `workflow_run` の workflow が artifact を取得し、`security-events: write` でアップロードする。
-  チェックアウトするのは **PR のコードではなく artifact のみ**。
+- `pull_request` の workflow ではスキャンだけを行い、アップロードしない。
+- `workflow_run` の workflow が `security-events: write` でアップロードする。
+  ~~artifact を取得してアップロードする~~ **(P4 で改訂)** fork 側は `pull_request` の workflow を
+  書き換えられるため、artifact は偽造できる。偽の「指摘ゼロ」SARIF を上げられるとゲートが素通りになる。
+  そこで `workflow_run` 側は artifact を使わず、**既定ブランチの action と設定で PR のコードを読むだけで
+  検査し直す**。PR のコードは実行しない(スキャナはファイルを読むだけ)。
+  検査対象のツリーにある設定は読まない(`SECURITY_CHECKER_UNTRUSTED_TARGET=1`)。
+  読むと、PR が置いた `command` がシークレット付きで実行される。
 - `upload-sarif` には `ref` / `sha` を明示指定する。指定しないと `workflow_run` の
   実行 ref(既定ブランチ)に紐づき、PR に alert が出ない。
 
@@ -1758,7 +1765,9 @@ LLM レビューは本質的に「自分のコードを外部サービスに送�
 
 ### 21.1 Action の形
 
-`action.yml` は **Docker コンテナアクション**とする。スキャナ(semgrep/gitleaks/osv-scanner/trivy)を
+`action.yml` は **Docker コンテナアクション**とする。
+**(P4 時点)** GHCR へのイメージ公開 (P6) までは composite action で配る。composite なら
+Code Scanning へのアップロードに公式の `upload-sarif` を使える。`Dockerfile` は用意済み。スキャナ(semgrep/gitleaks/osv-scanner/trivy)を
 同梱したイメージを配布することで、ユーザー側でのツール導入とバージョン差異の問題を消せる。
 composite action(実行時に各ツールを都度インストール)は起動が遅く壊れやすいので採らない。
 
@@ -1821,9 +1830,10 @@ jobs:
 - `pull_request_target` は fork PR のコードを**書き込み権限とシークレット付きの文脈で実行する**ため、
   極めて危険である。README とサンプルでは**使わない**。docs/github-actions.md に
   「なぜ使わないか」を明記する。
-- fork PR でもレビューしたい場合の推奨は `workflow_run` パターン
-  (`pull_request` で成果物を作り、別 workflow で権限を付けてコメントする)。
-  サンプル workflow を用意し、**チェックアウトするのは PR のコードではなく成果物のみ**であることを強調する。
+- fork PR でもレビューしたい場合の推奨は `workflow_run` パターン。
+  **(P4 で改訂)** 成果物は fork 側が偽造できるため使わない。既定ブランチの定義で動く workflow が、
+  PR のコードを**読むだけ**で検査し直してコメントする。PR のコードは実行せず、PR 側の設定も読まない。
+  `transport: process` の Reviewer は fork のコードに向けない。詳細は docs/github-actions.md。
 
 ### 21.3 PR コメント設計
 

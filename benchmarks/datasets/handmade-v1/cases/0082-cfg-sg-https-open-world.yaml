@@ -1,0 +1,33 @@
+# 誤検知: 公開ロードバランサの 443 を 0.0.0.0/0 に開けている (公開が目的)。
+id: hand-0082
+source: handmade
+language: hcl
+candidate:
+  scanner: trivy
+  rule_id: AVD-AWS-0107
+  category: config
+  message: セキュリティグループがインターネットからの通信を許可しています
+  path: infra/alb.tf
+  start_line: 9
+  end_line: 9
+  severity_reported: high
+  cwe:
+  - CWE-284
+code: |
+  resource "aws_security_group" "public_alb" {
+    name = "prod-public-alb"
+
+    ingress {
+      description = "https from the internet"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    インターネット向けロードバランサの HTTPS で、全世界から受けることがサービスの目的そのもの。

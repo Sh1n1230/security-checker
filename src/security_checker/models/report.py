@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category, FindingStatus, ScanStatus, Severity
-from security_checker.models.finding import Finding
+from security_checker.models.finding import Finding, SuppressionReason
 from security_checker.models.verdict import Usage
 
 SCHEMA_VERSION = 1
@@ -31,6 +31,17 @@ class ScannerRun(BaseModel):
     stderr_excerpt: str | None = None
     raw_path: str | None = None
     parse_warnings: list[str] = Field(default_factory=list)
+
+
+class SuppressedCandidate(BaseModel):
+    """抑制した候補. 消さずに理由付きで残す (設計書 §17.2)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    candidate: Candidate
+    reason: SuppressionReason
+    #: 注釈の reason= や、一致した ignore の行
+    note: str | None = None
 
 
 class ReportWarning(BaseModel):
@@ -92,6 +103,15 @@ class TargetInfo(BaseModel):
     root: str
     mode: Literal["full", "diff"] = "full"
     changed_files: int | None = None
+    #: diff モードの比較基準 (例: origin/main)
+    base: str | None = None
+
+    @property
+    def label(self) -> str:
+        """人間向けの検査範囲の表記 (例: `diff mode vs origin/main, 12 files`)."""
+        if self.mode == "diff":
+            return f"diff mode vs {self.base}, {self.changed_files or 0} files"
+        return f"{self.mode} mode"
 
 
 class Report(BaseModel):
@@ -110,6 +130,11 @@ class Report(BaseModel):
     scanners: list[ScannerRun] = Field(default_factory=list)
     reviewers: list[ReviewerRun] = Field(default_factory=list)
     candidates: list[Candidate] = Field(default_factory=list)
+    #: diff モードで変更に関係しなかった候補. レビューしないが、SARIF では alert を
+    #: 閉じないために残す (report/sarif.py)
+    outside_diff: list[Candidate] = Field(default_factory=list)
+    #: baseline / ignore / 注釈で抑制した候補. レビューもゲートもしない
+    suppressed: list[SuppressedCandidate] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
 
     coverage: Coverage
@@ -120,6 +145,18 @@ class Report(BaseModel):
     usage: Usage = Usage()
     stopped_reason: str | None = None
     trace_dir: str | None = None
+
+    @property
+    def suppression_label(self) -> str | None:
+        """抑制の内訳 (例: `3 件 (baseline 2 / ignore 1)`). 無ければ None."""
+        if not self.suppressed:
+            return None
+        labels = {"baseline": "baseline", "ignore_file": "ignore", "inline_annotation": "注釈"}
+        counts: dict[str, int] = {}
+        for item in self.suppressed:
+            counts[item.reason.value] = counts.get(item.reason.value, 0) + 1
+        breakdown = " / ".join(f"{labels[key]} {value}" for key, value in counts.items())
+        return f"{len(self.suppressed)} 件 ({breakdown})"
 
     @property
     def has_failed_scanner(self) -> bool:

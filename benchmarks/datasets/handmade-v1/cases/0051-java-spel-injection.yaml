@@ -1,0 +1,40 @@
+# 真陽性: 利用者の式を SpEL で評価する。
+id: hand-0051
+source: handmade
+language: java
+candidate:
+  scanner: semgrep
+  rule_id: java.spring.security.audit.spel-injection
+  category: sast
+  message: ユーザー入力を SpEL 式として評価しています
+  path: src/main/java/com/example/report/FilterController.java
+  start_line: 14
+  end_line: 14
+  severity_reported: high
+  cwe:
+  - CWE-917
+code: |
+  package com.example.report;
+
+  import org.springframework.expression.spel.standard.SpelExpressionParser;
+  import org.springframework.web.bind.annotation.GetMapping;
+  import org.springframework.web.bind.annotation.RequestParam;
+  import org.springframework.web.bind.annotation.RestController;
+
+  @RestController
+  public class FilterController {
+      private final SpelExpressionParser parser = new SpelExpressionParser();
+
+      @GetMapping("/reports/filter")
+      public Object filter(@RequestParam String expr) {
+          return parser.parseExpression(expr).getValue();
+      }
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-917
+  severity: critical
+  rationale: |
+    StandardEvaluationContext 相当の既定コンテキストで評価しており、
+    `T(java.lang.Runtime).getRuntime().exec('id')` で任意コマンドを実行できる。

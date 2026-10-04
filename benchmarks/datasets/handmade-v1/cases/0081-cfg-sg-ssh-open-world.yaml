@@ -1,0 +1,35 @@
+# 真陽性: 本番の踏み台以外のインスタンスで SSH を 0.0.0.0/0 に開放。
+id: hand-0081
+source: handmade
+language: hcl
+candidate:
+  scanner: trivy
+  rule_id: AVD-AWS-0107
+  category: config
+  message: セキュリティグループがインターネットからの SSH を許可しています
+  path: infra/app.tf
+  start_line: 9
+  end_line: 9
+  severity_reported: high
+  cwe:
+  - CWE-284
+code: |
+  resource "aws_security_group" "app" {
+    name = "prod-app"
+
+    ingress {
+      description = "ssh for debugging"
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-284
+  severity: high
+  rationale: |
+    本番アプリサーバの SSH がインターネット全体に開いている。鍵認証であっても総当たりや SSH 実装の
+    脆弱性の標的になり、攻撃面を不要に広げる。SSM Session Manager か踏み台経由に限定すべき。

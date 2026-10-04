@@ -1,0 +1,30 @@
+# 誤検知: 認証の無い公開読み取り API で CORS を * にしている。
+id: hand-0094
+source: handmade
+language: javascript
+candidate:
+  scanner: semgrep
+  rule_id: javascript.express.security.cors-misconfiguration
+  category: sast
+  message: CORS がすべてのオリジンを許可しています
+  path: src/public-api.js
+  start_line: 6
+  end_line: 6
+  severity_reported: medium
+  cwe:
+  - CWE-942
+code: |
+  const express = require("express");
+  const cors = require("cors");
+
+  // 誰でも使える為替レートの公開 API。認証も Cookie も使わない
+  const app = express();
+  app.use(cors({ origin: "*" }));
+  app.get("/rates", (req, res) => res.json(currentRates()));
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    公開データを返す認証なしの API で、資格情報付きリクエスト (credentials) も許可していない。
+    どのオリジンから読まれても漏れるものが無い。

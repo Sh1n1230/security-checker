@@ -1,0 +1,31 @@
+# 真陽性: 外部公開する API サーバのイメージが root のまま動く。
+id: hand-0077
+source: handmade
+language: dockerfile
+candidate:
+  scanner: trivy
+  rule_id: DS-0002
+  category: config
+  message: イメージのユーザーが root です
+  path: Dockerfile
+  start_line: 7
+  end_line: 7
+  severity_reported: high
+  cwe:
+  - CWE-250
+code: |
+  FROM node:20-slim
+  WORKDIR /app
+  COPY package*.json ./
+  RUN npm ci --omit=dev
+  COPY . .
+  EXPOSE 3000
+  CMD ["node", "server.js"]
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-250
+  severity: medium
+  rationale: |
+    USER 指定が無く root で Node の API サーバが動く。アプリに RCE があればコンテナ内の root を得て、
+    コンテナ脱出の脆弱性と組み合わせやすくなる。単体では悪用できない深層防御の欠如なので medium。

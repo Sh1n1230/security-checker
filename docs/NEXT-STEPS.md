@@ -6,7 +6,20 @@
 
 ---
 
-## 0. 現状（2026-09-11 時点の実測）
+## 0. 現状（2026-10-04 時点の実測）
+
+| 項目 | 状態 |
+|---|---|
+| フェーズ | P1〜P5 実装済み。P4 は自リポジトリでの稼働確認待ち。P6 はリリース準備まで。P7 未着手 |
+| 品質 | pytest 654 件すべて成功 / カバレッジ 94% / mypy --strict・ruff エラーなし |
+| Scanner | semgrep・gitleaks・osv・trivy |
+| Aggregator | consensus・weighted・judge |
+| レポート | terminal・json・markdown・**sarif**、PR コメント (`comment`) |
+| 残っている人間の作業 | §2 の D1・D2・D8・D9・D12・D13、§3 Step 4 の 5〜6・Step 6・Step 7 |
+
+以下は 2026-09-11 時点の記録。
+
+## 0'. 現状（2026-09-11 時点の実測）
 
 | 項目 | 状態 |
 |---|---|
@@ -32,6 +45,7 @@
 
 対象は `output.formats: [sarif]`（P4）・`policy.baseline`（P5）・`target.mode: diff`（P4）・
 `github.*`（P4）・`logging.*`（P5）・`reviewers[].num_ctx`（P3）。
+P4 で `sarif`・`diff`・`github.*` は実装し、警告から外した。
 `github.*` と `logging.*` は**利用者が明示的に設定したときだけ**警告します（既定値のままならノイズになるため）。
 
 ### 1.2 フェーズ計画上の未実装（DESIGN.md §32）
@@ -39,13 +53,22 @@
 | フェーズ | 未実装のもの | 設計書 |
 |---|---|---|
 | ~~**P3 Multi-LLM**~~ | **✅ 完了（2026-09-18）**: 4 方言すべて・`weighted` 集約・異なる transport の E2E | §9.4–9.6, §14.2 |
-| **P4 GitHub 統合** | `report/sarif.py`（§18.4 の規約込み）/ `github/pr.py`・`comment.py`（sticky・inline・重複投稿防止）/ diff モード / `action.yml` の中身を v2 CLI に差し替え（入口の `action.yml` 自体は v1 実装で先行して公開済み。入力の互換を保つ）+ `Dockerfile` / fork PR 用の `workflow_run` サンプル / `docs/github-actions.md` | §7.4, §18.3–18.4, §21 |
-| **P5 品質** | osv・trivy アダプタ / `judge` 集約（匿名化・fallback・disagreement 時のみ） / baseline・`.security-checker-ignore`・コード内注釈 / `rpd` の日次クォータ（`~/.cache/.../quota.json`） / `--estimate`（金額見積り） / `explain <finding-id>` / `providers list`・`providers check` / 構造化ログ（`observability/logging.py`） / `scanner_contract.py` / record・replay カセット | §16, §17.2, §22, §24, §25, §29.3 |
-| **P6 評価と公開** | `benchmarks/`・`eval` コマンド・自前データセット 100 件 / docs 一式（getting-started・configuration・providers・scanners・aggregation・prompts・evaluation・adr/） / 英語 README（正典）+ `README.ja.md` / `CONTRIBUTING.md`・`SECURITY.md`・`CODE_OF_CONDUCT.md`・`CODEOWNERS`・Issue/PR テンプレート・`dependabot.yml` / release-please・PyPI Trusted Publishing・GHCR | §26–27, §30–31 |
+| ~~**P4 GitHub 統合**~~ | **✅ 実装済み（2026-10-04）**: `report/sarif.py`・`github/pr.py`（diff モード）・`github/comment.py`・`github/client.py`（sticky・inline・重複投稿防止）・`comment` コマンド・`action.yml`（v2・composite）・`Dockerfile`・`ci/security-fork-publish.yml`・`docs/github-actions.md`。**残り**: 自リポジトリの PR で動かし Security タブに `security-checker` の alert が出ることの確認（完了条件） / D8 の v1 撤去 | §7.4, §18.3–18.4, §21 |
+| ~~**P5 品質**~~ | **✅ 実装済み（2026-10-04）**: osv・trivy アダプタ / `judge` 集約 / baseline・`.security-checker-ignore`・コード内注釈 / `rpd`（+ 受け付けていたが効いていなかった `tpm`） / `--estimate` / `explain` / `providers list`・`check` / 構造化ログ / `scanner_contract.py` / カセット（仕組みのみ。**実 LLM の記録はまだ無い**） | §16, §17.2, §22, §24, §25, §29.3 |
+| **P6 評価と公開** | **済（2026-10-04）**: データセット 100 件（TP 48 / FP 52）/ docs 一式・`adr/` / 英語 README（正典）+ `README.ja.md` / `release.yml`（release-please・PyPI Trusted Publishing・GHCR。公開は変数で無効化中）/ CI の Docker ビルド確認。**残り（人間の作業）**: 実 LLM での eval と D12 / D1 の配布名確保と Trusted Publisher 登録 / `v2.0.0` リリース / README 以外の docs の英語化 | §26–27, §30–31 |
 | **P7 ゲート** | v1 の生 SARIF 4 category の撤去 / Ruleset に "Require code scanning results"（`security-checker`） | §18.4.5 |
 | **v1 撤去** | `check.sh`・`check.ps1`・`lib/`・`ci/security.yml` の削除 / `tools/` → `contrib/host-audit/` へ移設 / `skills/` を v2 CLI 向けに書き換え / README の v1 節の整理 | §5「v1 資産の扱い」 |
 
 ### 1.3 テストの穴（L3 自己適用の不変条件, §31.5）
+
+**✅ 対処済み（2026-10-04）**: 3 点とも埋めた。
+
+- プロンプトインジェクション: `tests/unit/test_prompt_injection.py`。この過程で、**呼び出し元のコード (callers) が
+  デリミタのエスケープを通っていなかった**穴を見つけて塞いだ。
+- 除外パス: `tests/unit/test_self_application.py`（本体が除外されていない / フィクスチャは除外されている）。
+- terminal レポート: カバレッジ 60% → 99%。
+
+以下は当初の記録。
 
 - **プロンプトインジェクション耐性の回帰テストがない。** 現在あるのはデリミタとエスケープの存在確認（`tests/unit/test_reviewer.py`）まで。
   「注入文字列を埋めたフィクスチャで、FakeProvider に渡るプロンプトの構造が崩れない」ことを検証するテストを足す。
@@ -123,7 +146,15 @@ git diff --stat main docs/design-v2
 
 - 完了条件: DESIGN.md §32 の P3 行
 
-### Step 4. P4 GitHub 統合
+### Step 4. P4 GitHub 統合 — 1〜4 は実装済み（2026-10-04）。5・6 が残り
+
+実装時に設計から変えた点:
+
+- **fork PR の `workflow_run` は artifact を使わない。** fork 側は `pull_request` の workflow を書き換えられ、artifact（SARIF）を偽造できるため。既定ブランチの action と設定で PR のコードを読むだけで検査し直す（§18.4.3・§21.2 に追記）。
+- そのために `SECURITY_CHECKER_UNTRUSTED_TARGET=1`（action の `untrusted-target`）を追加した。検査対象のツリーにある設定（`.local.yml` を含む）を読まない。読むと PR 側の `command` がシークレット付きで実行される。
+- action は Docker ではなく composite のまま（GHCR 公開は P6。`Dockerfile` は用意済み）。
+- diff モードでレビューしなかった候補も SARIF に `note` / 0.0 で残す（出さないと既存 alert が閉じる）。
+
 
 順番を守る。**SARIF を先、Ruleset は最後**（§18.4）。
 
@@ -136,14 +167,38 @@ git diff --stat main docs/design-v2
 
 - 完了条件: 自リポジトリの PR で動き、Security タブに `security-checker` の alert が出る
 
-### Step 5. P5 品質
+### Step 5. P5 品質 — ✅ 実装済み（2026-10-04、カバレッジ 94%・mypy strict 通過）
+
+実装時に設計から変えた点:
+
+- Judge の採否理由は独立した `judge_rationale` ではなく、同じスキーマの `reasoning` に書かせる（スキーマを 1 つに保ち、修復リトライの経路を共有するため）。`aggregation.detail.judge.rationale` に残る。
+- Judge は見逃しを増やさない方向に倒す: 「脆弱ではない」でも確信度 0.8 未満か文脈不足なら `review_required` のまま。
+- ログは既定で出さない（`logging.*` か `--log-format` を指定したときだけ）。
+- `rate_limit.tpm` はスキーマにあったのに効いていなかった（P9 違反）ので、rpd と一緒に実装した。
+- 信用できない検査対象では ignore ファイルとコード内注釈を読まない（PR が自分の指摘を消せるため）。
+
 
 優先度順: baseline・ignore（段階導入に必須）→ osv → judge → `providers check` → `--estimate` / rpd クォータ → trivy → `explain` → 構造化ログ → カセット。
 §1.3 のテストの穴もここで埋める。
 
 - 完了条件: カバレッジ 80% 以上（現状 93% を維持）、mypy strict が通る
 
-### Step 6. P6 評価と公開
+### Step 6. P6 評価と公開 — 1・3 と 4 の準備は済み。2 と 4 の実施が残り
+
+残りの手順:
+
+1. 手元の Reviewer 構成で eval を回す（課金が発生する。`review --estimate` 相当の見積りは `eval` には無いので、まず `--dataset` を数件に絞ったコピーで試す）
+   ```sh
+   security-checker eval -d benchmarks/datasets/handmade-v1 -c security-checker.local.yml \
+     -o benchmarks/results/<date>.json -m benchmarks/results/<date>.md
+   ```
+   single / consensus / judge を比べ、D12 を決める。結果は README の Accuracy 節に書く
+2. D1: PyPI で配布名を確保し、Trusted Publisher に `release.yml` / environment `pypi` を登録 → `pyproject.toml` の `name` を配布名に変える → リポジトリ変数 `PUBLISH_PYPI=true`
+3. GHCR: リポジトリ変数 `PUBLISH_GHCR=true`
+4. release-please のリリース PR をマージして `v2.0.0`。**その後 `release-please-config.json` の `release-as` を消す**（残すと次も 2.0.0 を作ろうとする）
+
+当初の手順:
+
 
 1. `eval` コマンドとデータセット 100 件（`eval` コマンドは実装済み・#21。データセットはまだ土台のみ）。**Recall を主指標、FN 増加数 0 を必須条件**にする（§27.2）
 2. 結果を見て D12（既定の Reviewer 数・戦略）を決める。効果がなければ README に「1 モデルで十分」と正直に書く

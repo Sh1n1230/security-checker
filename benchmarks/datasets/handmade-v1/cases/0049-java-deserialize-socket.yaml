@@ -1,0 +1,41 @@
+# 真陽性: ネットワークから受けたバイト列を ObjectInputStream で復元する。
+id: hand-0049
+source: handmade
+language: java
+candidate:
+  scanner: semgrep
+  rule_id: java.lang.security.audit.object-deserialization
+  category: sast
+  message: 信頼できないデータをデシリアライズしています
+  path: src/main/java/com/example/sync/SyncServer.java
+  start_line: 13
+  end_line: 13
+  severity_reported: high
+  cwe:
+  - CWE-502
+code: |
+  package com.example.sync;
+
+  import java.io.ObjectInputStream;
+  import java.net.ServerSocket;
+  import java.net.Socket;
+
+  public class SyncServer {
+      public void serve(int port) throws Exception {
+          try (ServerSocket server = new ServerSocket(port)) {
+              while (true) {
+                  Socket socket = server.accept();
+                  ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+                  handle((SyncMessage) in.readObject());
+              }
+          }
+      }
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-502
+  severity: critical
+  rationale: |
+    ソケットから受けたバイト列を型チェック前に readObject しており、クラスパス上のガジェットチェーン
+    (Commons Collections など) で任意コード実行になる。キャストは復元後なので防御にならない。

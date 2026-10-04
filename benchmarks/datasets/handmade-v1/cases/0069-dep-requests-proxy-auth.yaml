@@ -1,0 +1,31 @@
+# 真陽性: requests の既知の脆弱性。社内プロキシ経由で外部 API を呼ぶ構成で到達する。
+id: hand-0069
+source: handmade
+language: python
+candidate:
+  scanner: osv
+  rule_id: GHSA-j8r2-6x86-q33q
+  category: dependency
+  message: requests 2.28.0 に既知の脆弱性があります (Proxy-Authorization ヘッダの漏洩)
+  path: requirements.txt
+  start_line: 2
+  end_line: 2
+  severity_reported: medium
+  cwe:
+  - CWE-200
+code: |
+  # requirements.txt
+  requests==2.28.0
+
+  # app/client.py (同じリポジトリ)
+  # proxies = {"https": "http://user:pass@proxy.internal:3128"}
+  # requests.get(partner_url, proxies=proxies)   # partner_url は外部の API
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-200
+  severity: medium
+  rationale: |
+    2.31.0 未満では HTTPS の宛先へリダイレクトされた際に Proxy-Authorization が宛先に漏れうる。
+    このアプリは認証付きプロキシ経由で外部 API を呼んでおり、条件を満たす。宛先側が悪意を持つ
+    必要があるため medium。
