@@ -1,0 +1,32 @@
+# 誤検知: defusedxml を使っている。
+id: hand-0030
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.use-defused-xml
+  category: sast
+  message: XML を解析しています
+  path: app/invoices.py
+  start_line: 9
+  end_line: 9
+  severity_reported: medium
+  cwe:
+  - CWE-611
+code: |
+  from defusedxml import ElementTree
+  from flask import Flask, request
+
+  app = Flask(__name__)
+
+
+  @app.post("/invoices")
+  def upload_invoice():
+      tree = ElementTree.fromstring(request.data)
+      return {"total": tree.findtext("total")}
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    defusedxml は外部実体・DTD・entity expansion を既定で拒否する。XXE も billion laughs も成立しない。

@@ -1,0 +1,33 @@
+# 誤検知: send_from_directory はディレクトリの外を拒否する。
+id: hand-0016
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.flask.security.injection.path-traversal-open
+  category: sast
+  message: ユーザー入力でファイルパスを組み立てています
+  path: app/files.py
+  start_line: 10
+  end_line: 10
+  severity_reported: medium
+  cwe:
+  - CWE-22
+code: |
+  from flask import Flask, request, send_from_directory
+
+  app = Flask(__name__)
+  BASE = "/srv/app/public"
+
+
+  @app.get("/download")
+  def download():
+      name = request.args["name"]
+      return send_from_directory(BASE, name)
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    send_from_directory は werkzeug.security.safe_join でパスを結合し、BASE の外を指す場合は 404 を返す。
+    .. や絶対パスによる脱出はできない。

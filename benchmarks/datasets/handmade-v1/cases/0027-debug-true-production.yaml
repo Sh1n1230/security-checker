@@ -1,0 +1,31 @@
+# 真陽性: 本番エントリポイントで Flask の debug を有効にしている (Werkzeug デバッガ)。
+id: hand-0027
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.flask.security.audit.debug-enabled
+  category: sast
+  message: Flask の debug モードが有効です
+  path: wsgi.py
+  start_line: 7
+  end_line: 7
+  severity_reported: high
+  cwe:
+  - CWE-489
+code: |
+  from app import create_app
+
+  app = create_app()
+
+  if __name__ == "__main__":
+      # Dockerfile の CMD はこのファイルを直接実行している
+      app.run(host="0.0.0.0", port=8000, debug=True)
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-489
+  severity: critical
+  rationale: |
+    0.0.0.0 で待ち受けつつ debug=True で起動しており、コメントのとおり本番でもこの経路で動く。
+    例外ページの Werkzeug デバッガから Python コードを実行でき、PIN も推測可能な場合が多い。

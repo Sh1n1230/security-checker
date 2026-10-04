@@ -7,6 +7,7 @@ Reviewer は 1 候補について 1 つの ReviewVerdict を返す。
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from typing import Any
 
 from security_checker.language import DEFAULT_LANGUAGE
@@ -79,11 +80,21 @@ class Reviewer:
     def model(self) -> str:
         return getattr(self.provider, "model", "unknown")
 
-    async def review(self, task: ReviewTask) -> ReviewOutcome:
-        """1 候補をレビューする. スキーマ違反は 1 回だけ修復を試みる (§10.2)."""
+    async def review(
+        self, task: ReviewTask, *, opinions: Sequence[prompts.PeerOpinion] | None = None
+    ) -> ReviewOutcome:
+        """1 候補をレビューする. スキーマ違反は 1 回だけ修復を試みる (§10.2).
+
+        `opinions` を渡すと Judge として振る舞う (§16)。他の Reviewer の匿名化した意見を
+        評価して最終判定を出す。出力のスキーマは通常のレビューと同じ。
+        """
         schema = verdict_schema()
-        system = prompts.render_system(self.language)
-        user = prompts.render_user(task, schema)
+        if opinions is None:
+            system = prompts.render_system(self.language)
+            user = prompts.render_user(task, schema)
+        else:
+            system = prompts.render_judge_system(self.language)
+            user = prompts.render_judge_user(task, schema, opinions)
         started = time.monotonic()
         self._last_prompt = (system, user)
 

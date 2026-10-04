@@ -1,0 +1,35 @@
+# 誤検知: リダイレクト先を同一オリジンの相対パスに限定している。
+id: hand-0040
+source: handmade
+language: javascript
+candidate:
+  scanner: semgrep
+  rule_id: javascript.express.security.audit.express-open-redirect
+  category: sast
+  message: ユーザー入力の URL にリダイレクトしています
+  path: src/routes/login.js
+  start_line: 11
+  end_line: 11
+  severity_reported: medium
+  cwe:
+  - CWE-601
+code: |
+  function safeNext(value) {
+    if (typeof value !== "string") return "/";
+    // "/" で始まり "//" や "/\\" で始まらないものだけを同一オリジンの相対パスとして許可する
+    return /^\/(?![\/\\])/.test(value) ? value : "/";
+  }
+
+  router.post("/login", async (req, res) => {
+    const user = await authenticate(req.body.email, req.body.password);
+    if (!user) return res.status(401).send("invalid");
+    req.session.userId = user.id;
+    res.redirect(safeNext(req.query.next));
+  });
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    safeNext は "/" で始まり、プロトコル相対 (//) やバックスラッシュの抜け道でないものだけを許可する。
+    外部オリジンへのリダイレクトは作れない。

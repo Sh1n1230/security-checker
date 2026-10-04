@@ -1,0 +1,38 @@
+# 真陽性: 外部公開する Web アプリのコンテナを privileged で動かしている。
+id: hand-0075
+source: handmade
+language: yaml
+candidate:
+  scanner: trivy
+  rule_id: KSV-0017
+  category: config
+  message: 特権コンテナが有効です
+  path: k8s/web.yaml
+  start_line: 13
+  end_line: 13
+  severity_reported: high
+  cwe:
+  - CWE-250
+code: |
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: web
+  spec:
+    template:
+      spec:
+        containers:
+          - name: web
+            image: registry.example.com/web:1.8.0
+            ports: [{ containerPort: 8080 }]
+            securityContext:
+              privileged: true
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-250
+  severity: high
+  rationale: |
+    インターネットに公開する Web アプリを特権コンテナで動かしている。アプリに RCE があった場合、
+    ホストのデバイスやカーネル機能に直接アクセスでき、ノード全体の乗っ取りに広がる。
+    単体では悪用できないが被害範囲を大きく広げる設定なので high。

@@ -76,6 +76,7 @@ allowed-confusables = ["×", "－", "–"]
 # 契約テストはテストコードそのものを提供するモジュール
 # (S108: シェル経由でないことを示すための固定パス。実際には作られないことを検証している)
 "src/security_checker/testing/provider_contract.py" = ["S101", "S108"]
+"src/security_checker/testing/scanner_contract.py" = ["S101", "ASYNC240"]
 
 [tool.mypy]
 python_version = "3.11"

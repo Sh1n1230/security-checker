@@ -1,0 +1,33 @@
+# 誤検知: リダイレクト先を固定の対応表から選んでいる。
+id: hand-0097
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.flask.security.open-redirect
+  category: sast
+  message: ユーザー入力の URL にリダイレクトしています
+  path: app/nav.py
+  start_line: 10
+  end_line: 10
+  severity_reported: medium
+  cwe:
+  - CWE-601
+code: |
+  from flask import Flask, redirect, request, url_for
+
+  app = Flask(__name__)
+  DESTINATIONS = {"home": "index", "settings": "account.settings", "billing": "billing.show"}
+
+
+  @app.get("/go")
+  def go():
+      endpoint = DESTINATIONS.get(request.args.get("to", ""), "index")
+      return redirect(url_for(endpoint))
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    利用者の値は対応表のキーとしてしか使われず、リダイレクト先は url_for が作る同一アプリ内の
+    パスに限られる。外部 URL へは誘導できない。

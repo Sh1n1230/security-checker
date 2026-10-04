@@ -1,0 +1,30 @@
+# 誤検知: コンテナ内で 0.0.0.0 に bind する (公開範囲はコンテナ外で決まる)。
+id: hand-0089
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.network.bind
+  category: sast
+  message: すべてのインターフェースで待ち受けています
+  path: app/main.py
+  start_line: 7
+  end_line: 7
+  severity_reported: medium
+  cwe:
+  - CWE-200
+code: |
+  import uvicorn
+
+  from app.api import app
+
+  if __name__ == "__main__":
+      # コンテナ内で動かす。公開範囲は Service / Ingress で制御する
+      uvicorn.run(app, host="0.0.0.0", port=8000)
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    コンテナ内のプロセスは 0.0.0.0 で待ち受けないとコンテナ外から到達できない。実際の公開範囲は
+    Kubernetes の Service / Ingress が決め、ここでの bind は脆弱性ではない。

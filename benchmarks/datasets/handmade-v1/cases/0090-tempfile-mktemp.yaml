@@ -1,0 +1,34 @@
+# 真陽性: tempfile.mktemp で名前だけ決めて後から開く (競合状態)。
+id: hand-0090
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.insecure-tempfile
+  category: sast
+  message: tempfile.mktemp は競合状態を起こします
+  path: app/export.py
+  start_line: 5
+  end_line: 5
+  severity_reported: medium
+  cwe:
+  - CWE-377
+code: |
+  import tempfile
+
+
+  def export_csv(rows) -> str:
+      path = tempfile.mktemp(suffix=".csv", dir="/tmp")
+      with open(path, "w") as f:
+          for row in rows:
+              f.write(",".join(row) + "\n")
+      return path
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-377
+  severity: low
+  rationale: |
+    mktemp は名前を返すだけで、作成までの間に同じホストの別ユーザーが同名のシンボリックリンクを
+    置ける。共有の /tmp を使っており、他人のファイルの上書きや出力の横取りが起きうる。
+    同じホストへのローカルアクセスが前提なので low。NamedTemporaryFile を使うべき。

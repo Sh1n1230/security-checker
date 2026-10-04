@@ -48,6 +48,21 @@ def test_scan_respects_output_dir_and_quiet(tmp_path, monkeypatch):
     assert result.stdout.strip() == ""
 
 
+def test_scan_writes_sarif_when_requested(tmp_path, monkeypatch):
+    (tmp_path / "security-checker.yml").write_text(
+        "version: 1\nscanners:\n  semgrep: { enabled: false }\n  gitleaks: { enabled: false }\n"
+        "output:\n  formats: [json, sarif]\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["scan", str(tmp_path), "--quiet"])
+
+    assert result.exit_code == ExitCode.OK
+    sarif = json.loads((tmp_path / ".security-checker" / "report.sarif").read_text())
+    assert sarif["runs"][0]["tool"]["driver"]["name"] == "security-checker"
+    assert sarif["runs"][0]["invocations"][0]["executionSuccessful"] is True
+
+
 def test_scan_missing_target_is_config_error(tmp_path):
     result = runner.invoke(app, ["scan", str(tmp_path / "nope")])
     assert result.exit_code == ExitCode.CONFIG_ERROR
@@ -139,3 +154,35 @@ def test_review_dry_run_does_not_call_the_provider(tmp_path, monkeypatch):
     assert result.exit_code == ExitCode.OK
     assert "dry-run" in result.stdout
     assert "推定入力トークン" in result.stdout
+
+
+def test_scan_diff_mode_needs_a_base(tmp_path, monkeypatch):
+    disabled_scanners_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+    (tmp_path / "security-checker.yml").write_text(
+        "version: 1\ntarget: { mode: diff }\n"
+        "scanners:\n  semgrep: { enabled: false }\n  gitleaks: { enabled: false }\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["scan", str(tmp_path)])
+    assert result.exit_code == ExitCode.CONFIG_ERROR
+    assert "--base" in result.stderr
+
+
+def test_scan_with_base_outside_git_is_an_execution_error(tmp_path, monkeypatch):
+    disabled_scanners_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["scan", str(tmp_path), "--base", "main"])
+    assert result.exit_code == ExitCode.EXECUTION_ERROR
+
+
+def test_scan_full_overrides_the_pr_context(tmp_path, monkeypatch):
+    disabled_scanners_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GITHUB_BASE_REF", "main")
+    result = runner.invoke(app, ["scan", str(tmp_path), "--full", "--quiet"])
+    assert result.exit_code == ExitCode.OK
+    payload = json.loads((tmp_path / ".security-checker" / "report.json").read_text())
+    assert payload["target"]["mode"] == "full"
+    assert payload["warnings"] == []

@@ -15,47 +15,15 @@ from collections.abc import Mapping
 
 from security_checker.config.schema import Config
 
-DEFAULT_LAYER = "default"
-
-
-def _user_set(origins: Mapping[str, str], prefix: str) -> bool:
-    """その節を利用者が明示的に設定したか (既定値のままなら警告しない)."""
-    return any(key.startswith(prefix) and layer != DEFAULT_LAYER for key, layer in origins.items())
-
 
 def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = None) -> list[str]:
-    """受け付けたが効かない設定の一覧を返す. 呼び出し側は必ず警告として残すこと."""
-    layers: Mapping[str, str] = origins or {}
+    """受け付けたが効かない設定の一覧を返す. 呼び出し側は必ず警告として残すこと.
+
+    `origins` (どの層で値が決まったか) は、既定値のままの項目を警告しないために受け取る。
+    P5 時点で残っているのは方言の組み合わせの検査だけで、使っていない。
+    """
+    del origins
     warnings: list[str] = []
-
-    if "sarif" in config.output.formats:
-        warnings.append(
-            "output.formats の 'sarif' はまだ実装されていません (移行計画 P4)。"
-            "SARIF ファイルは生成されないため、Code Scanning へのアップロードは行えません。"
-            "terminal / json / markdown は通常どおり出力されます"
-        )
-
-    if config.policy.baseline is not None:
-        warnings.append(
-            f"policy.baseline ({config.policy.baseline}) はまだ実装されていません (移行計画 P5)。"
-            "既知の Finding は抑制されず、すべて報告されます"
-        )
-
-    if config.target.mode == "diff":
-        warnings.append(
-            "target.mode: diff はまだ実装されていません (移行計画 P4)。"
-            "変更行に関係しない候補も含めて、全件をスキャンします"
-        )
-
-    if _user_set(layers, "github."):
-        warnings.append(
-            "github.* の設定はまだ実装されていません (移行計画 P4)。PR コメントの投稿は行われません"
-        )
-
-    if _user_set(layers, "logging."):
-        warnings.append(
-            "logging.* の設定はまだ実装されていません (移行計画 P5)。構造化ログは出力されません"
-        )
 
     for reviewer in config.reviewers:
         # num_ctx / keep_alive は ollama_chat 方言にしかない概念。

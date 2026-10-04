@@ -73,8 +73,12 @@ class ContextConfig(StrictModel):
 
 
 class RateLimit(StrictModel):
+    #: requests / minute
     rpm: int | None = Field(default=None, gt=0)
+    #: tokens / minute (入力の見積り + 出力の上限で数える)
     tpm: int | None = Field(default=None, gt=0)
+    #: requests / day. プロセスをまたいで ~/.cache/security-checker/quota.json に数える
+    rpd: int | None = Field(default=None, gt=0)
 
 
 class ReviewerCapabilities(StrictModel):
@@ -173,8 +177,12 @@ class WeightedConfig(StrictModel):
 
 
 class JudgeConfig(StrictModel):
+    #: Judge 役の Reviewer (reviewers の name). 一次レビューには参加しない
     reviewer: str | None = None
+    #: Judge が失敗したとき / Judge に回さない候補の集約戦略
     fallback: Literal["consensus", "weighted"] = "consensus"
+    #: 判断が割れた候補 (fallback で review_required) だけを Judge に回す (§16-6)
+    only_on_disagreement: bool = True
 
 
 class AggregationConfig(StrictModel):
@@ -231,6 +239,8 @@ class GithubConfig(StrictModel):
     inline_comments: bool = True
     inline_min_status: FindingStatus = FindingStatus.LIKELY
     max_inline_comments: int = Field(default=20, ge=0)
+    #: 指摘ゼロのとき、既存コメントが無ければ何も投稿しない (§21.3 ノイズ抑制 2)
+    comment_on_clean: bool = False
 
 
 class LoggingConfig(StrictModel):

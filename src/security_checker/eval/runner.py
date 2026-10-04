@@ -17,8 +17,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from security_checker.aggregate.findings import build_findings
-from security_checker.aggregate.registry import build_aggregator
 from security_checker.config.schema import Config
 from security_checker.context.builder import ContextBuilder
 from security_checker.context.facts import collect_repo_facts
@@ -29,8 +27,7 @@ from security_checker.models.candidate import Candidate
 from security_checker.models.finding import Finding
 from security_checker.models.task import ReviewTask
 from security_checker.observability.cost import PriceTable
-from security_checker.review.scheduler import ReviewScheduler
-from security_checker.run import ReviewerSetup, build_reviewers
+from security_checker.run import ReviewerSetup, build_reviewers, review_and_aggregate
 
 
 class EvalResult(BaseModel):
@@ -89,30 +86,20 @@ async def run_eval(
         )
 
     setup = reviewer_setup or build_reviewers(config, price_table=price_table, environ=environ)
-    aggregator, aggregator_warnings = build_aggregator(
-        config.aggregation.strategy,
-        weights={reviewer.name: reviewer.weight for reviewer in config.reviewers},
-    )
-    warnings = [*setup.warnings, *aggregator_warnings]
+    warnings = list(setup.warnings)
 
     with tempfile.TemporaryDirectory(prefix="security-checker-eval-") as temporary:
         root = workspace or Path(temporary)
         prepared = _prepare(dataset, config, root)
 
-        scheduler = ReviewScheduler(setup.runtimes, budget=config.budget)
-        schedule = await scheduler.run(prepared.tasks)
+        review_pass = await review_and_aggregate(config, setup, prepared.tasks, prepared.candidates)
 
+    schedule = review_pass.schedule
+    findings = review_pass.findings
+    warnings.extend(review_pass.warnings)
     warnings.extend(schedule.warnings)
     if schedule.stopped_reason:
         warnings.append(schedule.stopped_reason)
-
-    findings = build_findings(
-        prepared.candidates,
-        schedule.verdicts,
-        aggregator=aggregator,
-        aggregation=config.aggregation,
-        policy=config.policy,
-    )
 
     outcomes = [_to_outcome(prepared.by_id[finding.candidate.id], finding) for finding in findings]
     for provider in setup.providers:

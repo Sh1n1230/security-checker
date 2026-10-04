@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from rich.console import Console
 
 from security_checker.config.schema import Config
+from security_checker.errors import ExitCode
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, ScanStatus, Severity
 from security_checker.models.report import Report
@@ -105,3 +107,108 @@ async def test_no_scanners_configured(tmp_path):
     outcome = await run_scan(Config(), tmp_path, base_dir=tmp_path, scanners=[])
     output = capture(outcome.report, outcome.decision, outcome.output_dir)
     assert "有効なスキャナがありません" in output
+
+
+# --- レビュー後の表示 (§18.2) ----------------------------------------------------------
+
+
+def reviewed_report(**overrides: Any) -> Report:
+    from security_checker.models.enums import FindingStatus
+    from security_checker.models.finding import SuppressionReason
+    from security_checker.models.report import ReviewerRun, SuppressedCandidate
+    from security_checker.models.verdict import Usage
+    from tests.factories import make_candidate, make_finding, make_report, make_verdict
+
+    confirmed = make_candidate("c1", path="a.py")
+    split = make_candidate("c2", path="b.py")
+    pending = make_candidate("c3", path="c.py")
+    fp = make_candidate("c4", path="d.py")
+    findings = [
+        make_finding(confirmed, FindingStatus.CONFIRMED, summary="確定した問題"),
+        make_finding(
+            split,
+            FindingStatus.REVIEW_REQUIRED,
+            summary="割れた問題",
+            verdicts=[make_verdict("alpha", "c2"), make_verdict("beta", "c2", vulnerable=False)],
+        ),
+        make_finding(pending, FindingStatus.NOT_REVIEWED, verdicts=[]),
+        make_finding(fp, FindingStatus.FALSE_POSITIVE),
+    ]
+    payload: dict[str, Any] = {
+        "reviewers": [
+            ReviewerRun(
+                name="alpha",
+                calls=4,
+                usage=Usage(input_tokens=10, output_tokens=5, estimated_usd=0.001),
+            ),
+            ReviewerRun(name="beta", calls=4, verdicts_error=1, disabled_reason="401"),
+        ],
+        "usage": Usage(input_tokens=10, output_tokens=5, estimated_usd=0.001),
+        "suppressed": [
+            SuppressedCandidate(candidate=make_candidate("s1"), reason=SuppressionReason.BASELINE)
+        ],
+    }
+    payload.update(overrides)
+    return make_report([confirmed, split, pending, fp], findings, **payload)
+
+
+def test_review_required_comes_right_after_confirmed(tmp_path):
+    output = capture(reviewed_report(), PolicyDecision(exit_code=ExitCode.OK, reasons=[]), tmp_path)
+    assert output.index("CONFIRMED") < output.index("REVIEW REQUIRED")
+    assert "確定した問題" in output and "割れた問題" in output
+    assert "alpha: high (0.90)" in output and "beta: not vulnerable" in output
+    assert "Attack path: POST /upload" in output
+    assert "未レビュー" in output
+    assert "Suppressed" in output and "baseline 1" in output
+    assert "無効化" in output and "error 1" in output
+    assert "cost: $0.0010" in output
+    assert "false_positive 1" in output
+
+
+def test_many_findings_are_truncated(tmp_path):
+    from security_checker.models.enums import FindingStatus
+    from tests.factories import make_candidate, make_finding, make_report
+
+    candidates = [
+        make_candidate(f"c{i}", path=f"f{i}.py") for i in range(terminal.MAX_FINDING_PANELS + 3)
+    ]
+    report = make_report(candidates, [make_finding(c, FindingStatus.CONFIRMED) for c in candidates])
+    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]), tmp_path)
+    assert "ほか 3 件" in output
+
+
+def test_only_false_positives_says_nothing_to_report(tmp_path):
+    from security_checker.models.enums import FindingStatus
+    from tests.factories import make_candidate, make_finding, make_report
+
+    c = make_candidate()
+    output = capture(
+        make_report([c], [make_finding(c, FindingStatus.FALSE_POSITIVE)]),
+        PolicyDecision(exit_code=ExitCode.OK, reasons=[]),
+        tmp_path,
+    )
+    assert "報告対象なし" in output
+
+
+def test_unknown_cost_and_many_warnings(tmp_path):
+    from security_checker.models.report import ReportWarning
+    from security_checker.models.verdict import Usage
+
+    report = reviewed_report(
+        usage=Usage(cost_known=False),
+        warnings=[ReportWarning(level="warn", source="x", message=f"w{i}") for i in range(7)],
+    )
+    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]), tmp_path)
+    assert "cost: unknown" in output
+    assert "ほか 2 件の警告" in output
+
+
+def test_diff_mode_label(tmp_path):
+    from security_checker.models.report import TargetInfo
+    from tests.factories import make_report
+
+    report = make_report(
+        [], target=TargetInfo(root="/r", mode="diff", changed_files=3, base="origin/main")
+    )
+    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]), tmp_path)
+    assert "diff mode vs origin/main, 3 files" in output

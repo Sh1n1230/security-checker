@@ -1,0 +1,29 @@
+# 誤検知: MD5 をキャッシュ用の ETag に使っているだけ。
+id: hand-0022
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-md5
+  category: sast
+  message: 弱いハッシュアルゴリズム MD5 を使っています
+  path: app/static.py
+  start_line: 6
+  end_line: 6
+  severity_reported: medium
+  cwe:
+  - CWE-327
+code: |
+  import hashlib
+
+
+  def etag_for(content: bytes) -> str:
+      # キャッシュの同一性判定にだけ使う。改ざん検知や認証には使わない
+      return '"' + hashlib.md5(content, usedforsecurity=False).hexdigest() + '"'
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    ETag はキャッシュの一致判定用で、衝突を作られても困るのは攻撃者自身のキャッシュだけ。
+    usedforsecurity=False でも意図が明示されている。暗号学的な強度は求められていない。

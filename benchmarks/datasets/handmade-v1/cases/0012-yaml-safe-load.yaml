@@ -1,0 +1,36 @@
+# 誤検知: yaml.safe_load を使っている (ルールが関数名だけを見ている)。
+id: hand-0012
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.deserialization.avoid-pyyaml-load
+  category: sast
+  message: yaml の読み込みにユーザー入力を使っています
+  path: app/import_api.py
+  start_line: 9
+  end_line: 9
+  severity_reported: high
+  cwe:
+  - CWE-502
+code: |
+  import yaml
+  from flask import Flask, request
+
+  app = Flask(__name__)
+
+
+  @app.post("/import")
+  def import_config():
+      config = yaml.safe_load(request.data)
+      if not isinstance(config, dict):
+          return "bad request", 400
+      apply(config)
+      return "imported"
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    safe_load は標準のスカラー・配列・マップしか生成しないため、オブジェクト生成による
+    コード実行は起きない。型も dict に検査している。

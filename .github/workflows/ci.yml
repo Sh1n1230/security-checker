@@ -94,3 +94,18 @@ jobs:
           name: security-checker-report
           path: .security-checker/
           retention-days: 7
+
+  docker:
+    # Dockerfile (スキャナ同梱イメージ) が壊れていないことの確認。公開は release.yml が行う
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: イメージをビルドする
+        run: docker build -t security-checker:ci .
+      - name: 同梱スキャナで自分自身を検査する
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" security-checker:ci version
+          docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" security-checker:ci \
+            scan . --strict --fail-on critical -f json -q

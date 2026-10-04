@@ -104,6 +104,8 @@ def _summary(report: Report) -> list[str]:
         f"| 候補 | {report.coverage.candidates_total} 件 "
         f"(レビュー済み {report.coverage.candidates_reviewed} 件) |",
     ]
+    if report.suppression_label:
+        lines.append(f"| 抑制 | {report.suppression_label} (レビュー・判定の対象外) |")
     if report.findings:
         counts = report.finding_counts
         breakdown = " / ".join(
@@ -268,7 +270,7 @@ def _footer(report: Report) -> list[str]:
         "---",
         "",
         f"security-checker v{report.tool_version} / run `{report.run_id}` / "
-        f"target `{report.target.root}` ({report.target.mode} mode)",
+        f"target `{report.target.root}` ({report.target.label})",
     ]
     if report.stopped_reason:
         lines += ["", f"⚠️ 途中で停止しました: {report.stopped_reason}"]

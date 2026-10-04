@@ -1,0 +1,38 @@
+# 誤検知: readOnlyRootFilesystem 未指定だが、外部入力を受けない一回きりの Job。
+id: hand-0084
+source: handmade
+language: yaml
+candidate:
+  scanner: trivy
+  rule_id: KSV-0014
+  category: config
+  message: readOnlyRootFilesystem が設定されていません
+  path: k8s/migrate-job.yaml
+  start_line: 15
+  end_line: 15
+  severity_reported: low
+  cwe:
+  - CWE-732
+code: |
+  apiVersion: batch/v1
+  kind: Job
+  metadata:
+    name: db-migrate
+  spec:
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+          - name: migrate
+            image: registry.example.com/web:1.8.0
+            command: ["python", "manage.py", "migrate"]
+            securityContext:
+              runAsNonRoot: true
+              allowPrivilegeEscalation: false
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: info
+  rationale: |
+    デプロイ時に一度だけ走るマイグレーション Job で、外部からのリクエストを受けない。非 root・
+    権限昇格なしも設定済み。読み取り専用にするのは良い習慣だが、攻撃面はほぼ無い (info)。

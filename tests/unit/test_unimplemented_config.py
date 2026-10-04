@@ -16,39 +16,29 @@ def test_nothing_is_reported_for_the_defaults():
     assert unimplemented_warnings(Config(), {}) == []
 
 
-def test_sarif_format_is_reported():
+def test_sarif_format_is_no_longer_reported():
+    """P4 で実装した. 実装済みの項目を警告し続けると、警告そのものが信用されなくなる."""
     config = Config.model_validate({"output": {"formats": ["terminal", "json", "sarif"]}})
-    messages = unimplemented_warnings(config, {})
-    assert len(messages) == 1
-    assert "sarif" in messages[0]
-    # 何が起きないかを書く。「未実装」だけでは次の行動が決まらない
-    assert "Code Scanning" in messages[0]
+    assert unimplemented_warnings(config, {}) == []
 
 
-def test_baseline_is_reported():
+def test_baseline_is_no_longer_reported():
     config = Config.model_validate({"policy": {"baseline": ".security-checker-baseline.json"}})
-    assert any("baseline" in message for message in unimplemented_warnings(config, {}))
+    assert unimplemented_warnings(config, {}) == []
 
 
-def test_diff_mode_is_reported_but_auto_is_not():
+def test_diff_mode_is_no_longer_reported():
     diff = Config.model_validate({"target": {"mode": "diff"}})
-    assert any("diff" in message for message in unimplemented_warnings(diff, {}))
-    # auto は「自動で決める」であり、現状の最善が全件スキャンなので警告しない
-    auto = Config.model_validate({"target": {"mode": "auto"}})
-    assert unimplemented_warnings(auto, {}) == []
+    assert unimplemented_warnings(diff, {}) == []
 
 
-def test_github_section_is_reported_only_when_the_user_set_it():
+def test_github_section_is_no_longer_reported():
     config = Config()
-    assert unimplemented_warnings(config, {"github.comment": "default"}) == []
-    messages = unimplemented_warnings(config, {"github.comment": "file:security-checker.yml"})
-    assert any("github" in message for message in messages)
+    assert unimplemented_warnings(config, {"github.comment": "file:security-checker.yml"}) == []
 
 
-def test_logging_section_is_reported_only_when_the_user_set_it():
-    config = Config()
-    assert unimplemented_warnings(config, {"logging.format": "default"}) == []
-    assert unimplemented_warnings(config, {"logging.format": "cli"})
+def test_logging_section_is_no_longer_reported():
+    assert unimplemented_warnings(Config(), {"logging.format": "cli"}) == []
 
 
 def test_num_ctx_names_the_reviewer():
@@ -70,11 +60,10 @@ def test_num_ctx_names_the_reviewer():
     assert any("'local'" in message and "num_ctx" in message for message in messages)
 
 
-def test_ci_preset_warns_about_sarif(tmp_path):
-    """--preset ci は sarif を要求する. 黙って出力されないままにしない."""
+def test_ci_preset_does_not_warn_about_sarif(tmp_path):
     loaded = load_config(tmp_path, preset="ci")
     assert "sarif" in loaded.config.output.formats
-    assert any("sarif" in message for message in loaded.warnings)
+    assert not any("sarif" in message for message in loaded.warnings)
 
 
 def test_plain_config_has_no_warnings(tmp_path):

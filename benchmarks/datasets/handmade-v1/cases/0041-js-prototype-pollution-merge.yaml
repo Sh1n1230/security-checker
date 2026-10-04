@@ -1,0 +1,41 @@
+# 真陽性: リクエスト本文を自前の再帰 merge で設定に混ぜる (prototype pollution)。
+id: hand-0041
+source: handmade
+language: javascript
+candidate:
+  scanner: semgrep
+  rule_id: javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop
+  category: sast
+  message: プロトタイプ汚染の可能性があります
+  path: src/settings.js
+  start_line: 7
+  end_line: 7
+  severity_reported: medium
+  cwe:
+  - CWE-1321
+code: |
+  function merge(target, source) {
+    for (const key in source) {
+      if (typeof source[key] === "object" && source[key] !== null) {
+        target[key] = target[key] || {};
+        merge(target[key], source[key]);
+      } else {
+        target[key] = source[key];
+      }
+    }
+    return target;
+  }
+
+  app.put("/settings", (req, res) => {
+    merge(req.session.settings, req.body);
+    res.sendStatus(204);
+  });
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-1321
+  severity: high
+  rationale: |
+    JSON 本文の `{"__proto__": {"isAdmin": true}}` で Object.prototype を汚染でき、以後すべての
+    オブジェクトが isAdmin を持つ。認可判定が `user.isAdmin` のような書き方なら権限昇格に至る。
+    __proto__ / constructor のキーを拒否していない。

@@ -1,0 +1,12 @@
+# gitleaks の設定 (このリポジトリ自身の検査用)。
+# 既定のルールはそのまま使い、評価データセットだけを除外する。
+#
+# benchmarks/datasets/ は「スキャナがシークレットを検出した」状況を再現する評価ケースで、
+# 意図的にダミーの秘密鍵やトークンを含む (値はすべてダミー。docs/evaluation.md)。
+# security-checker.yml の target.exclude でも同じパスを除外している。
+[extend]
+useDefault = true
+
+[allowlist]
+description = "評価データセットのダミー値"
+paths = ['''^benchmarks/datasets/''']

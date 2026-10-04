@@ -1,0 +1,37 @@
+# 誤検知: 公開 Web サイトの静的ファイル用バケット (公開が目的)。
+id: hand-0080
+source: handmade
+language: hcl
+candidate:
+  scanner: trivy
+  rule_id: AVD-AWS-0092
+  category: config
+  message: S3 バケットの ACL が public-read です
+  path: infra/site.tf
+  start_line: 8
+  end_line: 8
+  severity_reported: high
+  cwe:
+  - CWE-732
+code: |
+  # 会社のコーポレートサイト (HTML / CSS / 画像のみ) を配信するバケット
+  resource "aws_s3_bucket" "site" {
+    bucket = "www.example.com"
+  }
+
+  resource "aws_s3_bucket_acl" "site" {
+    bucket = aws_s3_bucket.site.id
+    acl    = "public-read"
+  }
+
+  resource "aws_s3_bucket_website_configuration" "site" {
+    bucket = aws_s3_bucket.site.id
+    index_document { suffix = "index.html" }
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: info
+  rationale: |
+    静的サイトのホスティング設定と一緒に定義された、公開することが目的のバケット。置かれるのは
+    公開済みの HTML と画像だけ。CloudFront + OAC にする方が望ましいが、脆弱性ではない (info)。

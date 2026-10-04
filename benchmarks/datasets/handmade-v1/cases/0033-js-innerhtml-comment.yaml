@@ -1,0 +1,34 @@
+# 真陽性: API から取得したコメント本文を innerHTML に入れる。
+id: hand-0033
+source: handmade
+language: javascript
+candidate:
+  scanner: semgrep
+  rule_id: javascript.browser.security.insecure-document-method
+  category: sast
+  message: innerHTML にデータを代入しています
+  path: web/comments.js
+  start_line: 7
+  end_line: 7
+  severity_reported: medium
+  cwe:
+  - CWE-79
+code: |
+  async function renderComments(postId) {
+    const response = await fetch(`/api/posts/${postId}/comments`);
+    const comments = await response.json();
+    const list = document.getElementById("comments");
+    for (const comment of comments) {
+      const item = document.createElement("li");
+      item.innerHTML = `<b>${comment.author}</b>: ${comment.body}`;
+      list.appendChild(item);
+    }
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-79
+  severity: medium
+  rationale: |
+    comment.author と body は他の利用者が投稿した値で、エスケープせずに innerHTML へ入れている。
+    `<img src=x onerror=...>` で閲覧者のブラウザでスクリプトが動く保存型 XSS。

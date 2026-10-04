@@ -1,0 +1,40 @@
+# 真陽性: 本番の HTTP クライアントで InsecureSkipVerify を有効にしている。
+id: hand-0047
+source: handmade
+language: go
+candidate:
+  scanner: semgrep
+  rule_id: go.lang.security.audit.crypto.tls.tls-with-insecure-cipher
+  category: sast
+  message: TLS の証明書検証を無効にしています
+  path: internal/billing/client.go
+  start_line: 13
+  end_line: 13
+  severity_reported: high
+  cwe:
+  - CWE-295
+code: |
+  package billing
+
+  import (
+      "crypto/tls"
+      "net/http"
+      "time"
+  )
+
+  func NewClient() *http.Client {
+      return &http.Client{
+          Timeout: 10 * time.Second,
+          Transport: &http.Transport{
+              TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+          },
+      }
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-295
+  severity: high
+  rationale: |
+    課金 API 用のクライアントで証明書検証を無効にしており、経路上の攻撃者が通信内容と
+    認証ヘッダを読める・改ざんできる。経路上にいる必要があるため high。

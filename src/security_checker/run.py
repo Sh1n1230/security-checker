@@ -14,21 +14,25 @@ from pathlib import Path
 
 from security_checker import __version__
 from security_checker.aggregate.findings import build_findings
+from security_checker.aggregate.judge import anonymize, apply_judgement, needs_judge
 from security_checker.aggregate.registry import build_aggregator
-from security_checker.config.schema import Config, ReviewerConfig
+from security_checker.config.schema import BudgetConfig, Config, ReviewerConfig
 from security_checker.context.builder import ContextBuilder
 from security_checker.context.facts import collect_repo_facts
 from security_checker.errors import ConfigError
+from security_checker.github.pr import DiffScope
 from security_checker.ids import new_run_id
 from security_checker.language import resolve_language
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import ScanStatus, Severity
+from security_checker.models.finding import Finding
 from security_checker.models.report import (
     Coverage,
     Report,
     ReportWarning,
     ReviewerRun,
     ScannerRun,
+    SuppressedCandidate,
     TargetInfo,
     count_by_severity,
     count_by_status,
@@ -36,10 +40,15 @@ from security_checker.models.report import (
 )
 from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import Usage, VerdictStatus
+from security_checker.observability import logging as log
 from security_checker.observability.cost import PriceTable
 from security_checker.observability.trace import TraceWriter
 from security_checker.policy.engine import PolicyDecision, evaluate
 from security_checker.policy.score import compute_score
+from security_checker.policy.suppress import (
+    SuppressionRules,
+    apply_suppressions,
+)
 from security_checker.providers.base import LLMProvider
 from security_checker.providers.registry import build_provider
 from security_checker.review.reviewer import Reviewer
@@ -61,6 +70,21 @@ class RunOutcome:
     decision: PolicyDecision
     output_dir: Path
     results: list[ScanResult] = field(default_factory=list)
+
+
+def _log_finish(report: Report, decision: PolicyDecision) -> None:
+    log.event(
+        "run.finish",
+        level="info" if not decision.failed else "warn",
+        exit_code=int(decision.exit_code),
+        mode=report.target.mode,
+        candidates=len(report.candidates),
+        suppressed=len(report.suppressed),
+        outside_diff=len(report.outside_diff),
+        findings=report.finding_counts or None,
+        score=report.score.value,
+        reasons=decision.reasons,
+    )
 
 
 def resolve_output_dir(config: Config, base: Path) -> Path:
@@ -102,6 +126,35 @@ def dedupe_and_sort(results: list[ScanResult]) -> list[Candidate]:
             seen.add(candidate.id)
             merged.append(candidate)
     return sorted(merged, key=_sort_key)
+
+
+def _suppress(
+    candidates: list[Candidate],
+    rules: SuppressionRules | None,
+    warnings: list[ReportWarning],
+) -> tuple[list[Candidate], list[SuppressedCandidate]]:
+    """baseline / ignore / 注釈を適用する (§17.2). 警告は warnings に足す."""
+    if rules is None:
+        return candidates, []
+    kept, suppressed, messages = apply_suppressions(candidates, rules)
+    warnings.extend(
+        ReportWarning(level="warn", source="suppress", message=message)
+        for message in [*rules.warnings, *messages]
+    )
+    return kept, suppressed
+
+
+def _scope(
+    candidates: list[Candidate], root: Path, diff: DiffScope | None
+) -> tuple[list[Candidate], list[Candidate], TargetInfo]:
+    """diff モードなら変更に関係する候補だけに絞る (§7.4)."""
+    if diff is None:
+        return candidates, [], TargetInfo(root=str(root), mode="full")
+    inside, outside = diff.split(candidates)
+    target = TargetInfo(
+        root=str(root), mode="diff", changed_files=len(diff.changed_files), base=diff.base
+    )
+    return inside, outside, target
 
 
 async def _run_one(
@@ -151,6 +204,16 @@ async def _execute_scanners(
 
     runs: list[ScannerRun] = []
     for result in results:
+        log.event(
+            "scanner.finish",
+            level="error" if result.status is ScanStatus.FAILED else "info",
+            scanner=result.scanner,
+            status=result.status.value,
+            candidates=len(result.candidates),
+            duration_ms=result.duration_ms,
+            exit_code=result.exit_code,
+            reason=result.reason,
+        )
         runs.append(
             ScannerRun(
                 scanner=result.scanner,
@@ -197,6 +260,8 @@ async def run_scan(
     run_id: str | None = None,
     scanners: Sequence[Scanner] | None = None,
     extra_warnings: Sequence[str] = (),
+    diff: DiffScope | None = None,
+    suppression: SuppressionRules | None = None,
 ) -> RunOutcome:
     """スキャンを実行してレポートとポリシー判定を返す (LLM は使わない).
 
@@ -205,6 +270,7 @@ async def run_scan(
     """
     started_at = utcnow()
     identifier = run_id or new_run_id()
+    log.set_run_id(identifier)
     output_dir = resolve_output_dir(config, base_dir or Path.cwd())
     raw_dir = output_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -212,7 +278,8 @@ async def run_scan(
     results, runs, warnings = await _execute_scanners(
         config, root, raw_dir, scanners, extra_warnings
     )
-    candidates = dedupe_and_sort(results)
+    active, suppressed = _suppress(dedupe_and_sort(results), suppression, warnings)
+    candidates, outside, target = _scope(active, root, diff)
     score = compute_score(candidates, runs)
     coverage = _coverage(runs, candidates, reviewed=0)
 
@@ -221,9 +288,11 @@ async def run_scan(
         run_id=identifier,
         started_at=started_at,
         finished_at=utcnow(),
-        target=TargetInfo(root=str(root), mode="full"),
+        target=target,
         scanners=runs,
         candidates=candidates,
+        outside_diff=outside,
+        suppressed=suppressed,
         findings=[],
         coverage=coverage,
         score=score,
@@ -231,6 +300,7 @@ async def run_scan(
         severity_counts=count_by_severity(candidates),
     )
     decision = evaluate(report, config.policy)
+    _log_finish(report, decision)
     return RunOutcome(report=report, decision=decision, output_dir=output_dir, results=results)
 
 
@@ -307,10 +377,13 @@ async def run_review(
     price_table: PriceTable | None = None,
     environ: dict[str, str] | None = None,
     extra_warnings: Sequence[str] = (),
+    diff: DiffScope | None = None,
+    suppression: SuppressionRules | None = None,
 ) -> RunOutcome:
     """スキャン → 文脈構築 → LLM レビュー → 集約 → ポリシー判定."""
     started_at = utcnow()
     identifier = run_id or new_run_id()
+    log.set_run_id(identifier)
     output_dir = resolve_output_dir(config, base_dir or Path.cwd())
     raw_dir = output_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -324,16 +397,8 @@ async def run_review(
     results, runs, warnings = await _execute_scanners(
         config, root, raw_dir, scanners, extra_warnings
     )
-    candidates = dedupe_and_sort(results)
-
-    aggregator, aggregator_warnings = build_aggregator(
-        config.aggregation.strategy,
-        weights={reviewer.name: reviewer.weight for reviewer in config.reviewers},
-    )
-    warnings.extend(
-        ReportWarning(level="warn", source="aggregate", message=message)
-        for message in aggregator_warnings
-    )
+    active, suppressed = _suppress(dedupe_and_sort(results), suppression, warnings)
+    candidates, outside, target = _scope(active, root, diff)
 
     setup = reviewer_setup or build_reviewers(config, price_table=price_table, environ=environ)
     warnings.extend(
@@ -367,9 +432,13 @@ async def run_review(
             )
         )
 
-    scheduler = ReviewScheduler(setup.runtimes, budget=config.budget)
-    schedule = await scheduler.run(tasks)
-
+    review_pass = await review_and_aggregate(config, setup, tasks, candidates)
+    schedule = review_pass.schedule
+    findings = review_pass.findings
+    warnings.extend(
+        ReportWarning(level="warn", source="aggregate", message=message)
+        for message in review_pass.warnings
+    )
     warnings.extend(
         ReportWarning(level="warn", source="review", message=message)
         for message in schedule.warnings
@@ -378,14 +447,6 @@ async def run_review(
         warnings.append(
             ReportWarning(level="warn", source="budget", message=schedule.stopped_reason)
         )
-
-    findings = build_findings(
-        candidates,
-        schedule.verdicts,
-        aggregator=aggregator,
-        aggregation=config.aggregation,
-        policy=config.policy,
-    )
 
     trace.write_run(
         {
@@ -412,10 +473,12 @@ async def run_review(
         run_id=identifier,
         started_at=started_at,
         finished_at=utcnow(),
-        target=TargetInfo(root=str(root), mode="full"),
+        target=target,
         scanners=runs,
         reviewers=_reviewer_runs(setup, schedule),
         candidates=candidates,
+        outside_diff=outside,
+        suppressed=suppressed,
         findings=findings,
         coverage=coverage,
         score=score,
@@ -427,7 +490,123 @@ async def run_review(
         trace_dir=str(trace.root),
     )
     decision = evaluate(report, config.policy)
+    _log_finish(report, decision)
     return RunOutcome(report=report, decision=decision, output_dir=output_dir, results=results)
+
+
+@dataclass
+class ReviewPass:
+    """一次レビュー (+ Judge) と集約の結果."""
+
+    findings: list[Finding]
+    schedule: ScheduleResult
+    warnings: list[str] = field(default_factory=list)
+
+
+async def review_and_aggregate(
+    config: Config,
+    setup: ReviewerSetup,
+    tasks: list[ReviewTask],
+    candidates: list[Candidate],
+) -> ReviewPass:
+    """Reviewer で判定し、集約する. strategy: judge なら割れた候補を Judge に回す (§16)."""
+    strategy = config.aggregation.strategy
+    judge_name = config.aggregation.judge.reviewer if strategy == "judge" else None
+    aggregator, warnings = build_aggregator(
+        config.aggregation.judge.fallback if judge_name else strategy,
+        weights={reviewer.name: reviewer.weight for reviewer in config.reviewers},
+    )
+    reviewers = [runtime for runtime in setup.runtimes if runtime.name != judge_name]
+    judge = next((runtime for runtime in setup.runtimes if runtime.name == judge_name), None)
+    if judge_name is not None and not reviewers:
+        raise ConfigError(
+            "aggregation.strategy: judge には、Judge 以外の Reviewer が少なくとも 1 つ必要です"
+        )
+
+    schedule = await ReviewScheduler(reviewers, budget=config.budget).run(tasks)
+    findings = build_findings(
+        candidates,
+        schedule.verdicts,
+        aggregator=aggregator,
+        aggregation=config.aggregation,
+        policy=config.policy,
+    )
+    if judge is not None:
+        findings = await _judge(config, judge, tasks, findings, schedule, warnings)
+    return ReviewPass(findings=findings, schedule=schedule, warnings=warnings)
+
+
+async def _judge(
+    config: Config,
+    judge: ReviewerRuntime,
+    tasks: list[ReviewTask],
+    findings: list[Finding],
+    schedule: ScheduleResult,
+    warnings: list[str],
+) -> list[Finding]:
+    """割れた候補を Judge に回し、結果を Finding に反映する. 失敗は fallback のまま残す."""
+    targets = {f.candidate.id for f in findings if needs_judge(f, config.aggregation)}
+    if not targets:
+        return findings
+
+    budget = _remaining_budget(config.budget, schedule.usage)
+    if schedule.stopped_reason or budget is None:
+        skip_reason = (
+            f"一次レビューが停止したため Judge を実行しません: {schedule.stopped_reason}"
+            if schedule.stopped_reason
+            else "予算を使い切ったため Judge を実行しません"
+        )
+        warnings.append(skip_reason)
+        return [
+            apply_judgement(f, None, policy=config.policy, fallback_reason=skip_reason)
+            if f.candidate.id in targets
+            else f
+            for f in findings
+        ]
+
+    by_id = {f.candidate.id: f for f in findings}
+    judged = await ReviewScheduler([judge], budget=budget).run(
+        [task for task in tasks if task.candidate.id in targets],
+        opinions={cid: anonymize(cid, by_id[cid].verdicts) for cid in targets},
+    )
+    # 一次レビューの結果に合流させる (使用量・トレース・Reviewer ごとの呼び出し数)
+    schedule.usage = schedule.usage.merge(judged.usage)
+    schedule.traces.extend(judged.traces)
+    schedule.warnings.extend(judged.warnings)
+    schedule.calls += judged.calls
+    schedule.disabled_reviewers.update(judged.disabled_reviewers)
+    if judged.stopped_reason and not schedule.stopped_reason:
+        schedule.stopped_reason = judged.stopped_reason
+    for cid, verdicts in judged.verdicts.items():
+        schedule.verdicts.setdefault(cid, []).extend(verdicts)
+
+    fallback_reason = judged.stopped_reason or judged.disabled_reviewers.get(judge.name)
+    return [
+        apply_judgement(
+            f,
+            next(iter(judged.verdicts.get(f.candidate.id, [])), None),
+            policy=config.policy,
+            fallback_reason=fallback_reason,
+        )
+        if f.candidate.id in targets
+        else f
+        for f in findings
+    ]
+
+
+def _remaining_budget(budget: BudgetConfig, used: Usage) -> BudgetConfig | None:
+    """一次レビューで使った分を差し引いた予算. 残りが無ければ None."""
+    max_usd = budget.max_usd
+    if max_usd is not None and used.estimated_usd is not None:
+        max_usd = max_usd - used.estimated_usd
+        if max_usd <= 0:
+            return None
+    max_tokens = budget.max_total_tokens
+    if max_tokens is not None:
+        max_tokens = max_tokens - used.total_tokens
+        if max_tokens <= 0:
+            return None
+    return budget.model_copy(update={"max_usd": max_usd, "max_total_tokens": max_tokens})
 
 
 def _reviewer_runs(setup: ReviewerSetup, schedule: ScheduleResult) -> list[ReviewerRun]:

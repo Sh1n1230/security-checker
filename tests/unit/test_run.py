@@ -104,8 +104,18 @@ async def test_raw_dir_is_created(tmp_path):
     assert outcome.report.coverage.scanners_total == 0
 
 
-async def test_unimplemented_scanners_are_reported_as_config_warning(tmp_path):
-    config = Config.model_validate({"scanners": {"osv": {"enabled": True}}})
+async def test_unimplemented_scanners_are_reported_as_config_warning(tmp_path, monkeypatch):
+    """設定で有効なのにアダプタが無い (プラグインの読み込み失敗など) ときは警告にする."""
+    from security_checker.scanners import registry
+
+    monkeypatch.setattr(
+        registry,
+        "BUILTIN_SCANNERS",
+        {k: v for k, v in registry.BUILTIN_SCANNERS.items() if k != "osv"},
+    )
+    config = Config.model_validate(
+        {"scanners": {"osv": {"enabled": True}, "semgrep": {"enabled": False}}}
+    )
     outcome = await run_scan(config, tmp_path, base_dir=tmp_path)
     messages = [w.message for w in outcome.report.warnings if w.source == "config"]
     assert any("osv" in message for message in messages)

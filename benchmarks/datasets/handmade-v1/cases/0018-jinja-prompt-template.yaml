@@ -1,0 +1,34 @@
+# 誤検知: HTML ではなく LLM 用のプロンプトを Jinja2 で組み立てているだけ。
+id: hand-0018
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.flask.security.xss.audit.direct-use-of-jinja2
+  category: sast
+  message: autoescape が無効な Jinja2 環境を使っています
+  path: app/prompts.py
+  start_line: 6
+  end_line: 6
+  severity_reported: medium
+  cwe:
+  - CWE-79
+code: |
+  from jinja2 import Environment, FileSystemLoader, StrictUndefined
+
+  env = Environment(
+      loader=FileSystemLoader("prompts"),
+      undefined=StrictUndefined,
+      autoescape=False,  # HTML ではなくプロンプト文字列を生成する
+  )
+
+
+  def build_prompt(task) -> str:
+      return env.get_template("review.jinja").render(task=task)
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    生成物はブラウザに出す HTML ではなく LLM に送るテキストで、HTML エスケープすると内容が壊れる。
+    ブラウザで解釈される経路が無いので XSS は成立しない。

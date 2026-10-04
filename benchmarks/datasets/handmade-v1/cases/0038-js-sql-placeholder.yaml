@@ -1,0 +1,33 @@
+# 誤検知: プレースホルダを使っている (ルールが query 呼び出しだけを見ている)。
+id: hand-0038
+source: handmade
+language: javascript
+candidate:
+  scanner: semgrep
+  rule_id: javascript.lang.security.audit.sqli.node-mysql-sqli
+  category: sast
+  message: SQL にユーザー入力が含まれています
+  path: src/routes/orders.js
+  start_line: 4
+  end_line: 4
+  severity_reported: high
+  cwe:
+  - CWE-89
+code: |
+  const db = require("../db");
+
+  async function listOrders(req, res) {
+    const [rows] = await db.query("SELECT * FROM orders WHERE user_id = ? AND status = ?", [
+      req.user.id,
+      req.query.status,
+    ]);
+    res.json(rows);
+  }
+
+  module.exports = { listOrders };
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    値はすべて ? プレースホルダで渡され、ドライバがエスケープする。注入は成立しない。

@@ -1,0 +1,30 @@
+# 誤検知: リトライのジッターに random を使っているだけ。
+id: hand-0024
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.insecure-random
+  category: sast
+  message: 暗号学的に安全でない乱数を使っています
+  path: app/retry.py
+  start_line: 7
+  end_line: 7
+  severity_reported: medium
+  cwe:
+  - CWE-330
+code: |
+  import random
+  import time
+
+
+  def backoff(attempt: int) -> None:
+      ceiling = min(30.0, 0.5 * 2 ** attempt)
+      time.sleep(random.random() * ceiling)
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    待ち時間を分散させるためのジッターで、値が予測されても失うものが無い。秘密情報や認可判断に
+    使われていない。

@@ -1,0 +1,32 @@
+# 誤検知: root なのはマルチステージのビルド段だけで、最終段は非 root。
+id: hand-0078
+source: handmade
+language: dockerfile
+candidate:
+  scanner: trivy
+  rule_id: DS-0002
+  category: config
+  message: イメージのユーザーが root です
+  path: Dockerfile
+  start_line: 1
+  end_line: 1
+  severity_reported: high
+  cwe:
+  - CWE-250
+code: |
+  FROM golang:1.23 AS build
+  WORKDIR /src
+  COPY . .
+  RUN CGO_ENABLED=0 go build -o /out/server ./cmd/server
+
+  FROM gcr.io/distroless/static:nonroot
+  COPY --from=build /out/server /server
+  USER nonroot:nonroot
+  ENTRYPOINT ["/server"]
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    root で動くのはビルド段だけで、配布・実行されるのは distroless の nonroot ユーザーで動く最終段。
+    ビルド段はイメージに含まれない。

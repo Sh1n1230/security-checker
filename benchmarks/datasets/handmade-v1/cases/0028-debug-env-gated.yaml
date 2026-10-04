@@ -1,0 +1,32 @@
+# 誤検知: debug は開発用の環境変数があるときだけ有効になる。
+id: hand-0028
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.flask.security.audit.debug-enabled
+  category: sast
+  message: Flask の debug モードが有効です
+  path: dev_server.py
+  start_line: 9
+  end_line: 9
+  severity_reported: high
+  cwe:
+  - CWE-489
+code: |
+  import os
+
+  from app import create_app
+
+  app = create_app()
+
+  if __name__ == "__main__":
+      # 本番は gunicorn から wsgi:app を起動する。このファイルは開発専用
+      app.run(host="127.0.0.1", port=5000, debug=os.environ.get("FLASK_DEBUG") == "1")
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    開発専用のスクリプトで、127.0.0.1 にしか bind せず、debug も環境変数で明示したときだけ有効。
+    本番は別のエントリポイントから起動される。

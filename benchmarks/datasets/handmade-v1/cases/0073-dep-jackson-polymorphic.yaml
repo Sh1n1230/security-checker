@@ -1,0 +1,32 @@
+# 真陽性: 脆弱版 jackson-databind でデフォルトの型付けを有効にしている。
+id: hand-0073
+source: handmade
+language: java
+candidate:
+  scanner: osv
+  rule_id: GHSA-dataset-jackson-0004
+  category: dependency
+  message: jackson-databind 2.9.8 に既知の脆弱性があります (polymorphic typing によるデシリアライズ)
+  path: pom.xml
+  start_line: 4
+  end_line: 4
+  severity_reported: critical
+  cwe:
+  - CWE-502
+code: |
+  <dependency>
+    <groupId>com.fasterxml.jackson.core</groupId>
+    <artifactId>jackson-databind</artifactId>
+    <version>2.9.8</version>
+  </dependency>
+
+  <!-- src/main/java/.../ApiConfig.java (同じリポジトリ)
+       mapper.enableDefaultTyping();   // リクエスト本文の JSON をこの mapper で読む -->
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-502
+  severity: critical
+  rationale: |
+    enableDefaultTyping 有効時の jackson-databind 2.9.x はガジェットクラスを JSON から生成でき、
+    リクエスト本文の読み込みに使っているため任意コード実行に到達する。

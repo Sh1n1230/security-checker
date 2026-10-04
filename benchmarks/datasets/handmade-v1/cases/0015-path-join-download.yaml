@@ -1,0 +1,35 @@
+# 真陽性: ダウンロード API で .. を含むパスを防いでいない。
+id: hand-0015
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.flask.security.injection.path-traversal-open
+  category: sast
+  message: ユーザー入力でファイルパスを組み立てています
+  path: app/files.py
+  start_line: 11
+  end_line: 11
+  severity_reported: medium
+  cwe:
+  - CWE-22
+code: |
+  import os
+  from flask import Flask, request, send_file
+
+  app = Flask(__name__)
+  BASE = "/srv/app/public"
+
+
+  @app.get("/download")
+  def download():
+      name = request.args["name"]
+      return send_file(os.path.join(BASE, name))
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-22
+  severity: high
+  rationale: |
+    name に `../../../etc/passwd` や絶対パス `/etc/passwd` を渡すと os.path.join が BASE の外を指す。
+    認証不要でサーバ上の任意ファイル (設定・鍵) を読めるため high。

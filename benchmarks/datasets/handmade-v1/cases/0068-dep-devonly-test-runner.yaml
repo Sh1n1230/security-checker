@@ -1,0 +1,31 @@
+# 誤検知: 脆弱性はテストランナーの開発サーバ機能にあり、本番には入らない。
+id: hand-0068
+source: handmade
+language: javascript
+candidate:
+  scanner: osv
+  rule_id: GHSA-dataset-dev-0001
+  category: dependency
+  message: 開発依存のテストランナーに既知の脆弱性があります (開発サーバの CORS 設定)
+  path: package.json
+  start_line: 6
+  end_line: 6
+  severity_reported: medium
+  cwe:
+  - CWE-346
+code: |
+  {
+    "name": "web",
+    "private": true,
+    "scripts": { "test": "testrunner --ci" },
+    "dependencies": { "react": "18.3.1" },
+    "devDependencies": { "testrunner": "2.1.0" }
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: low
+  rationale: |
+    devDependencies のテストランナーで、CI では --ci (開発サーバを起動しない) で実行される。
+    本番バンドルにも本番環境にも含まれず、脆弱な開発サーバ機能に外部から到達する経路が無い。
+    開発者の手元で開発サーバを起動している間だけのリスクなので low。

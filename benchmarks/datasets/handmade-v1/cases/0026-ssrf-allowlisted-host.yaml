@@ -1,0 +1,35 @@
+# 誤検知: 接続先ホストを固定の許可リストで検証している。
+id: hand-0026
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.flask.security.injection.ssrf-requests
+  category: sast
+  message: ユーザー入力の URL にリクエストしています
+  path: app/avatars.py
+  start_line: 12
+  end_line: 12
+  severity_reported: medium
+  cwe:
+  - CWE-918
+code: |
+  from urllib.parse import urlparse
+
+  import requests
+
+  ALLOWED_HOSTS = {"avatars.githubusercontent.com", "secure.gravatar.com"}
+
+
+  def fetch_avatar(url: str) -> bytes:
+      parsed = urlparse(url)
+      if parsed.scheme != "https" or parsed.hostname not in ALLOWED_HOSTS:
+          raise ValueError("avatar host not allowed")
+      return requests.get(url, timeout=5, allow_redirects=False).content
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    https かつ固定の 2 ホストだけを許可し、リダイレクトも追わない。hostname は urlparse で
+    正規化された値を比較しているので `@` やポートを使ったすり抜けも効かない。

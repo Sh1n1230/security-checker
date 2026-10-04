@@ -1,0 +1,39 @@
+# 真陽性: CI ランナー Pod に docker.sock をマウント (ノードの root と同等)。
+id: hand-0083
+source: handmade
+language: yaml
+candidate:
+  scanner: trivy
+  rule_id: KSV-0006
+  category: config
+  message: docker.sock をマウントしています
+  path: k8s/ci-runner.yaml
+  start_line: 15
+  end_line: 15
+  severity_reported: high
+  cwe:
+  - CWE-250
+code: |
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: ci-runner
+  spec:
+    containers:
+      - name: runner
+        image: registry.example.com/ci-runner:5
+        volumeMounts:
+          - name: docker-sock
+            mountPath: /var/run/docker.sock
+    volumes:
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-250
+  severity: high
+  rationale: |
+    CI ランナーは PR のコード (外部の人が書いたものを含む) を実行する。docker.sock を握ると
+    ホストの root で任意のコンテナを起動でき、ノードと同居する他のワークロードを乗っ取れる。

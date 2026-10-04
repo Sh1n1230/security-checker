@@ -34,6 +34,8 @@ LOCAL_CONFIG_FILENAMES = (
     "security-checker.local.yaml",
 )
 ENV_PREFIX = "SECURITY_CHECKER__"
+#: 検査対象のツリーを信用しない (設定を読まない). ENV_PREFIX と衝突しない名前にする
+UNTRUSTED_TARGET_ENV = "SECURITY_CHECKER_UNTRUSTED_TARGET"
 PRESET_DIR = Path(__file__).parent / "presets"
 
 Layer = str
@@ -48,6 +50,8 @@ class LoadedConfig:
     config_path: Path | None = None
     preset: str | None = None
     local_config_path: Path | None = None
+    #: 検査対象のツリーを信用しない (SECURITY_CHECKER_UNTRUSTED_TARGET)
+    untrusted_target: bool = False
     #: 受け付けたが実装が追いついていない項目の警告 (P9: 黙って無視しない)
     warnings: list[str] = field(default_factory=list)
 
@@ -157,7 +161,26 @@ def load_config(
     cli_overrides: dict[str, Any] | None = None,
     environ: dict[str, str] | None = None,
 ) -> LoadedConfig:
-    """設定を合成して検証する. 失敗時は必ず ConfigError (exit 2)."""
+    """設定を合成して検証する. 失敗時は必ず ConfigError (exit 2).
+
+    環境変数 `SECURITY_CHECKER_UNTRUSTED_TARGET=1` のときは、検査対象のツリーから設定を
+    一切読まない (共有設定も local 層も)。fork PR のコードを特権のある文脈で検査するとき、
+    PR 側が置いた設定の `command` がシークレット付きで実行されるのを防ぐ (§21.2)。
+    """
+    source = environ if environ is not None else dict(os.environ)
+    untrusted = source.get(UNTRUSTED_TARGET_ENV, "").lower() in ("1", "true", "yes")
+    if untrusted:
+        if config_path is None:
+            raise ConfigError(
+                f"{UNTRUSTED_TARGET_ENV} が有効なときは、検査対象の外にある設定ファイルを "
+                "--config で明示してください"
+            )
+        if config_path.resolve().is_relative_to(root.resolve()):
+            raise ConfigError(
+                f"{UNTRUSTED_TARGET_ENV} が有効なときは、検査対象の中の設定ファイル "
+                f"({config_path}) を使えません"
+            )
+
     layers: list[tuple[Layer, dict[str, Any]]] = [("default", Config().model_dump(mode="json"))]
 
     if preset is not None:
@@ -180,13 +203,13 @@ def load_config(
 
     # 共有設定の後に、git 管理しない個人用の層を重ねる。
     # 「手元でだけ使う Reviewer」を共有設定に混ぜずに済ませるための経路。
-    local_path = find_local_config_file(root)
+    local_path = None if untrusted else find_local_config_file(root)
     if local_path is not None:
         local_data = _read_yaml(local_path)
         _reject_plaintext_keys(local_data)
         layers.append((f"local:{local_path}", local_data))
 
-    layers.append(("env", env_overrides(environ)))
+    layers.append(("env", env_overrides(source)))
     layers.append(("cli", cli_overrides or {}))
 
     merged: dict[str, Any] = {}
@@ -209,6 +232,7 @@ def load_config(
         config_path=resolved_path,
         preset=preset,
         local_config_path=local_path,
+        untrusted_target=untrusted,
         warnings=unimplemented_warnings(config, origins),
     )
 

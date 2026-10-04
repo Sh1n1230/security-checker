@@ -1,0 +1,32 @@
+# 真陽性: 脆弱版 lodash の merge に利用者の JSON を渡している。
+id: hand-0071
+source: handmade
+language: javascript
+candidate:
+  scanner: osv
+  rule_id: GHSA-jf85-cpcp-j695
+  category: dependency
+  message: lodash 4.17.11 に既知の脆弱性があります (prototype pollution)
+  path: package-lock.json
+  start_line: 6
+  end_line: 6
+  severity_reported: high
+  cwe:
+  - CWE-1321
+code: |
+  // package.json: "lodash": "4.17.11"
+
+  // src/preferences.js (同じリポジトリ)
+  const _ = require("lodash");
+  app.patch("/preferences", (req, res) => {
+    req.session.prefs = _.merge({}, req.session.prefs, req.body);
+    res.sendStatus(204);
+  });
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-1321
+  severity: high
+  rationale: |
+    4.17.12 未満の _.merge は __proto__ / constructor.prototype を経由したプロトタイプ汚染を防がない。
+    リクエスト本文をそのまま渡しているので到達する。

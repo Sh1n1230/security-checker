@@ -60,6 +60,18 @@ gitleaks が検出した秘密の値をそのまま外部 LLM に送るのは、
 
 **完全な防御はできない。** LLM の判定は補助であり、最終的な確認責任は人間にある。
 
+PR コメントに載せる本文 (LLM の出力) は、投稿前に @メンションの無効化・HTML コメントの無害化・
+既知形式のシークレットのマスクを通す。レビュー対象のコードから、PR 上で任意の人を呼び出したり、
+自分の sticky コメントのマーカーを偽装したりできないようにするため。
+
+## 5.1 信用できない検査対象 (fork PR)
+
+fork PR のコードを権限付きの文脈 (`workflow_run`) で検査するときは、
+`SECURITY_CHECKER_UNTRUSTED_TARGET=1` を立てる。このとき検査対象のツリーにある
+`security-checker.yml` / `security-checker.local.yml` を一切読まず、設定は検査対象の外から
+`--config` で渡す必要がある。読んでしまうと、PR が置いた Reviewer の `command` が
+シークレット付きで実行される。手順は docs/github-actions.md §5。
+
 ## 6. Reviewer はコードを書き換えない (P3)
 
 Reviewer は修正方針と短い例示を返すだけで、**リポジトリを一切変更しない**。

@@ -55,7 +55,7 @@ def _header(report: Report) -> Text:
     text = Text()
     text.append(f"security-checker v{report.tool_version}", style="bold")
     text.append(f"   run {report.run_id}", style="dim")
-    text.append(f"   target: {report.target.root} ({report.target.mode} mode)")
+    text.append(f"   target: {report.target.root} ({report.target.label})")
     return text
 
 
@@ -229,6 +229,8 @@ def render(
         grid.add_row(
             "Candidates", f"{report.coverage.candidates_total} 件 (未レビュー: LLM 未実行)"
         )
+    if report.suppression_label:
+        grid.add_row("Suppressed", f"{report.suppression_label} レビュー・判定の対象外")
     console.print(grid)
 
     errors = [w for w in report.warnings if w.level == "error"]

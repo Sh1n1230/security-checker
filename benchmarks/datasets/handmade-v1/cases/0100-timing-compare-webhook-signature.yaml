@@ -1,0 +1,31 @@
+# 誤検知: 署名の比較に hmac.compare_digest を使っている。
+id: hand-0100
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.non-constant-time-comparison
+  category: sast
+  message: 秘密値の比較が定数時間ではない可能性があります
+  path: app/webhooks.py
+  start_line: 8
+  end_line: 8
+  severity_reported: low
+  cwe:
+  - CWE-208
+code: |
+  import hashlib
+  import hmac
+  import os
+
+
+  def verify(body: bytes, signature: str) -> bool:
+      expected = hmac.new(os.environ["WEBHOOK_SECRET"].encode(), body, hashlib.sha256).hexdigest()
+      return hmac.compare_digest(expected, signature)
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    compare_digest は定数時間比較で、タイミングから署名を 1 文字ずつ推測する攻撃は成立しない。
+    秘密も環境変数から読んでいる。

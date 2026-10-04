@@ -1,0 +1,36 @@
+# 真陽性: Markdown をサニタイズせずに HTML 化して dangerouslySetInnerHTML に渡す。
+id: hand-0035
+source: handmade
+language: typescript
+candidate:
+  scanner: semgrep
+  rule_id: typescript.react.security.audit.react-dangerouslysetinnerhtml
+  category: sast
+  message: dangerouslySetInnerHTML を使っています
+  path: web/components/Post.tsx
+  start_line: 9
+  end_line: 9
+  severity_reported: medium
+  cwe:
+  - CWE-79
+code: |
+  import { marked } from "marked";
+
+  export function Post({ post }: { post: { title: string; body: string } }) {
+    // body は投稿者が書いた Markdown
+    const html = marked.parse(post.body) as string;
+    return (
+      <article>
+        <h1>{post.title}</h1>
+        <div dangerouslySetInnerHTML={{ __html: html }} />
+      </article>
+    );
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-79
+  severity: medium
+  rationale: |
+    marked は Markdown 中の生 HTML をそのまま通す。投稿者が `<img onerror>` を書けば閲覧者の
+    ブラウザで実行される保存型 XSS。DOMPurify などでサニタイズしていない。

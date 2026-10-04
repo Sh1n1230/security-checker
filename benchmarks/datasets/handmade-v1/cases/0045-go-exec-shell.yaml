@@ -1,0 +1,40 @@
+# 真陽性: sh -c にフォームの値を連結する。
+id: hand-0045
+source: handmade
+language: go
+candidate:
+  scanner: semgrep
+  rule_id: go.lang.security.audit.dangerous-exec-command
+  category: sast
+  message: exec.Command にユーザー入力が渡っています
+  path: cmd/server/backup.go
+  start_line: 10
+  end_line: 10
+  severity_reported: high
+  cwe:
+  - CWE-78
+code: |
+  package main
+
+  import (
+      "net/http"
+      "os/exec"
+  )
+
+  func backupHandler(w http.ResponseWriter, r *http.Request) {
+      target := r.FormValue("dir")
+      out, err := exec.Command("sh", "-c", "tar czf /backups/latest.tgz "+target).CombinedOutput()
+      if err != nil {
+          http.Error(w, string(out), http.StatusInternalServerError)
+          return
+      }
+      w.Write([]byte("ok"))
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-78
+  severity: critical
+  rationale: |
+    dir フォーム値を sh -c に渡す文字列へ連結しており、`; id` などで任意コマンドを実行できる。
+    エラー時に出力も返す。ハンドラに認証の痕跡が無い。

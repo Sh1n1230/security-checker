@@ -1,0 +1,32 @@
+# 真陽性: パスワード再設定トークンを random で生成している。
+id: hand-0023
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.lang.security.audit.insecure-random
+  category: sast
+  message: 暗号学的に安全でない乱数を使っています
+  path: app/reset.py
+  start_line: 7
+  end_line: 7
+  severity_reported: medium
+  cwe:
+  - CWE-330
+code: |
+  import random
+  import string
+
+
+  def new_reset_token() -> str:
+      alphabet = string.ascii_letters + string.digits
+      return "".join(random.choice(alphabet) for _ in range(32))
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-330
+  severity: high
+  rationale: |
+    random は Mersenne Twister で、出力を 624 個観測すると内部状態を復元できる。
+    攻撃者が自分のアカウントで再設定トークンを大量に取得すれば、他人のトークンを予測して
+    アカウントを乗っ取れる。secrets.token_urlsafe を使うべき。

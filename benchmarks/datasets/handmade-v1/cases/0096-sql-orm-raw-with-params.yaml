@@ -1,0 +1,31 @@
+# 誤検知: Django の raw() にパラメータを別渡ししている。
+id: hand-0096
+source: handmade
+language: python
+candidate:
+  scanner: semgrep
+  rule_id: python.django.security.audit.raw-query
+  category: sast
+  message: raw SQL を使っています
+  path: shop/queries.py
+  start_line: 5
+  end_line: 5
+  severity_reported: medium
+  cwe:
+  - CWE-89
+code: |
+  from shop.models import Product
+
+
+  def search(term: str):
+      return Product.objects.raw(
+          "SELECT * FROM shop_product WHERE name ILIKE %s ORDER BY name",
+          [f"%{term}%"],
+      )
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    SQL 本体は固定で、term は第 2 引数のパラメータとしてドライバに渡されエスケープされる。
+    f-string はパラメータの値 (LIKE のパターン) を作っているだけで、SQL 文には入らない。

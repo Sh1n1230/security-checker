@@ -1,0 +1,32 @@
+# 誤検知: 脆弱性は使っていない機能 (サーバ実装) にあり、クライアント機能しか使わない。
+id: hand-0070
+source: handmade
+language: python
+candidate:
+  scanner: osv
+  rule_id: GHSA-dataset-unused-0002
+  category: dependency
+  message: websocket ライブラリに既知の脆弱性があります (サーバ側の DoS)
+  path: requirements.txt
+  start_line: 2
+  end_line: 2
+  severity_reported: high
+  cwe:
+  - CWE-400
+code: |
+  # requirements.txt
+  wslib==10.1
+
+  # app/stream.py (同じリポジトリ。wslib の利用はここだけ)
+  # from wslib.client import connect
+  # async def follow(url):
+  #     async with connect(url) as ws:
+  #         async for message in ws:
+  #             yield message
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: info
+  rationale: |
+    脆弱性はサーバ実装 (wslib.server) の接続処理にあり、このアプリはクライアントとして固定の
+    接続先に繋ぐだけでサーバ機能を一切使っていない。到達不能。上げておくのは良いが緊急性は無い。

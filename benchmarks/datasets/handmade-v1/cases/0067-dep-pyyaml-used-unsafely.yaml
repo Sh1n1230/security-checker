@@ -1,0 +1,32 @@
+# 真陽性: 脆弱版の PyYAML を、脆弱な API (yaml.load) で実際に使っている。
+id: hand-0067
+source: handmade
+language: python
+candidate:
+  scanner: osv
+  rule_id: GHSA-8q59-q68h-6hv4
+  category: dependency
+  message: PyYAML 5.3.1 に既知の脆弱性があります (任意コード実行)
+  path: requirements.txt
+  start_line: 3
+  end_line: 3
+  severity_reported: critical
+  cwe:
+  - CWE-20
+code: |
+  # requirements.txt
+  flask==2.3.3
+  pyyaml==5.3.1
+
+  # app/importer.py (同じリポジトリ)
+  # import yaml
+  # def load(text):
+  #     return yaml.load(text, Loader=yaml.FullLoader)   # 利用者がアップロードした YAML
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-20
+  severity: critical
+  rationale: |
+    PyYAML 5.4 未満の FullLoader には任意コード実行の脆弱性があり、このリポジトリは利用者が
+    アップロードした YAML を FullLoader で読んでいる。到達可能。5.4 以上に上げ safe_load を使うべき。
