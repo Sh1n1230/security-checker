@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-openai = ["openai>=3.13.0"]
+openai = ["openai>=3.22.1"]
 google = ["google-genai"]
 anthropic = ["anthropic"]
 tiktoken = ["tiktoken"]
