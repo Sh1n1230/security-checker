@@ -81,11 +81,13 @@ jobs:
           enable-cache: true
 
       - name: スキャナを導入
+        env:
+          # 未認証の API 呼び出しはランナー間で共有のレート制限に当たり、たまに落ちる
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          GITLEAKS_VER=$(curl -sSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
-            | grep -o '"tag_name": *"v[^"]*"' | head -1 | sed 's/.*"v\(.*\)"/\1/')
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER}_linux_x64.tar.gz" | tar xz gitleaks
+          GITLEAKS_VER=$(gh release view -R gitleaks/gitleaks --json tagName --jq '.tagName | ltrimstr("v")')
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER}_linux_x64.tar.gz" | tar xz gitleaks
           sudo mv gitleaks /usr/local/bin/
           uv tool install semgrep
 
