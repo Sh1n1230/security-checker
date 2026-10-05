@@ -6,7 +6,7 @@ An AI security review platform: it runs the usual scanners, then has **independe
 finding as third-party auditors**, so you get fewer false positives without hiding real issues.
 
 > **Status:** alpha. Phases P1–P5 of the [migration plan](docs/DESIGN.md#32-移行計画) are done;
-> the first v2 release and PyPI publishing are next.
+> releases are published on GitHub only for now (install from git); PyPI comes later.
 > The design docs are currently in Japanese ([ADR 0002](docs/adr/0002-docs-language.md)).
 
 ## What it is — and what it is not

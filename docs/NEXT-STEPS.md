@@ -183,7 +183,7 @@ git diff --stat main docs/design-v2
 
 - 完了条件: カバレッジ 80% 以上（現状 93% を維持）、mypy strict が通る
 
-### Step 6. P6 評価と公開 — 1・3 と 4 の準備は済み。2 と 4 の実施が残り
+### Step 6. P6 評価と公開 — 準備は済み。GitHub Release から小さく出す
 
 残りの手順:
 
@@ -193,9 +193,13 @@ git diff --stat main docs/design-v2
      -o benchmarks/results/<date>.json -m benchmarks/results/<date>.md
    ```
    single / consensus / judge を比べ、D12 を決める。結果は README の Accuracy 節に書く
-2. D1: PyPI で配布名を確保し、Trusted Publisher に `release.yml` / environment `pypi` を登録 → `pyproject.toml` の `name` を配布名に変える → リポジトリ変数 `PUBLISH_PYPI=true`
-3. GHCR: リポジトリ変数 `PUBLISH_GHCR=true`
-4. release-please のリリース PR をマージして `v2.0.0`。**その後 `release-please-config.json` の `release-as` を消す**（残すと次も 2.0.0 を作ろうとする）
+2. **GitHub のみで小さく公開する（2026-10-05 決定）。** release-please のリリース PR をマージして `v2.0.0` の GitHub Release を作る。
+   PyPI・GHCR は変数（`PUBLISH_PYPI` / `PUBLISH_GHCR`）未設定のまま止めておく。インストールは `uv tool install git+https://...@v2.0.0`。
+   **リリース後に `release-please-config.json` の `release-as` を消す**（残すと次も 2.0.0 を作ろうとする）
+3. D1: PyPI は**閉じた環境で一度通してから**公開する。TestPyPI（または社内インデックス）に Trusted Publisher を登録して
+   配布物とインストール手順を確かめる → PyPI で配布名を確保・Trusted Publisher に `release.yml` / environment `pypi` を登録 →
+   `pyproject.toml` の `name` を配布名に変える → リポジトリ変数 `PUBLISH_PYPI=true`
+4. GHCR: リポジトリ変数 `PUBLISH_GHCR=true`
 
 当初の手順:
 
