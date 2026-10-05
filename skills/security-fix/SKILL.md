@@ -1,21 +1,20 @@
 ---
 name: security-fix
-description: security-check の検査結果や既知のセキュリティ問題を修正する。「検出された問題を直して」「脆弱性を修正して」「セキュリティスコアを上げて」等の依頼で使用。優先順位付けと安全な修正手順を提供する。
+description: security-check の検査結果や既知のセキュリティ問題を修正する。「検出された問題を直して」「脆弱性を修正して」「セキュリティの指摘を減らして」等の依頼で使用。優先順位付けと安全な修正手順を提供する。
 ---
 
 # セキュリティ問題の修正
 
-`~/security-checker` の検査で見つかった問題を、優先順位を付けて修正する。
+`security-checker` の検査で見つかった問題を、優先順位を付けて修正する。
 
 ## 手順
 
-0. **OSの確認**: Windows (PowerShell) なら `check.ps1`、macOS/Linux なら `check.sh` を使う
-   (`security-check` スキルの対応表を参照)。
-
-1. **最新の検査結果を確認**: `~/security-checker/reports/summary.json` を読む。
+1. **最新の検査結果を確認**: 対象の `.security-checker/report.md` を読む。
    無い・古い場合は先に `security-check` スキルの手順で再検査する。
+   `false_positive` と判定されたものは直さない (根拠は `security-checker explain <id>`)。
 
-2. **優先順位**: Critical → High → Medium → Low。ただし種類によって対処が違う:
+2. **優先順位**: `confirmed` / `likely` を Critical → High → Medium → Low の順に。
+   `review_required` はユーザーに判断を仰ぐ。種類によって対処が違う:
 
    | 種類 | 正しい対処 | やってはいけないこと |
    |---|---|---|
@@ -27,8 +26,8 @@ description: security-check の検査結果や既知のセキュリティ問題�
 
 3. **修正のルール**:
    - 1問題 = 1つの独立した変更にする(まとめて直さない)
-   - 修正毎に `~/security-checker/check.sh <dir>` (Windows: `pwsh ~/security-checker/check.ps1 <dir>`) を再実行し、スコアが上がったこと・新しい問題が出ていないことを確認
+   - 修正毎に `security-checker scan <dir>` (または `review`) を再実行し、指摘が消えたこと・新しい問題が出ていないことを確認
    - テストがあるプロジェクトでは修正後に必ずテストを実行
-   - 誤検知と判断した場合は、抑制する前に根拠をユーザーに説明して承認を得る
+   - 誤検知と判断した場合は、抑制 (`.security-checker-ignore` やコード内注釈) する前に根拠をユーザーに説明して承認を得る
 
-4. **報告**: 修正前後のスコアの変化、残っている問題、手動対応が必要な項目(キーの再発行等)を明記する。
+4. **報告**: 修正前後の指摘件数の変化、残っている問題、手動対応が必要な項目(キーの再発行等)を明記する。

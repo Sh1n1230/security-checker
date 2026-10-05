@@ -5,8 +5,8 @@
 An AI security review platform: it runs the usual scanners, then has **independent LLMs review each
 finding as third-party auditors**, so you get fewer false positives without hiding real issues.
 
-> **Status:** v2 is under active development (phases P1–P5 of the
-> [migration plan](docs/DESIGN.md#32-移行計画) are implemented; publishing is next).
+> **Status:** alpha. Phases P1–P5 of the [migration plan](docs/DESIGN.md#32-移行計画) are done;
+> releases are published on GitHub only for now (install from git); PyPI comes later.
 > The design docs are currently in Japanese ([ADR 0002](docs/adr/0002-docs-language.md)).
 
 ## What it is — and what it is not
@@ -145,4 +145,6 @@ Details: [docs/security-model.md](docs/security-model.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). MIT licensed.
 
-The original v1 (bash / PowerShell) and the host-audit tools are documented in [README.ja.md](README.ja.md).
+The original v1 (bash / PowerShell) was removed after v1.1.0. Standalone host-audit scripts (macOS / Windows
+settings, open ports, shell history) live in [contrib/host-audit/](contrib/host-audit/) and are documented in
+[README.ja.md](README.ja.md).
