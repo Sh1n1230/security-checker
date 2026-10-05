@@ -193,7 +193,7 @@ git diff --stat main docs/design-v2
      -o benchmarks/results/<date>.json -m benchmarks/results/<date>.md
    ```
    single / consensus / judge を比べ、D12 を決める。結果は README の Accuracy 節に書く
-2. **GitHub のみで小さく公開する（2026-10-05 決定）。** release-please のリリース PR をマージして `v2.0.0` の GitHub Release を作る。
+2. ✅ **済（2026-10-05）: `v2.0.0` を GitHub Release のみで公開。`release-as` も削除済み。** GitHub のみで小さく公開する（2026-10-05 決定）。 release-please のリリース PR をマージして `v2.0.0` の GitHub Release を作る。
    PyPI・GHCR は変数（`PUBLISH_PYPI` / `PUBLISH_GHCR`）未設定のまま止めておく。インストールは `uv tool install git+https://...@v2.0.0`。
    **リリース後に `release-please-config.json` の `release-as` を消す**（残すと次も 2.0.0 を作ろうとする）
 3. D1: PyPI は**閉じた環境で一度通してから**公開する。TestPyPI（または社内インデックス）に Trusted Publisher を登録して
@@ -208,6 +208,10 @@ git diff --stat main docs/design-v2
 2. 結果を見て D12（既定の Reviewer 数・戦略）を決める。効果がなければ README に「1 モデルで十分」と正直に書く
 3. docs 一式、英語 README、OSS 付帯ファイル（§31.4）
 4. release-please → PyPI（Trusted Publishing、D1 の名前で）→ GHCR → `v2.0.0`
+
+**リリース PR の CI について。** release-please は `GITHUB_TOKEN` で PR を作るため、その PR では workflow が起動せず、
+必須チェック `security` が無いままマージできない（`BLOCKED`）。当面はリリース PR を**人間が一度 close → reopen** して CI を起動する。
+手間になったら GitHub App のトークンを release-please に渡す（PAT は置かない）。
 
 ### Step 7. P7 ゲートを締める
 
