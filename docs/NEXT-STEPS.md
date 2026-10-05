@@ -198,7 +198,7 @@ git diff --stat main docs/design-v2
    **リリース後に `release-please-config.json` の `release-as` を消す**（残すと次も 2.0.0 を作ろうとする）
 3. D1: PyPI は**閉じた環境で一度通してから**公開する。TestPyPI（または社内インデックス）に Trusted Publisher を登録して
    配布物とインストール手順を確かめる → PyPI で配布名を確保・Trusted Publisher に `release.yml` / environment `pypi` を登録 →
-   `pyproject.toml` の `name` を配布名に変える → リポジトリ変数 `PUBLISH_PYPI=true`
+   `pyproject.toml` の `name` と `src/security_checker/__init__.py` の `version("...")` を配布名に変える → リポジトリ変数 `PUBLISH_PYPI=true`
 4. GHCR: リポジトリ変数 `PUBLISH_GHCR=true`
 
 当初の手順:
