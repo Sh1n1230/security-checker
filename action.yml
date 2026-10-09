@@ -134,18 +134,21 @@ runs:
         set -euo pipefail
         BIN="$RUNNER_TEMP/security-checker-bin"
         mkdir -p "$BIN"
-        resolve() { # resolve <owner/repo> <指定> → 先頭の v を除いた版. latest のときだけ API で引く
-          local requested="${2#v}" tag
-          if [[ "$requested" == latest ]]; then
-            # gh は GitHub ホストのランナーに標準で入っている。curl の出力をインタプリタに流さない
-            tag=$(gh api "repos/$1/releases/latest" --jq .tag_name)
-            requested="${tag#v}"
-          fi
-          if [[ ! "$requested" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        pinned() { # pinned <名前> <指定> → 先頭の v を除いた X.Y.Z. それ以外の指定は止める
+          local version="${2#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::$1 の版の指定が不正です: $2 (例 1.2.3 または latest)" >&2
             exit 2
           fi
-          echo "$requested"
+          echo "$version"
+        }
+        resolve() { # resolve <owner/repo> <指定> → 版. latest のときだけ API で最新リリースを引く
+          local requested="$2"
+          if [[ "$requested" == latest ]]; then
+            # gh は GitHub ホストのランナーに標準で入っている。curl の出力をインタプリタに流さない
+            requested=$(gh api "repos/$1/releases/latest" --jq .tag_name)
+          fi
+          pinned "$1" "$requested"
         }
         # 取得物は公式のチェックサムで検証する。`curl | sh` の install スクリプトは使わない
         cd "$RUNNER_TEMP"
@@ -168,14 +171,12 @@ runs:
           | sed 's/osv-scanner_linux_amd64/osv-scanner/' | sha256sum -c -)
         chmod +x "$BIN/osv-scanner"
         echo "$BIN" >> "$GITHUB_PATH"
-        if [[ "$SEMGREP_VERSION" == latest ]]; then
-          uv tool install --quiet semgrep
-        elif [[ "$SEMGREP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-          uv tool install --quiet "semgrep==${SEMGREP_VERSION}"
-        else
-          echo "::error::semgrep の版の指定が不正です: $SEMGREP_VERSION (例 1.2.3 または latest)"
-          exit 2
+        # semgrep は PyPI から入れる。latest のときだけ版を指定しない
+        semgrep_spec=semgrep
+        if [[ "$SEMGREP_VERSION" != latest ]]; then
+          semgrep_spec="semgrep==$(pinned semgrep "$SEMGREP_VERSION")"
         fi
+        uv tool install --quiet "$semgrep_spec"
         # 本体はアクションのチェックアウト (= 呼び出し側が SHA で固定したもの) から入れる
         uv tool install --quiet "$GITHUB_ACTION_PATH"
         echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
