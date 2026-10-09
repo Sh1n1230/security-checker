@@ -62,7 +62,7 @@ security-checker init --local --command '<your-command> --non-interactive --no-t
 | 2 | **シェルを経由しない** | `argv` のリストで起動し `shell=False` 固定 |
 | 3 | **プロンプトを引数に埋め込まない** | 必ず stdin か一時ファイル。長さ制限・`ps` からの可視性・フラグ誤解釈を避ける |
 | 4 | **実行後に書き込みを検査する** | 一時 cwd に何か作られていたら warning を出し trace に記録する |
-| 5 | **プロセスグループごと kill する** | `start_new_session` + `killpg`。タイムアウトで子プロセスを残さない |
+| 5 | **プロセスグループごと kill する** | `start_new_session` + `killpg`。タイムアウトで子プロセスを残さない (POSIX)。Windows では Reviewer のプロセス本体だけを止めるため、孫プロセスが残りうる (既知の制約) |
 
 ### ただし、あなたの責任として残るもの
 
