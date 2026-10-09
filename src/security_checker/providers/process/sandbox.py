@@ -141,8 +141,13 @@ def created_paths(cwd: Path) -> tuple[str, ...]:
 
 
 async def terminate(process: asyncio.subprocess.Process) -> None:
-    """プロセスグループごと片づける. SIGTERM を試してから SIGKILL に上げる."""
-    for signal_number in (signal.SIGTERM, signal.SIGKILL):
+    """プロセスグループごと片づける. SIGTERM を試してから SIGKILL に上げる.
+
+    Windows には SIGKILL が無い。`_signal_group` はシグナルによらず TerminateProcess
+    (`process.kill()`) で止めるので、1 回だけ試す。
+    """
+    signals = (signal.SIGTERM, signal.SIGKILL) if POSIX else (signal.SIGTERM,)
+    for signal_number in signals:
         if process.returncode is not None:
             return
         _signal_group(process, signal_number)
