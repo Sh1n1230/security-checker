@@ -72,6 +72,20 @@ fork PR のコードを権限付きの文脈 (`workflow_run`) で検査すると
 `--config` で渡す必要がある。読んでしまうと、PR が置いた Reviewer の `command` が
 シークレット付きで実行される。手順は docs/github-actions.md §5。
 
+同じ理由で、PR が自分の検出を消せないよう、次も検査対象のツリーから読まない。
+
+| 対象 | 扱い |
+|---|---|
+| `.security-checker-ignore`・コード内の ignore 注釈 | 読まない (ignore ファイルは設定ファイルの隣から読む) |
+| `.gitleaks.toml` | 読まない (`--config` で既定ルールのみの設定を渡す)。`gitleaks:allow` 注釈も無視する |
+| `trivy.yaml`・`.trivyignore` | 読まない (`--config` に空の設定、`--ignorefile ""`) |
+| `osv-scanner.toml` | 読まない (`--config` に空の設定) |
+| `# nosemgrep` 注釈 | 無視する (`--disable-nosem`) |
+| `.gitleaksignore` (直下)・`.semgrepignore` | スキャナ側で止める手段が無いため**読まれる**。存在すればレポートの警告に出す |
+
+スキャナの設定が必要なら、信頼できる設定の `scanners.<name>.extra_args` で検査対象の外のファイルを
+渡す (後ろに付くので、上の指定より優先される)。
+
 ## 6. Reviewer はコードを書き換えない (P3)
 
 Reviewer は修正方針と短い例示を返すだけで、**リポジトリを一切変更しない**。

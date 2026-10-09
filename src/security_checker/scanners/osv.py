@@ -197,6 +197,7 @@ class OsvScanner(BaseScanner):
             "--recursive",
             "--format",
             "json",
+            *(ctx.untrusted.osv_args() if ctx.untrusted else []),
             *self.settings.extra_args,
             ".",
         ]

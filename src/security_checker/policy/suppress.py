@@ -27,6 +27,8 @@ class SuppressionRules:
     ignore: IgnoreFile | None = None
     annotations: AnnotationReader | None = None
     warnings: list[str] = field(default_factory=list)
+    #: 検査対象を信用しない (§21.2)。スキャナ自身の設定の読み込みも止める (#43)
+    untrusted_target: bool = False
 
 
 def load_rules(
@@ -37,7 +39,7 @@ def load_rules(
     untrusted_target: bool = False,
 ) -> SuppressionRules:
     """設定から抑制規則を組み立てる. baseline の相対パスは設定ファイルの場所が基準."""
-    rules = SuppressionRules()
+    rules = SuppressionRules(untrusted_target=untrusted_target)
     base_dir = config_dir or root
     if config.policy.baseline is not None:
         path = Path(config.policy.baseline).expanduser()

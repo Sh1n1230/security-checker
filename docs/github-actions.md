@@ -151,6 +151,9 @@ PR のコードを checkout して何かを実行した瞬間に、シークレ�
   `SECURITY_CHECKER_UNTRUSTED_TARGET=1`) のとき、検査対象のツリーにある `security-checker.yml` /
   `security-checker.local.yml` を一切読みません。読むと、その中の `command` がシークレット付きで
   実行されます。設定は検査対象の外 (既定ブランチの checkout) から `config` で渡します。
+  スキャナ自身の設定 (`.gitleaks.toml`・`trivy.yaml`・`.trivyignore`・`osv-scanner.toml`) と
+  `nosemgrep` / `gitleaks:allow` 注釈も効かせません。止められない `.gitleaksignore`・`.semgrepignore` は
+  警告に出します (docs/security-model.md §5.1)。
 - **`transport: process` の Reviewer を fork のコードに向けない。** 手元の AI CLI はツールを
   持ちうるため、信用できないコードに含まれる指示 (プロンプトインジェクション) で動かされる余地が
   あります。publish 側の設定には `transport: http` の Reviewer だけを置いてください。
