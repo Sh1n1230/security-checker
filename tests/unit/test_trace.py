@@ -17,14 +17,14 @@ def test_writes_run_and_calls(tmp_path):
     assert first is not None and second is not None
     assert first.name == "0000.json"
     assert second.name == "0001.json"
-    assert json.loads(first.read_text())["candidate_id"] == "c1"
+    assert json.loads(first.read_text(encoding="utf-8"))["candidate_id"] == "c1"
 
 
 def test_api_keys_are_masked_in_traces(tmp_path):
     writer = TraceWriter(tmp_path, "RUN1")
     path = writer.write_call({"note": "key is sk-abcdefghijklmnop here"})
     assert path is not None
-    assert "sk-abcdefghijklmnop" not in path.read_text()
+    assert "sk-abcdefghijklmnop" not in path.read_text(encoding="utf-8")
 
 
 def test_disabled_writer_writes_nothing(tmp_path):

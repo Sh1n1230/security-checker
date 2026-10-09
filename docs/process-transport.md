@@ -10,8 +10,8 @@
 
 ```text
 起動   : argv で指定されたコマンドを、非対話モードで実行する
-入力   : プロンプトを stdin (または一時ファイル) で渡す
-出力   : stdout にテキストを返す。そこから JSON を抽出する
+入力   : プロンプトを stdin (または一時ファイル) で UTF-8 で渡す
+出力   : stdout に UTF-8 のテキストを返す。そこから JSON を抽出する
 終了   : exit code 0 を成功とみなす
 ```
 
@@ -200,6 +200,7 @@ reviewers:
 | `N s 以内に終了しませんでした` | `timeout_s` を上げる。既定 300s |
 | `スキーマ検証に失敗しました` | `prompt_only` では避けられない場合がある。1 回だけ自動修復を試みた結果 |
 | `書き込みを行いました` の警告 | `command` に書き込み無効化のフラグを足す |
+| 文字化け・`UnicodeEncodeError` (主に Windows) | コマンドの標準入出力が UTF-8 になっていない。Python 製なら環境変数 `PYTHONIOENCODING=utf-8` を設定する |
 
 ## 自作 Provider を作る場合
 

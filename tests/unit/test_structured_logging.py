@@ -59,7 +59,8 @@ def test_nothing_is_emitted_unless_enabled(capsys):
 
 def test_cli_log_format_json_writes_events_to_stderr(tmp_path, monkeypatch):
     (tmp_path / "security-checker.yml").write_text(
-        "version: 1\nscanners:\n  semgrep: { enabled: false }\n  gitleaks: { enabled: false }\n"
+        "version: 1\nscanners:\n  semgrep: { enabled: false }\n  gitleaks: { enabled: false }\n",
+        encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(app, ["scan", str(tmp_path), "-q", "--log-format", "json"])
@@ -74,7 +75,8 @@ def test_cli_log_format_json_writes_events_to_stderr(tmp_path, monkeypatch):
 
 def test_cli_default_emits_no_logs(tmp_path, monkeypatch):
     (tmp_path / "security-checker.yml").write_text(
-        "version: 1\nscanners:\n  semgrep: { enabled: false }\n  gitleaks: { enabled: false }\n"
+        "version: 1\nscanners:\n  semgrep: { enabled: false }\n  gitleaks: { enabled: false }\n",
+        encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(app, ["scan", str(tmp_path), "-q"])

@@ -42,11 +42,11 @@ def test_store_counts_per_day_and_key(tmp_path):
 def test_store_keeps_only_recent_days(tmp_path):
     for day in range(1, 12):
         store(tmp_path, date(2026, 10, day)).consume("k")
-    assert len(json.loads((tmp_path / "quota.json").read_text())) == 7
+    assert len(json.loads((tmp_path / "quota.json").read_text(encoding="utf-8"))) == 7
 
 
 def test_store_survives_a_broken_file(tmp_path):
-    (tmp_path / "quota.json").write_text("{broken")
+    (tmp_path / "quota.json").write_text("{broken", encoding="utf-8")
     broken = store(tmp_path)
     assert broken.used("k") == 0
     assert broken.errors

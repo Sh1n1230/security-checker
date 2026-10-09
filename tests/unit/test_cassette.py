@@ -32,7 +32,7 @@ async def test_record_then_replay_without_the_real_provider(tmp_path):
 
 async def test_replay_miss_is_loud(tmp_path):
     path = tmp_path / "cassette.json"
-    path.write_text(json.dumps({"version": 1, "entries": {}}))
+    path.write_text(json.dumps({"version": 1, "entries": {}}), encoding="utf-8")
     with pytest.raises(CassetteMissError, match="--record"):
         await CassetteProvider(path).complete(CompletionRequest(system="s", user="u"))
 
@@ -44,7 +44,7 @@ async def test_recorded_cassette_is_masked(tmp_path):
     await CassetteProvider(path, inner=inner, record=True).complete(
         CompletionRequest(system="s", user="u")
     )
-    assert secret not in path.read_text()
+    assert secret not in path.read_text(encoding="utf-8")
 
 
 def test_recording_requires_a_real_provider(tmp_path):

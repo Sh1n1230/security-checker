@@ -35,3 +35,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 @pytest.fixture
 def record_mode(request: pytest.FixtureRequest) -> bool:
     return bool(request.config.getoption("--record"))
+
+
+@pytest.fixture(autouse=True)
+def _utf8_stdio_for_child_processes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """テストで起動する Python の子プロセス (偽の Reviewer など) の標準入出力を UTF-8 にする.
+
+    process transport の契約は「プロンプトを UTF-8 で受け取り、UTF-8 で返す」(docs/process-transport.md)。
+    Windows ではパイプ越しの標準入出力が既定でロケールの文字コード (cp1252 など) になり、
+    偽の Reviewer が日本語を出力できずに落ちるため、テスト側で契約どおりにそろえる。
+    起動時に読まれる変数なので、このプロセス自身の入出力には影響しない。
+    """
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")

@@ -168,7 +168,7 @@ async def test_osv_no_manifests_is_skipped_not_failed(fake_bin, tmp_path):
 
 async def test_osv_vulnerabilities_found_is_ok(fake_bin, tmp_path, raw_fixture):
     payload = json.dumps(osv_payload(raw_fixture, tmp_path))
-    (tmp_path / "payload.json").write_text(payload)
+    (tmp_path / "payload.json").write_text(payload, encoding="utf-8")
     fake_command(
         fake_bin, "osv-scanner", VERSION_GUARD + f"cat '{tmp_path}/payload.json'\nexit 1\n"
     )
@@ -177,7 +177,7 @@ async def test_osv_vulnerabilities_found_is_ok(fake_bin, tmp_path, raw_fixture):
     assert len(result.candidates) == 4
     # 生出力に絶対パスを残さない
     assert result.raw_path is not None
-    assert str(tmp_path) not in result.raw_path.read_text()
+    assert str(tmp_path) not in result.raw_path.read_text(encoding="utf-8")
 
 
 async def test_osv_vulnerable_exit_with_empty_output_is_failed(fake_bin, tmp_path):
@@ -200,7 +200,9 @@ async def test_osv_missing_is_skipped(tmp_path, monkeypatch):
 
 
 async def test_trivy_writes_and_parses_its_output(fake_bin, tmp_path, raw_fixture):
-    (tmp_path / "payload.json").write_text(json.dumps(raw_fixture("trivy_basic.json")))
+    (tmp_path / "payload.json").write_text(
+        json.dumps(raw_fixture("trivy_basic.json")), encoding="utf-8"
+    )
     # --output <path> の次の引数に書く
     fake_command(
         fake_bin,

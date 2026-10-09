@@ -35,7 +35,7 @@ def test_baseline_round_trip(tmp_path):
     candidates = [make_candidate("b", path="b.py"), make_candidate("a", path="a.py")]
     path = write_baseline(tmp_path / "base.json", candidates, tool_version="2.0.0")
     assert load_baseline(path) == {"a", "b"}
-    entries = json.loads(path.read_text())["entries"]
+    entries = json.loads(path.read_text(encoding="utf-8"))["entries"]
     # 人間がレビューできるよう、場所順に並び、ルールと場所も書かれる
     assert [e["where"] for e in entries] == ["a.py:42", "b.py:42"]
     assert entries[0]["rule_id"] == "rules.command-injection"
@@ -54,7 +54,7 @@ def test_baseline_round_trip(tmp_path):
 def test_broken_baseline_is_a_config_error(tmp_path, content):
     """壊れた baseline を空として扱うと、抑制が黙って外れて CI が突然落ちる (逆も然り)."""
     path = tmp_path / "base.json"
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
     with pytest.raises(ConfigError):
         load_baseline(path)
 
@@ -140,7 +140,7 @@ def test_annotation_on_the_line_or_the_line_above(tmp_path):
 
 def test_annotation_reader_does_not_escape_the_root(tmp_path):
     outside = tmp_path / "outside.py"
-    outside.write_text("# security-checker: ignore[*] reason=x\n")
+    outside.write_text("# security-checker: ignore[*] reason=x\n", encoding="utf-8")
     root = tmp_path / "root"
     root.mkdir()
     (root / "link.py").symlink_to(outside)
@@ -153,10 +153,11 @@ def test_annotation_reader_does_not_escape_the_root(tmp_path):
 
 
 def test_apply_order_and_reasons(tmp_path):
-    (tmp_path / ".security-checker-ignore").write_text("vendor/**\n")
-    (tmp_path / "a.py").write_text("x  # security-checker: ignore[*]\n")
+    (tmp_path / ".security-checker-ignore").write_text("vendor/**\n", encoding="utf-8")
+    (tmp_path / "a.py").write_text("x  # security-checker: ignore[*]\n", encoding="utf-8")
     (tmp_path / "base.json").write_text(
-        json.dumps({"version": 1, "entries": [{"id": "known"}, {"id": "annotated"}]})
+        json.dumps({"version": 1, "entries": [{"id": "known"}, {"id": "annotated"}]}),
+        encoding="utf-8",
     )
     config = Config.model_validate({"policy": {"baseline": "base.json"}})
     rules = load_rules(config, tmp_path)
@@ -180,7 +181,9 @@ def test_apply_order_and_reasons(tmp_path):
 def test_baseline_path_is_relative_to_the_config_file(tmp_path):
     config_dir = tmp_path / "conf"
     config_dir.mkdir()
-    (config_dir / "base.json").write_text(json.dumps({"version": 1, "entries": [{"id": "x"}]}))
+    (config_dir / "base.json").write_text(
+        json.dumps({"version": 1, "entries": [{"id": "x"}]}), encoding="utf-8"
+    )
     config = Config.model_validate({"policy": {"baseline": "base.json"}})
     rules = load_rules(config, tmp_path / "target", config_dir=config_dir)
     assert rules.baseline == {"x"}
@@ -190,11 +193,13 @@ def test_untrusted_target_does_not_read_annotations_or_its_ignore_file(tmp_path)
     """fork PR が自分の指摘を自分で抑制できないようにする."""
     target = tmp_path / "pr"
     target.mkdir()
-    (target / ".security-checker-ignore").write_text("**\n")
-    (target / "a.py").write_text("x  # security-checker: ignore[*] reason=だまし\n")
+    (target / ".security-checker-ignore").write_text("**\n", encoding="utf-8")
+    (target / "a.py").write_text(
+        "x  # security-checker: ignore[*] reason=だまし\n", encoding="utf-8"
+    )
     trusted = tmp_path / "trusted"
     trusted.mkdir()
-    (trusted / ".security-checker-ignore").write_text("docs/**\n")
+    (trusted / ".security-checker-ignore").write_text("docs/**\n", encoding="utf-8")
     rules = load_rules(Config(), target, config_dir=trusted, untrusted_target=True)
     kept, suppressed, _ = apply_suppressions(
         [
@@ -212,7 +217,9 @@ def test_untrusted_target_does_not_read_annotations_or_its_ignore_file(tmp_path)
 
 
 async def test_suppressed_candidates_do_not_fail_the_gate(tmp_path):
-    (tmp_path / "base.json").write_text(json.dumps({"version": 1, "entries": [{"id": "old"}]}))
+    (tmp_path / "base.json").write_text(
+        json.dumps({"version": 1, "entries": [{"id": "old"}]}), encoding="utf-8"
+    )
     config = Config.model_validate({"policy": {"baseline": "base.json", "fail_on": "high"}})
     scanner = FakeScanner("semgrep", candidates=[make_candidate("old", severity=Severity.CRITICAL)])
     outcome = await run_scan(
