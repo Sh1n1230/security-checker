@@ -92,7 +92,16 @@ jobs:
         run: uv sync --group dev --frozen
 
       - name: テスト
-        run: uv run pytest
+        shell: bash
+        # 失敗したテスト名を annotation に出す (ログを開かなくても PR の Checks で分かるように)
+        run: |
+          set -o pipefail
+          uv run pytest -rfE 2>&1 | tee pytest.log || {
+            grep -E "^(FAILED|ERROR) " pytest.log | head -10 | while IFS= read -r line; do
+              echo "::error title=pytest ($RUNNER_OS)::${line}"
+            done
+            exit 1
+          }
 
   dogfooding:
     # 自分自身を scan にかける。ここが落ちても quality とは別問題として扱えるよう job を分ける。
