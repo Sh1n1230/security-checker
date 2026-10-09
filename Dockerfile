@@ -50,10 +50,19 @@ RUN set -eux; \
 
 RUN pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}"
 
+# 依存は uv.lock に固定した版をハッシュ検証つきで入れる (`pip install .` だとビルドした日の最新版になる)。
+# uv はロックファイルを requirements 形式に書き出すためだけに使い、イメージには残さない
+COPY --from=ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 /uv /usr/local/bin/uv
+
 WORKDIR /opt/security-checker
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
-RUN pip install --no-cache-dir . && security-checker version
+RUN set -eux; \
+    uv export --frozen --no-dev --no-emit-project --format requirements-txt -o /tmp/requirements.txt; \
+    pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt; \
+    pip install --no-cache-dir --no-deps .; \
+    rm /tmp/requirements.txt /usr/local/bin/uv; \
+    security-checker version
 
 # マウントしたリポジトリの所有者が実行ユーザーと異なっても git が拒否しないようにする。
 # `docker run -u` で任意の uid にしても効くよう、system 設定に書く
