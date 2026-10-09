@@ -56,6 +56,7 @@ jobs:
 | `comment` | `true` | PR に sticky サマリと inline コメントを投稿する |
 | `upload-sarif` | `true` | SARIF を Code Scanning に登録する |
 | `token` | `github.token` | PR コメントとスキャナの取得に使う |
+| `gitleaks-version` / `trivy-version` / `osv-scanner-version` / `semgrep-version` | `Dockerfile` の `ARG` と同じ版 | スキャナの版。`latest` を指定したときだけ最新版を入れる (日によって結果が変わりうる) |
 | `pr-number` / `head-sha` / `base` / `untrusted-target` | | §5 の workflow_run パターン用 |
 | `url` | | v1 互換のため受け付けるだけ (v2 では未対応。警告を出す) |
 
