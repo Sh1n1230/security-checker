@@ -37,6 +37,8 @@ VERSION_GUARD = 'case "$1" in --version|version) echo "fake 1.0"; exit 0;; esac\
 
 @pytest.fixture
 def fake_bin(tmp_path, monkeypatch):
+    if os.name != "posix":
+        pytest.skip("偽のコマンドは #!/bin/sh のスクリプトで作るため POSIX のみ")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
