@@ -23,7 +23,8 @@ from security_checker.scanners.trivy import TrivyScanner, parse_trivy, resolve_t
 
 
 def osv_payload(raw_fixture: Callable[[str], Any], root: Path) -> Any:
-    text = json.dumps(raw_fixture("osv_basic.json")).replace("{ROOT}", str(root))
+    # JSON 文字列の中に埋めるので、パスも JSON としてエスケープする (Windows の \\ 対策)
+    text = json.dumps(raw_fixture("osv_basic.json")).replace("{ROOT}", json.dumps(str(root))[1:-1])
     return json.loads(text)
 
 
@@ -143,6 +144,8 @@ def fake_command(bin_dir: Path, name: str, body: str) -> None:
 
 @pytest.fixture
 def fake_bin(tmp_path, monkeypatch):
+    if os.name != "posix":
+        pytest.skip("偽のコマンドは #!/bin/sh のスクリプトで作るため POSIX のみ")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
