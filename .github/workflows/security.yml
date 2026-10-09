@@ -60,19 +60,30 @@ jobs:
           }
           BIN="$RUNNER_TEMP/security-checker-bin"
           mkdir -p "$BIN"
+          # 取得物は action.yml と同じく公式のチェックサムで検証する
+          cd "$RUNNER_TEMP"
           # gitleaks
           ver=$(latest gitleaks/gitleaks)
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${ver}/gitleaks_${ver}_linux_x64.tar.gz" \
-            | tar xz -C "$BIN" gitleaks
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${ver}"
+          file="gitleaks_${ver}_linux_x64.tar.gz"
+          curl -fsSLO "$base/$file"
+          curl -fsSL "$base/gitleaks_${ver}_checksums.txt" | grep " ${file}\$" | sha256sum -c -
+          tar xzf "$file" -C "$BIN" gitleaks
           # trivy
           # 公式 install.sh の `curl | sh` は使わない。取得したスクリプトを検証せず実行することになり、
           # セキュリティツール自身の推奨と矛盾するため。
           ver=$(latest aquasecurity/trivy)
-          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${ver}/trivy_${ver}_Linux-64bit.tar.gz" \
-            | tar xz -C "$BIN" trivy
+          base="https://github.com/aquasecurity/trivy/releases/download/v${ver}"
+          file="trivy_${ver}_Linux-64bit.tar.gz"
+          curl -fsSLO "$base/$file"
+          curl -fsSL "$base/trivy_${ver}_checksums.txt" | grep " ${file}\$" | sha256sum -c -
+          tar xzf "$file" -C "$BIN" trivy
           # osv-scanner
-          curl -fsSL -o "$BIN/osv-scanner" \
-            https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64
+          ver=$(latest google/osv-scanner)
+          base="https://github.com/google/osv-scanner/releases/download/v${ver}"
+          curl -fsSLo "$BIN/osv-scanner" "$base/osv-scanner_linux_amd64"
+          (cd "$BIN" && curl -fsSL "$base/osv-scanner_SHA256SUMS" | grep " osv-scanner_linux_amd64\$" \
+            | sed 's/osv-scanner_linux_amd64/osv-scanner/' | sha256sum -c -)
           chmod +x "$BIN/osv-scanner"
           # semgrep
           pipx install --quiet semgrep
