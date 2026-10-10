@@ -12,6 +12,14 @@ LLM に脆弱性を探させないのは、見つけた・見つけないの再�
 
 無効にするには `scanners.<name>.enabled: false`。
 
+GitHub Action（`action.yml`）・Docker イメージ・このリポジトリの CI は、スキャナを「最新版」ではなく
+[`scripts/scanner-versions.sh`](../scripts/scanner-versions.sh) に書いた版で取得し、そこに固定した sha256 で検証します。
+スキャナのリリースが乗っ取られても、悪性のバイナリが CI で動かないようにするためです（チェックサムを同じリリースから取ると、リリースごと差し替えられた場合に防げません）。
+
+版は Action の入力（`gitleaks-version` など）や Docker の `--build-arg` で上書きできます。
+固定版以外を指定した場合はリリース側のチェックサムで検証し、検証が弱くなることを警告に出します。
+更新の手順は `scanner-versions.sh` 冒頭のコメントを参照してください。
+
 ## 状態を必ず区別する
 
 | 状態 | 意味 | 扱い |
