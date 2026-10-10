@@ -12,6 +12,9 @@ LLM に脆弱性を探させないのは、見つけた・見つけないの再�
 
 無効にするには `scanners.<name>.enabled: false`。
 
+GitHub Action（`action.yml`）は、スキャナを「最新版」ではなく [`scripts/install-scanners.sh`](../scripts/install-scanners.sh) に書いたバージョンと sha256 で取得します。
+スキャナのリリースが乗っ取られても、悪性のバイナリが CI で動かないようにするためです。更新の手順はスクリプト冒頭のコメントを参照してください。
+
 ## 状態を必ず区別する
 
 | 状態 | 意味 | 扱い |

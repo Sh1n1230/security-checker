@@ -81,15 +81,12 @@ jobs:
           enable-cache: true
 
       - name: スキャナを導入
-        env:
-          # 未認証の API 呼び出しはランナー間で共有のレート制限に当たり、たまに落ちる
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          GITLEAKS_VER=$(gh release view -R gitleaks/gitleaks --json tagName --jq '.tagName | ltrimstr("v")')
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER}_linux_x64.tar.gz" | tar xz gitleaks
-          sudo mv gitleaks /usr/local/bin/
-          uv tool install semgrep
+          # action.yml と同じく、バージョンと sha256 を固定して取得する。
+          # セルフスキャンの対象はこれまでどおり gitleaks と semgrep だけにするため、PATH には gitleaks だけを置く
+          scripts/install-scanners.sh "$RUNNER_TEMP/scanners"
+          sudo install -m 0755 "$RUNNER_TEMP/scanners/gitleaks" /usr/local/bin/gitleaks
 
       - name: セルフスキャン
         # --strict: スキャナが失敗したら exit 3 で落とす (「壊れているのに緑」を作らない)
