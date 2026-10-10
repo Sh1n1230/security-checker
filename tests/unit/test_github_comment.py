@@ -442,3 +442,21 @@ def test_report_round_trips_through_json():
     again = Report.model_validate_json(json.dumps(report.dump()))
     assert again.findings[0].status is FindingStatus.CONFIRMED
     assert again.findings[0].severity is Severity.HIGH
+
+
+def test_comment_neutralizes_html_images_and_backtick_breakout():
+    candidate = make_candidate(path="src/a`b.py", line=3)
+    finding = make_finding(
+        candidate,
+        FindingStatus.CONFIRMED,
+        summary="<details><summary>✅ No issues</summary> ![x](https://attacker.example/p.png)",
+        verdicts=[make_verdict("r1", attack_path=["a`<img src=x>`b", "sink"])],
+    )
+    body = render_summary(make_report([candidate], [finding]))
+    inline = render_inline(finding)
+    for text in (body, inline):
+        assert "<details><summary>✅ No issues" not in text
+        assert "![x]" not in text
+    assert "`src/a'b.py:3`" in body
+    # コードスパンの中に閉じ込められている (外に抜けて HTML として描画されない)
+    assert "`a'<img src=x>'b`" in body
