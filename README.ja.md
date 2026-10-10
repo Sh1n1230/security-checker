@@ -2,6 +2,11 @@
 
 [English](README.md) | **日本語**
 
+[![CI](https://github.com/Sh1n1230/security-checker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Sh1n1230/security-checker/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/Sh1n1230/security-checker/badge)](https://scorecard.dev/viewer/?uri=github.com/Sh1n1230/security-checker)
+[![Release](https://img.shields.io/github/v/release/Sh1n1230/security-checker)](https://github.com/Sh1n1230/security-checker/releases)
+[![License: MIT](https://img.shields.io/github/license/Sh1n1230/security-checker)](LICENSE)
+
 既存のスキャナの検出結果を、**独立した LLM が第三者の監査役としてレビューする** AI Security Review
 プラットフォームです。本物の問題を隠さずに誤検出を減らすことを目指しています
 (設計は [docs/DESIGN.md](docs/DESIGN.md))。
