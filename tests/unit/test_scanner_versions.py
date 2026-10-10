@@ -81,6 +81,12 @@ def test_nothing_fetches_latest_scanner_releases(path):
     assert "releases/latest" not in path.read_text(encoding="utf-8")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="実行権限は POSIX のみ")
+def test_installer_is_executable():
+    """action・workflow・Dockerfile は bash を介さず直接実行する."""
+    assert os.access(INSTALLER, os.X_OK)
+
+
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="bash が必要")
 @pytest.mark.parametrize("value", ["foo;rm -rf /", "1.2", "latest; echo", "1.2.3-rc1"])
 def test_installer_rejects_malformed_versions_before_downloading(tmp_path, value):
