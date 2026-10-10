@@ -248,7 +248,9 @@ def relative_path(raw_path: str, root: Path) -> str:
     """スキャナが返したパスをリポジトリルートからの相対パスに正規化する (§6.1)."""
     cleaned = raw_path.replace("\\", "/")
     candidate = Path(cleaned)
-    if candidate.is_absolute():
+    # "/" 始まりは Windows では絶対パスと判定されない (ドライブが無い) が、
+    # ルートからのパスなので同じ扱いにする
+    if candidate.is_absolute() or cleaned.startswith("/"):
         try:
             cleaned = candidate.resolve().relative_to(root.resolve()).as_posix()
         except ValueError:

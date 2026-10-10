@@ -10,8 +10,8 @@
 
 ```text
 起動   : argv で指定されたコマンドを、非対話モードで実行する
-入力   : プロンプトを stdin (または一時ファイル) で渡す
-出力   : stdout にテキストを返す。そこから JSON を抽出する
+入力   : プロンプトを stdin (または一時ファイル) で UTF-8 で渡す
+出力   : stdout に UTF-8 のテキストを返す。そこから JSON を抽出する
 終了   : exit code 0 を成功とみなす
 ```
 
@@ -62,7 +62,7 @@ security-checker init --local --command '<your-command> --non-interactive --no-t
 | 2 | **シェルを経由しない** | `argv` のリストで起動し `shell=False` 固定 |
 | 3 | **プロンプトを引数に埋め込まない** | 必ず stdin か一時ファイル。長さ制限・`ps` からの可視性・フラグ誤解釈を避ける |
 | 4 | **実行後に書き込みを検査する** | 一時 cwd に何か作られていたら warning を出し trace に記録する |
-| 5 | **プロセスグループごと kill する** | `start_new_session` + `killpg`。タイムアウトで子プロセスを残さない |
+| 5 | **プロセスグループごと kill する** | `start_new_session` + `killpg`。タイムアウトで子プロセスを残さない (POSIX)。Windows では Reviewer のプロセス本体だけを止めるため、孫プロセスが残りうる (既知の制約) |
 
 ### ただし、あなたの責任として残るもの
 
@@ -200,6 +200,7 @@ reviewers:
 | `N s 以内に終了しませんでした` | `timeout_s` を上げる。既定 300s |
 | `スキーマ検証に失敗しました` | `prompt_only` では避けられない場合がある。1 回だけ自動修復を試みた結果 |
 | `書き込みを行いました` の警告 | `command` に書き込み無効化のフラグを足す |
+| 文字化け・`UnicodeEncodeError` (主に Windows) | コマンドの標準入出力が UTF-8 になっていない。Python 製なら環境変数 `PYTHONIOENCODING=utf-8` を設定する |
 
 ## 自作 Provider を作る場合
 

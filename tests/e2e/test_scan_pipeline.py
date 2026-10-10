@@ -119,5 +119,5 @@ async def test_broken_scanner_config_is_failed(workspace, tmp_path):
     assert run.status is ScanStatus.FAILED
     assert outcome.decision.exit_code is ExitCode.EXECUTION_ERROR
     assert outcome.report.score.partial is True
-    payload = json.loads(write_json(outcome.report, outcome.output_dir).read_text())
+    payload = json.loads(write_json(outcome.report, outcome.output_dir).read_text(encoding="utf-8"))
     assert payload["scanners"][0]["status"] == "failed"

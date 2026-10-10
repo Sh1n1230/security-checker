@@ -375,7 +375,9 @@ def test_pagination_follows_link_headers():
 
 def test_context_from_event_payload(tmp_path):
     event = tmp_path / "event.json"
-    event.write_text(json.dumps({"pull_request": {"number": 3, "head": {"sha": "s1"}}}))
+    event.write_text(
+        json.dumps({"pull_request": {"number": 3, "head": {"sha": "s1"}}}), encoding="utf-8"
+    )
     pr = context_from_env({"GITHUB_REPOSITORY": "o/r", "GITHUB_EVENT_PATH": str(event)})
     assert pr == PullRequestContext(repository="o/r", number=3, head_sha="s1")
 

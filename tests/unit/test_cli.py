@@ -32,7 +32,9 @@ def test_scan_writes_report_and_exits_zero(tmp_path, monkeypatch):
     result = runner.invoke(app, ["scan", str(tmp_path)])
 
     assert result.exit_code == ExitCode.OK
-    payload = json.loads((tmp_path / ".security-checker" / "report.json").read_text())
+    payload = json.loads(
+        (tmp_path / ".security-checker" / "report.json").read_text(encoding="utf-8")
+    )
     assert payload["schema_version"] == 1
     assert payload["candidates"] == []
     assert "score 100/100" in result.stdout
@@ -58,7 +60,9 @@ def test_scan_writes_sarif_when_requested(tmp_path, monkeypatch):
     result = runner.invoke(app, ["scan", str(tmp_path), "--quiet"])
 
     assert result.exit_code == ExitCode.OK
-    sarif = json.loads((tmp_path / ".security-checker" / "report.sarif").read_text())
+    sarif = json.loads(
+        (tmp_path / ".security-checker" / "report.sarif").read_text(encoding="utf-8")
+    )
     assert sarif["runs"][0]["tool"]["driver"]["name"] == "security-checker"
     assert sarif["runs"][0]["invocations"][0]["executionSuccessful"] is True
 
@@ -69,7 +73,9 @@ def test_scan_missing_target_is_config_error(tmp_path):
 
 
 def test_scan_invalid_config_is_config_error(tmp_path, monkeypatch):
-    (tmp_path / "security-checker.yml").write_text("version: 1\npolicy:\n  fail_on: 大変\n")
+    (tmp_path / "security-checker.yml").write_text(
+        "version: 1\npolicy:\n  fail_on: 大変\n", encoding="utf-8"
+    )
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["scan", str(tmp_path)])
     assert result.exit_code == ExitCode.CONFIG_ERROR
@@ -84,7 +90,9 @@ def test_scan_min_score_violation(tmp_path, monkeypatch):
 
 
 def test_config_show_outputs_resolved_json(tmp_path):
-    (tmp_path / "security-checker.yml").write_text("version: 1\npolicy:\n  fail_on: critical\n")
+    (tmp_path / "security-checker.yml").write_text(
+        "version: 1\npolicy:\n  fail_on: critical\n", encoding="utf-8"
+    )
     result = runner.invoke(app, ["config", "show", str(tmp_path)])
 
     assert result.exit_code == 0
@@ -93,7 +101,9 @@ def test_config_show_outputs_resolved_json(tmp_path):
 
 
 def test_config_show_explain_reports_origin(tmp_path):
-    (tmp_path / "security-checker.yml").write_text("version: 1\npolicy:\n  fail_on: critical\n")
+    (tmp_path / "security-checker.yml").write_text(
+        "version: 1\npolicy:\n  fail_on: critical\n", encoding="utf-8"
+    )
     result = runner.invoke(
         app, ["config", "show", str(tmp_path), "--preset", "minimal", "--explain"]
     )
@@ -183,6 +193,8 @@ def test_scan_full_overrides_the_pr_context(tmp_path, monkeypatch):
     monkeypatch.setenv("GITHUB_BASE_REF", "main")
     result = runner.invoke(app, ["scan", str(tmp_path), "--full", "--quiet"])
     assert result.exit_code == ExitCode.OK
-    payload = json.loads((tmp_path / ".security-checker" / "report.json").read_text())
+    payload = json.loads(
+        (tmp_path / ".security-checker" / "report.json").read_text(encoding="utf-8")
+    )
     assert payload["target"]["mode"] == "full"
     assert payload["warnings"] == []

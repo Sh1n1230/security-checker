@@ -72,6 +72,39 @@ jobs:
       - name: テスト
         run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=80
 
+  # classifiers は OS Independent なので、Linux 以外でもテストを回す (#50)。
+  # lint と型検査は OS に依存しないので quality (Linux) だけで行い、ここではテストのみ。
+  tests-os:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: 依存関係を同期
+        run: uv sync --group dev --frozen
+
+      - name: テスト
+        shell: bash
+        # 失敗したテスト名を annotation に出す (ログを開かなくても PR の Checks で分かるように)
+        run: |
+          set -o pipefail
+          uv run pytest -rfE 2>&1 | tee pytest.log || {
+            grep -E "^(FAILED|ERROR) " pytest.log | head -10 | while IFS= read -r line; do
+              echo "::error title=pytest ($RUNNER_OS)::${line}"
+            done
+            exit 1
+          }
+
   dogfooding:
     # 自分自身を scan にかける。ここが落ちても quality とは別問題として扱えるよう job を分ける。
     runs-on: ubuntu-latest

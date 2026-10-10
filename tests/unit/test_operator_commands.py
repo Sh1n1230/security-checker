@@ -120,7 +120,7 @@ def test_probe_task_contains_no_repository_code():
 
 
 def test_cli_providers_check_unknown_name(tmp_path):
-    (tmp_path / "security-checker.yml").write_text("version: 1\n")
+    (tmp_path / "security-checker.yml").write_text("version: 1\n", encoding="utf-8")
     result = runner.invoke(app, ["providers", "check", "nope", "--path", str(tmp_path)])
     assert result.exit_code == ExitCode.CONFIG_ERROR
 
