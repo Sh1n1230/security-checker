@@ -47,9 +47,11 @@ jobs:
       fail-fast: false
       matrix:
         # pyproject.toml の classifiers に書いた版をすべて回す
-        python: ["3.11", "3.12", "3.13"]
+        python: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
@@ -108,21 +110,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
 
       - name: スキャナを導入
-        env:
-          # 未認証の API 呼び出しはランナー間で共有のレート制限に当たり、たまに落ちる
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          GITLEAKS_VER=$(gh release view -R gitleaks/gitleaks --json tagName --jq '.tagName | ltrimstr("v")')
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER}_linux_x64.tar.gz" | tar xz gitleaks
-          sudo mv gitleaks /usr/local/bin/
-          uv tool install semgrep
+          # action.yml と同じく、版と sha256 を固定して取得する (scripts/scanner-versions.sh)。
+          # セルフスキャンの対象はこれまでどおり gitleaks と semgrep だけにするため、PATH には gitleaks だけを置く
+          scripts/install-scanners.sh "$RUNNER_TEMP/scanners"
+          sudo install -m 0755 "$RUNNER_TEMP/scanners/gitleaks" /usr/local/bin/gitleaks
 
       - name: セルフスキャン
         # --strict: スキャナが失敗したら exit 3 で落とす (「壊れているのに緑」を作らない)
@@ -130,7 +131,7 @@ jobs:
 
       - name: レポートを保存
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: security-checker-report
           path: .security-checker/

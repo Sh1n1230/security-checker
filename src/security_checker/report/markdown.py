@@ -19,6 +19,7 @@ from security_checker.models.enums import FindingStatus, ScanStatus, Severity
 from security_checker.models.finding import Finding
 from security_checker.models.report import Report
 from security_checker.policy.engine import PolicyDecision
+from security_checker.report import sanitize as md
 
 MAX_FINDINGS_PER_SECTION = 20
 MAX_CANDIDATE_ROWS = 50
@@ -171,7 +172,9 @@ def _findings(report: Report) -> list[str]:
                 "「問題なし」ではないことに注意してください。",
                 "",
             ]
-            lines += [f"- `{f.candidate.where}` {f.candidate.title}" for f in group]
+            lines += [
+                f"- {md.code_span(f.candidate.where)} {_flatten(f.candidate.title)}" for f in group
+            ]
             lines.append("")
             continue
         for finding in group[:MAX_FINDINGS_PER_SECTION]:
@@ -195,7 +198,7 @@ def _findings(report: Report) -> list[str]:
 def _finding_block(finding: Finding) -> list[str]:
     candidate = finding.candidate
     mark = SEVERITY_MARK[finding.severity]
-    heading = f"### {mark} {finding.severity.value.upper()} — `{candidate.where}`"
+    heading = f"### {mark} {finding.severity.value.upper()} — {md.code_span(candidate.where)}"
     lines = [heading, ""]
 
     meta = [f"**確信度** {finding.confidence:.0%}", f"**一致度** {finding.agreement.value}"]
@@ -206,7 +209,7 @@ def _finding_block(finding: Finding) -> list[str]:
 
     summary = finding.summary or candidate.message
     if summary:
-        lines += [summary.strip(), ""]
+        lines += [md.text(summary.strip()), ""]
 
     ok_verdicts = [v for v in finding.verdicts if v.status.value == "ok"]
     if ok_verdicts:
@@ -218,22 +221,24 @@ def _finding_block(finding: Finding) -> list[str]:
 
     for verdict in ok_verdicts:
         if verdict.attack_path:
-            path = " → ".join(verdict.attack_path[:MAX_ATTACK_PATH_STEPS])
+            path = " → ".join(
+                _flatten(step) for step in verdict.attack_path[:MAX_ATTACK_PATH_STEPS]
+            )
             lines += [f"**攻撃経路**: {path}", ""]
             break
 
     for verdict in ok_verdicts:
         if verdict.remediation is not None and verdict.remediation.approach:
-            lines += ["**対応方針**", "", verdict.remediation.approach.strip(), ""]
+            lines += ["**対応方針**", "", md.text(verdict.remediation.approach.strip()), ""]
             if verdict.remediation.example:
-                lines += ["```", verdict.remediation.example.strip(), "```", ""]
+                lines += [*md.code_block(verdict.remediation.example.strip()), ""]
             break
 
     details = [v for v in ok_verdicts if v.reasoning]
     if details:
         lines += ["<details><summary>各 Reviewer の判断理由</summary>", ""]
         for verdict in details:
-            lines += [f"**`{verdict.reviewer}`** — {verdict.reasoning.strip()}", ""]
+            lines += [f"**`{verdict.reviewer}`** — {md.text(verdict.reasoning.strip())}", ""]
         lines += ["</details>", ""]
 
     failed = [v for v in finding.verdicts if v.status.value != "ok"]
@@ -256,7 +261,7 @@ def _candidates(report: Report) -> list[str]:
         severity = candidate.severity_reported or Severity.INFO
         lines.append(
             f"| {SEVERITY_MARK[severity]} {severity.value} | `{candidate.scanner}` | "
-            f"{_flatten(candidate.title)} | `{candidate.where}` |"
+            f"{_flatten(candidate.title)} | {md.code_span(candidate.where)} |"
         )
     if len(report.candidates) > MAX_CANDIDATE_ROWS:
         remaining = len(report.candidates) - MAX_CANDIDATE_ROWS
@@ -280,5 +285,5 @@ def _footer(report: Report) -> list[str]:
 
 
 def _flatten(text: str) -> str:
-    """表とリストを壊さないよう、改行とパイプを潰す."""
-    return " ".join(text.split()).replace("|", "\\|")
+    """表とリストを壊さないよう、改行とパイプを潰す. 中身は無害化する."""
+    return " ".join(md.text(text).split()).replace("|", "\\|")

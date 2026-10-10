@@ -19,10 +19,10 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from security_checker.config.schema import GithubConfig
-from security_checker.context.redact import redact_known_patterns
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
 from security_checker.models.finding import Finding
 from security_checker.models.report import Report
+from security_checker.report import sanitize as md
 
 SUMMARY_MARKER = "<!-- security-checker:summary:v2 -->"
 FINDING_MARKER_PREFIX = "<!-- security-checker:finding:"
@@ -58,24 +58,26 @@ _SUMMARY_ORDER = (
 
 # --- 無害化 ------------------------------------------------------------------
 
-_MENTION_RE = re.compile(r"(?<![\w`])@(?=[A-Za-z0-9])")
-
 
 def sanitize(text: str) -> str:
     """LLM / スキャナ由来の文字列を PR に載せられる形にする.
 
-    - HTML コメントを開けないようにする (マーカーの偽装・本文の隠蔽を防ぐ)
-    - @メンションを無効化する (レビュー対象のコードから任意の人を呼び出させない)
+    - HTML (コメント・タグ) を無効化する (マーカーの偽装・本文の隠蔽を防ぐ)
+    - 画像を無効化し、@メンションを無効化する (レビュー対象のコードから任意の人を呼び出させない)
     - 既知形式のシークレットを伏せる
+
+    規則は `report.md` と共通 (`security_checker.report.sanitize`)。
     """
-    cleaned = redact_known_patterns(text)
-    cleaned = cleaned.replace("<!--", "&lt;!--").replace("-->", "--&gt;")
-    return _MENTION_RE.sub("@​", cleaned)
+    return md.text(text)
+
+
+def _truncate(text: str, limit: int) -> str:
+    collapsed = " ".join(text.split())
+    return collapsed if len(collapsed) <= limit else collapsed[: limit - 1] + "…"
 
 
 def _one_line(text: str, limit: int = 300) -> str:
-    collapsed = " ".join(sanitize(text).split())
-    return collapsed if len(collapsed) <= limit else collapsed[: limit - 1] + "…"
+    return _truncate(sanitize(text), limit)
 
 
 # --- 何を出すか ----------------------------------------------------------------
@@ -179,7 +181,7 @@ def _summary_block(finding: Finding) -> list[str]:
     if finding.status is FindingStatus.REVIEW_REQUIRED:
         lines = [
             f"### ❓ REVIEW REQUIRED{cwe} · {title}",
-            f"`{candidate.where}` · agreement **{finding.agreement.value}**",
+            f"{md.code_span(candidate.where)} · agreement **{finding.agreement.value}**",
             "",
             "判断が分かれました。人間による確認を推奨します。",
         ]
@@ -202,14 +204,18 @@ def _summary_block(finding: Finding) -> list[str]:
         label += " (likely)"
     lines = [
         f"### {mark} {label}{cwe} · {title}",
-        f"`{candidate.where}` · confidence **{finding.confidence:.0%}** · "
+        f"{md.code_span(candidate.where)} · confidence **{finding.confidence:.0%}** · "
         f"agreement **{finding.agreement.value}**",
         "",
     ]
     ok = [v for v in finding.verdicts if v.status.value == "ok" and v.vulnerable]
     path = next((v.attack_path for v in ok if v.attack_path), [])
     if path:
-        lines += ["**Attack path**", " → ".join(f"`{_one_line(s, 80)}`" for s in path[:8]), ""]
+        lines += [
+            "**Attack path**",
+            " → ".join(md.code_span(_truncate(s, 80)) for s in path[:8]),
+            "",
+        ]
     reasoning = next((v.reasoning for v in ok if v.reasoning.strip()), "")
     if reasoning:
         lines += ["**Reason**", _one_line(reasoning, 800), ""]
@@ -247,7 +253,8 @@ def _candidate_table(report: Report) -> list[str]:
         severity = candidate.severity_reported or Severity.INFO
         lines.append(
             f"| {SEVERITY_MARK[severity]} {severity.value} | `{candidate.scanner}` | "
-            f"{_one_line(candidate.title, 80).replace('|', '/')} | `{candidate.where}` |"
+            f"{_one_line(candidate.title, 80).replace('|', '/')} | "
+            f"{md.code_span(candidate.where)} |"
         )
     if len(report.candidates) > MAX_SUMMARY_FINDINGS:
         lines.append(f"\n_ほか {len(report.candidates) - MAX_SUMMARY_FINDINGS} 件_")

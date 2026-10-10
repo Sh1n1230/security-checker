@@ -198,6 +198,7 @@ class TrivyScanner(BaseScanner):
             "json",
             "--output",
             str(raw_path),
+            *(ctx.untrusted.trivy_args() if ctx.untrusted else []),
             *self.settings.extra_args,
             ".",
         ]

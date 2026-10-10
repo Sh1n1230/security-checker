@@ -55,7 +55,8 @@ jobs:
 | `min-score` | `0` | このスコア未満で失敗 (0 で判定しない。スコアは補助指標) |
 | `comment` | `true` | PR に sticky サマリと inline コメントを投稿する |
 | `upload-sarif` | `true` | SARIF を Code Scanning に登録する |
-| `token` | `github.token` | PR コメントとスキャナの取得に使う |
+| `gitleaks-version` / `trivy-version` / `osv-scanner-version` / `semgrep-version` | 空 (固定版) | スキャナの版。空なら [`scripts/scanner-versions.sh`](../scripts/scanner-versions.sh) の版を固定した sha256 で検証して入れる。別の版や `latest` はリリース側のチェックサムで検証し、警告を出す |
+| `token` | `github.token` | PR コメントと、スキャナの版に `latest` を指定したときの解決に使う |
 | `pr-number` / `head-sha` / `base` / `untrusted-target` | | §5 の workflow_run パターン用 |
 | `url` | | v1 互換のため受け付けるだけ (v2 では未対応。警告を出す) |
 
@@ -105,7 +106,8 @@ security-checker review --full               # 全件
 - `false_positive` は PR に出しません (`report.json` には残ります)。
 
 本文の多くは LLM の出力で、レビュー対象のコードに由来する文字列を含みえます。
-投稿前に @メンションの無効化・HTML コメントの無害化・既知形式のシークレットのマスクを行います。
+投稿前に @メンションの無効化・HTML (コメント・タグ) と画像の無効化・コードスパンからの脱出防止・
+既知形式のシークレットのマスクを行います。Step Summary に載せる `report.md` にも同じ規則を適用します。
 
 コメントの投稿は `review` と別のコマンドです。保存済みの `report.json` から投稿できます。
 
@@ -151,6 +153,9 @@ PR のコードを checkout して何かを実行した瞬間に、シークレ�
   `SECURITY_CHECKER_UNTRUSTED_TARGET=1`) のとき、検査対象のツリーにある `security-checker.yml` /
   `security-checker.local.yml` を一切読みません。読むと、その中の `command` がシークレット付きで
   実行されます。設定は検査対象の外 (既定ブランチの checkout) から `config` で渡します。
+  スキャナ自身の設定 (`.gitleaks.toml`・`trivy.yaml`・`.trivyignore`・`osv-scanner.toml`) と
+  `nosemgrep` / `gitleaks:allow` 注釈も効かせません。止められない `.gitleaksignore`・`.semgrepignore` は
+  警告に出します (docs/security-model.md §5.1)。
 - **`transport: process` の Reviewer を fork のコードに向けない。** 手元の AI CLI はツールを
   持ちうるため、信用できないコードに含まれる指示 (プロンプトインジェクション) で動かされる余地が
   あります。publish 側の設定には `transport: http` の Reviewer だけを置いてください。

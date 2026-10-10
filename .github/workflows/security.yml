@@ -46,37 +46,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
       - name: スキャナをインストール
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq jq
-          latest() { # latest <owner/repo> → 先頭の v を除いた最新のバージョン
-            curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
-              "https://api.github.com/repos/$1/releases/latest" | jq -r .tag_name | sed 's/^v//'
-          }
+          # action.yml と同じく、版と sha256 を固定して取得する (scripts/scanner-versions.sh)
           BIN="$RUNNER_TEMP/security-checker-bin"
-          mkdir -p "$BIN"
-          # gitleaks
-          ver=$(latest gitleaks/gitleaks)
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${ver}/gitleaks_${ver}_linux_x64.tar.gz" \
-            | tar xz -C "$BIN" gitleaks
-          # trivy
-          # 公式 install.sh の `curl | sh` は使わない。取得したスクリプトを検証せず実行することになり、
-          # セキュリティツール自身の推奨と矛盾するため。
-          ver=$(latest aquasecurity/trivy)
-          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${ver}/trivy_${ver}_Linux-64bit.tar.gz" \
-            | tar xz -C "$BIN" trivy
-          # osv-scanner
-          curl -fsSL -o "$BIN/osv-scanner" \
-            https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64
-          chmod +x "$BIN/osv-scanner"
-          # semgrep
-          pipx install --quiet semgrep
+          scripts/install-scanners.sh "$BIN"
           echo "$BIN" >> "$GITHUB_PATH"
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
 
 
       - name: SARIF を生成
