@@ -182,6 +182,8 @@ class SemgrepScanner(BaseScanner):
         ]
         for pattern in ctx.exclude:
             argv += ["--exclude", pattern]
+        if ctx.untrusted:
+            argv += ctx.untrusted.semgrep_args()
         argv += [*self.settings.extra_args, "."]
 
         started = time.monotonic()
