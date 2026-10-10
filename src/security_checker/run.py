@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,6 +61,7 @@ from security_checker.review.scheduler import (
 )
 from security_checker.scanners.base import ScanContext, Scanner, ScanResult, Target
 from security_checker.scanners.registry import build_scanners
+from security_checker.scanners.untrusted import prepare_overrides, residual_warnings
 
 
 @dataclass
@@ -181,6 +183,8 @@ async def _execute_scanners(
     raw_dir: Path,
     scanners: Sequence[Scanner] | None,
     extra_warnings: Sequence[str] = (),
+    *,
+    untrusted_target: bool = False,
 ) -> tuple[list[ScanResult], list[ScannerRun], list[ReportWarning]]:
     """スキャナを並列実行し、結果・サマリ・警告に整形する."""
     # 設定由来の警告を先頭に置く。「設定したのに効かない」は実行前から確定しているため。
@@ -196,11 +200,24 @@ async def _execute_scanners(
     )
 
     target = Target(root=root)
-    ctx = ScanContext(raw_dir=raw_dir, exclude=list(config.target.exclude))
     semaphore = asyncio.Semaphore(config.concurrency.scanners)
-    results = list(
-        await asyncio.gather(*(_run_one(scanner, target, ctx, semaphore) for scanner in resolved))
-    )
+    # 信用できない検査対象では、スキャナ自身の設定も対象の外から渡す (#43)
+    with tempfile.TemporaryDirectory(prefix="security-checker-untrusted-") as overrides_dir:
+        ctx = ScanContext(
+            raw_dir=raw_dir,
+            exclude=list(config.target.exclude),
+            untrusted=prepare_overrides(Path(overrides_dir)) if untrusted_target else None,
+        )
+        if untrusted_target:
+            warnings.extend(
+                ReportWarning(level="warn", source="untrusted-target", message=message)
+                for message in residual_warnings(root)
+            )
+        results = list(
+            await asyncio.gather(
+                *(_run_one(scanner, target, ctx, semaphore) for scanner in resolved)
+            )
+        )
 
     runs: list[ScannerRun] = []
     for result in results:
@@ -276,7 +293,12 @@ async def run_scan(
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     results, runs, warnings = await _execute_scanners(
-        config, root, raw_dir, scanners, extra_warnings
+        config,
+        root,
+        raw_dir,
+        scanners,
+        extra_warnings,
+        untrusted_target=suppression is not None and suppression.untrusted_target,
     )
     active, suppressed = _suppress(dedupe_and_sort(results), suppression, warnings)
     candidates, outside, target = _scope(active, root, diff)
@@ -395,7 +417,12 @@ async def run_review(
         )
 
     results, runs, warnings = await _execute_scanners(
-        config, root, raw_dir, scanners, extra_warnings
+        config,
+        root,
+        raw_dir,
+        scanners,
+        extra_warnings,
+        untrusted_target=suppression is not None and suppression.untrusted_target,
     )
     active, suppressed = _suppress(dedupe_and_sort(results), suppression, warnings)
     candidates, outside, target = _scope(active, root, diff)

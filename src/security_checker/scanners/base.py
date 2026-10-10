@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict
 from security_checker.config.schema import ScannerConfig
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category, ScanStatus
+from security_checker.scanners.untrusted import UntrustedOverrides
 
 STDERR_EXCERPT_LIMIT = 2000
 
@@ -40,6 +41,8 @@ class ScanContext:
 
     raw_dir: Path
     exclude: list[str] = field(default_factory=list)
+    #: 検査対象を信用しないときの、各スキャナに明示的に渡す設定 (#43)。None は信用する
+    untrusted: UntrustedOverrides | None = None
 
 
 class ToolStatus(BaseModel):

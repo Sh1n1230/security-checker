@@ -183,6 +183,7 @@ class GitleaksScanner(BaseScanner):
                 str(staging),
                 "--exit-code",
                 "0",
+                *(ctx.untrusted.gitleaks_args() if ctx.untrusted else []),
                 *self.settings.extra_args,
             ]
 

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -13,7 +14,10 @@ from pathlib import Path
 import pytest
 
 from security_checker.providers.process.sandbox import (
+    OUTPUT_LIMIT,
     PROMPT_FILE_PLACEHOLDER,
+    TRUNCATED_NOTICE,
+    _read_capped,
     created_paths,
     run_sandboxed,
 )
@@ -124,3 +128,47 @@ def test_created_paths_reports_relative_posix_paths(tmp_path):
     (tmp_path / "a").mkdir()
     (tmp_path / "a" / "b.txt").write_text("x", encoding="utf-8")
     assert created_paths(tmp_path) == ("a/", "a/b.txt")
+
+
+# --- 出力の上限 (#48) -------------------------------------------------------------
+
+
+async def test_large_output_is_truncated_with_notice():
+    script = f"import sys;sys.stdin.read();sys.stdout.write('x' * {OUTPUT_LIMIT * 5})"
+    result = await run_sandboxed(python(script), prompt="p", timeout_s=60)
+    assert result.exit_code == 0
+    assert result.stdout.endswith(TRUNCATED_NOTICE)
+    assert len(result.stdout) == OUTPUT_LIMIT + len(TRUNCATED_NOTICE)
+
+
+async def test_endless_output_does_not_accumulate_in_memory():
+    """出力を止めないコマンドでも、保持するのは上限まで (タイムアウトで止まる)."""
+    script = "import sys\nsys.stdin.read()\nwhile True:\n    sys.stdout.write('y' * 65536)\n"
+    result = await run_sandboxed(python(script), prompt="p", timeout_s=2)
+    assert result.timed_out is True
+
+
+async def test_read_capped_keeps_only_the_limit_and_flags_overflow():
+    reader = asyncio.StreamReader()
+    reader.feed_data(b"a" * 10)
+    reader.feed_data(b"b" * 10)
+    reader.feed_eof()
+    captured = await _read_capped(reader, limit=15)
+    assert captured.data == b"a" * 10 + b"b" * 5
+    assert captured.overflowed is True
+    assert captured.text().endswith(TRUNCATED_NOTICE)
+
+
+async def test_read_capped_within_the_limit_is_untouched():
+    reader = asyncio.StreamReader()
+    reader.feed_data("日本語".encode())
+    reader.feed_eof()
+    captured = await _read_capped(reader, limit=1024)
+    assert captured.overflowed is False
+    assert captured.text() == "日本語"
+
+
+async def test_command_that_ignores_stdin_is_not_an_error():
+    result = await run_sandboxed(python("print('ok')"), prompt="x" * 1_000_000, timeout_s=30)
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "ok"
