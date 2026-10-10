@@ -52,6 +52,7 @@ install -m 0755 "$work_dir/osv-scanner" "$bin_dir/osv-scanner"
 
 uv tool install --quiet "semgrep==${SEMGREP_VERSION}"
 
+# `| head` で切り詰めない。head が先にパイプを閉じると SIGPIPE になり、pipefail で失敗するため
 "$bin_dir/gitleaks" version
-"$bin_dir/trivy" --version | head -1
-"$bin_dir/osv-scanner" --version | head -1
+"$bin_dir/trivy" --version
+"$bin_dir/osv-scanner" --version
