@@ -2,6 +2,11 @@
 
 **English** | [日本語](README.ja.md)
 
+[![CI](https://github.com/Sh1n1230/security-checker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Sh1n1230/security-checker/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/Sh1n1230/security-checker/badge)](https://scorecard.dev/viewer/?uri=github.com/Sh1n1230/security-checker)
+[![Release](https://img.shields.io/github/v/release/Sh1n1230/security-checker)](https://github.com/Sh1n1230/security-checker/releases)
+[![License: MIT](https://img.shields.io/github/license/Sh1n1230/security-checker)](LICENSE)
+
 An AI security review platform: it runs the usual scanners, then has **independent LLMs review each
 finding as third-party auditors**, so you get fewer false positives without hiding real issues.
 
