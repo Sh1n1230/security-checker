@@ -1,8 +1,10 @@
-# イメージに入れるのは pyproject.toml / uv.lock / README.md / LICENSE / src/ のみ
+# イメージに入れるのは pyproject.toml / uv.lock / README.md / LICENSE / src/ とスキャナの導入スクリプトのみ
 *
 !pyproject.toml
 !uv.lock
 !README.md
 !LICENSE
 !src/
+!scripts/scanner-versions.sh
+!scripts/install-scanners.sh
 **/__pycache__

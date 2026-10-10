@@ -55,7 +55,8 @@ jobs:
 | `min-score` | `0` | このスコア未満で失敗 (0 で判定しない。スコアは補助指標) |
 | `comment` | `true` | PR に sticky サマリと inline コメントを投稿する |
 | `upload-sarif` | `true` | SARIF を Code Scanning に登録する |
-| `token` | `github.token` | PR コメントとスキャナの取得に使う |
+| `gitleaks-version` / `trivy-version` / `osv-scanner-version` / `semgrep-version` | 空 (固定版) | スキャナの版。空なら [`scripts/scanner-versions.sh`](../scripts/scanner-versions.sh) の版を固定した sha256 で検証して入れる。別の版や `latest` はリリース側のチェックサムで検証し、警告を出す |
+| `token` | `github.token` | PR コメントと、スキャナの版に `latest` を指定したときの解決に使う |
 | `pr-number` / `head-sha` / `base` / `untrusted-target` | | §5 の workflow_run パターン用 |
 | `url` | | v1 互換のため受け付けるだけ (v2 では未対応。警告を出す) |
 

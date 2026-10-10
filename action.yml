@@ -57,8 +57,22 @@ inputs:
       SARIF を GitHub Code Scanning に登録するか。
       プライベートリポジトリで GitHub Advanced Security が無い場合は false にする
     default: "true"
+  # スキャナの版。空なら scripts/scanner-versions.sh に固定した版を、固定した sha256 で検証して入れる。
+  # 別の版や latest を指定した場合は、そのリリースのチェックサムで検証し、警告を出す (検証が弱くなるため)
+  gitleaks-version:
+    description: gitleaks の版 (例 8.30.1)。空なら固定版、latest で最新リリース
+    default: ""
+  trivy-version:
+    description: trivy の版 (例 0.75.0)。空なら固定版、latest で最新リリース
+    default: ""
+  osv-scanner-version:
+    description: osv-scanner の版 (例 2.6.0)。空なら固定版、latest で最新リリース
+    default: ""
+  semgrep-version:
+    description: semgrep の版 (例 1.179.0)。空なら固定版、latest で PyPI の最新版
+    default: ""
   token:
-    description: PR コメントとスキャナの取得に使うトークン
+    description: PR コメントと、スキャナの版に latest を指定したときの解決に使うトークン
     default: ${{ github.token }}
   url:
     description: (v1 互換のため受け付けるが、v2 では未対応。指定すると警告を出す)
@@ -111,38 +125,17 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
+        GITLEAKS_VERSION: ${{ inputs.gitleaks-version }}
+        TRIVY_VERSION: ${{ inputs.trivy-version }}
+        OSV_SCANNER_VERSION: ${{ inputs.osv-scanner-version }}
+        SEMGREP_VERSION: ${{ inputs.semgrep-version }}
       run: |
         set -euo pipefail
         BIN="$RUNNER_TEMP/security-checker-bin"
-        mkdir -p "$BIN"
-        latest() { # latest <owner/repo> → 先頭の v を除いた最新のバージョン
-          # gh は GitHub ホストのランナーに標準で入っている。curl の出力をインタプリタに流さない
-          local tag
-          tag=$(gh api "repos/$1/releases/latest" --jq .tag_name)
-          echo "${tag#v}"
-        }
-        # 取得物は公式のチェックサムで検証する。`curl | sh` の install スクリプトは使わない
-        cd "$RUNNER_TEMP"
-        ver=$(latest gitleaks/gitleaks)
-        base="https://github.com/gitleaks/gitleaks/releases/download/v${ver}"
-        file="gitleaks_${ver}_linux_x64.tar.gz"
-        curl -fsSLO "$base/$file"
-        curl -fsSL "$base/gitleaks_${ver}_checksums.txt" | grep " ${file}\$" | sha256sum -c -
-        tar xzf "$file" -C "$BIN" gitleaks
-        ver=$(latest aquasecurity/trivy)
-        base="https://github.com/aquasecurity/trivy/releases/download/v${ver}"
-        file="trivy_${ver}_Linux-64bit.tar.gz"
-        curl -fsSLO "$base/$file"
-        curl -fsSL "$base/trivy_${ver}_checksums.txt" | grep " ${file}\$" | sha256sum -c -
-        tar xzf "$file" -C "$BIN" trivy
-        ver=$(latest google/osv-scanner)
-        base="https://github.com/google/osv-scanner/releases/download/v${ver}"
-        curl -fsSLo "$BIN/osv-scanner" "$base/osv-scanner_linux_amd64"
-        (cd "$BIN" && curl -fsSL "$base/osv-scanner_SHA256SUMS" | grep " osv-scanner_linux_amd64\$" \
-          | sed 's/osv-scanner_linux_amd64/osv-scanner/' | sha256sum -c -)
-        chmod +x "$BIN/osv-scanner"
+        # スキャナは「最新版」ではなく、版と sha256 を固定して取得する (scripts/scanner-versions.sh)。
+        # スクリプトもアクションのチェックアウト (= 呼び出し側が SHA で固定したもの) から実行する
+        "$GITHUB_ACTION_PATH/scripts/install-scanners.sh" "$BIN"
         echo "$BIN" >> "$GITHUB_PATH"
-        uv tool install --quiet semgrep
         # 本体はアクションのチェックアウト (= 呼び出し側が SHA で固定したもの) から入れる
         uv tool install --quiet "$GITHUB_ACTION_PATH"
         echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
