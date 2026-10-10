@@ -23,3 +23,12 @@ updates:
       # 開発ツールはまとめて 1 PR にする (個別に来ると数が多い)
       dev-tools:
         patterns: ["ruff", "mypy", "pytest*", "respx", "syrupy", "types-*"]
+
+  # Dockerfile のベースイメージ (python) と uv のイメージ。digest 固定のまま追随する
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels: [dependencies]
