@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from security_checker.config.schema import Config
+from security_checker.config.schema import Config, ReviewerConfig
 
 
 def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = None) -> list[str]:
@@ -24,6 +24,16 @@ def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = N
     """
     del origins
     warnings: list[str] = []
+
+    # 検査対象は CLI の引数 (PATH) で決まる。target.root はどこからも読まれない。
+    if config.target.root != ".":
+        warnings.append(
+            f"target.root ({config.target.root}) は使われません。"
+            "検査対象は `security-checker scan PATH` / `review PATH` の引数で指定してください"
+        )
+
+    for reviewer in config.reviewers:
+        warnings.extend(_transport_mismatch(reviewer))
 
     for reviewer in config.reviewers:
         # num_ctx / keep_alive は ollama_chat 方言にしかない概念。
@@ -38,3 +48,20 @@ def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = N
                 )
 
     return warnings
+
+
+#: transport: process では読まれない項目 (http transport 専用)
+_HTTP_ONLY = ("base_url", "api_key_env", "headers")
+#: transport: http では読まれない項目 (process transport 専用)
+_PROCESS_ONLY = ("command", "prompt_via")
+
+
+def _transport_mismatch(reviewer: ReviewerConfig) -> list[str]:
+    """transport に合わない項目は、書いても Provider に渡らない. そのことを伝える."""
+    defaults = ReviewerConfig.model_fields
+    ignored = _HTTP_ONLY if reviewer.transport == "process" else _PROCESS_ONLY
+    return [
+        f"reviewer '{reviewer.name}': {field} は transport: {reviewer.transport} では使われません"
+        for field in ignored
+        if getattr(reviewer, field) != defaults[field].get_default(call_default_factory=True)
+    ]

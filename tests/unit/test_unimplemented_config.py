@@ -69,3 +69,76 @@ def test_ci_preset_does_not_warn_about_sarif(tmp_path):
 def test_plain_config_has_no_warnings(tmp_path):
     loaded = load_config(tmp_path)
     assert loaded.warnings == []
+
+
+def test_target_root_is_reported():
+    """検査対象は CLI の引数で決まる. target.root は書いても効かない."""
+    config = Config.model_validate({"target": {"root": "src"}})
+    messages = unimplemented_warnings(config, {})
+    assert any("target.root" in message for message in messages)
+
+
+def test_http_only_fields_on_process_transport_are_reported():
+    config = Config.model_validate(
+        {
+            "reviewers": [
+                {
+                    "name": "cli",
+                    "transport": "process",
+                    "command": ["mycmd", "--non-interactive"],
+                    "base_url": "https://example.invalid/v1",
+                    "api_key_env": "MY_API_KEY",
+                    "headers": {"X-Trace": "1"},
+                }
+            ]
+        }
+    )
+    messages = unimplemented_warnings(config, {})
+    for field in ("base_url", "api_key_env", "headers"):
+        assert any("'cli'" in message and field in message for message in messages), field
+
+
+def test_process_only_fields_on_http_transport_are_reported():
+    config = Config.model_validate(
+        {
+            "reviewers": [
+                {
+                    "name": "api",
+                    "transport": "http",
+                    "dialect": "openai_chat",
+                    "base_url": "https://example.invalid/v1",
+                    "model": "m",
+                    "command": ["mycmd"],
+                    "prompt_via": "file",
+                }
+            ]
+        }
+    )
+    messages = unimplemented_warnings(config, {})
+    for field in ("command", "prompt_via"):
+        assert any("'api'" in message and field in message for message in messages), field
+
+
+def test_fields_that_match_the_transport_are_not_reported():
+    config = Config.model_validate(
+        {
+            "reviewers": [
+                {
+                    "name": "api",
+                    "transport": "http",
+                    "dialect": "openai_chat",
+                    "base_url": "https://example.invalid/v1",
+                    "model": "m",
+                    "api_key_env": "MY_API_KEY",
+                    "headers": {"X-Trace": "1"},
+                },
+                {
+                    "name": "cli",
+                    "transport": "process",
+                    "command": ["mycmd"],
+                    "prompt_via": "file",
+                },
+            ]
+        }
+    )
+    assert unimplemented_warnings(config, {}) == []
