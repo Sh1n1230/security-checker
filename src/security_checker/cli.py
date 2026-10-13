@@ -904,11 +904,11 @@ def eval_command(
 
     **主指標は Recall。** 見逃しを増やさずに誤検知を減らせているかを見る。
     """
-    console = Console()
     root = (config_path.parent if config_path is not None else Path.cwd()).resolve()
     loaded = _load(root, config_path, None, {})
+    # 標準出力は比較表 (Markdown) のために空けておく。`> result.md` に警告が混ざらないように
     for message in loaded.warnings:
-        console.print(f"[yellow]警告[/yellow]: {message}", highlight=False)
+        err_console.print(f"[yellow]警告[/yellow]: {message}", highlight=False)
 
     try:
         dataset = load_dataset(dataset_dir)
