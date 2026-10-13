@@ -27,7 +27,12 @@ from security_checker.models.candidate import Candidate
 from security_checker.models.finding import Finding
 from security_checker.models.task import ReviewTask
 from security_checker.observability.cost import PriceTable
-from security_checker.run import ReviewerSetup, build_reviewers, review_and_aggregate
+from security_checker.run import (
+    ReviewerSetup,
+    build_reviewers,
+    close_providers,
+    review_and_aggregate,
+)
 
 
 class EvalResult(BaseModel):
@@ -88,11 +93,17 @@ async def run_eval(
     setup = reviewer_setup or build_reviewers(config, price_table=price_table, environ=environ)
     warnings = list(setup.warnings)
 
-    with tempfile.TemporaryDirectory(prefix="security-checker-eval-") as temporary:
-        root = workspace or Path(temporary)
-        prepared = _prepare(dataset, config, root)
+    try:
+        with tempfile.TemporaryDirectory(prefix="security-checker-eval-") as temporary:
+            root = workspace or Path(temporary)
+            prepared = _prepare(dataset, config, root)
 
-        review_pass = await review_and_aggregate(config, setup, prepared.tasks, prepared.candidates)
+            review_pass = await review_and_aggregate(
+                config, setup, prepared.tasks, prepared.candidates
+            )
+    finally:
+        # 途中で例外になっても接続 (httpx.AsyncClient) を残さない
+        await close_providers(setup)
 
     schedule = review_pass.schedule
     findings = review_pass.findings
@@ -102,8 +113,6 @@ async def run_eval(
         warnings.append(schedule.stopped_reason)
 
     outcomes = [_to_outcome(prepared.by_id[finding.candidate.id], finding) for finding in findings]
-    for provider in setup.providers:
-        await provider.aclose()
 
     return EvalResult(
         dataset=dataset.name,

@@ -298,3 +298,33 @@ def test_anonymize_is_deterministic_per_candidate():
     first = anonymize("cand-1", verdicts)
     assert [o.reasoning for o in first] == [o.reasoning for o in anonymize("cand-1", verdicts)]
     assert [o.label for o in first] == ["Reviewer A", "Reviewer B", "Reviewer C", "Reviewer D"]
+
+
+async def test_providers_are_closed_even_if_the_review_fails(tmp_path):
+    """review_and_aggregate が例外で抜けても、Provider (の接続) を閉じる."""
+    reviewer_setup, providers = setup({"judge": []})
+    only_judge = Config.model_validate(
+        {
+            "scanners": {"semgrep": {"enabled": False}, "gitleaks": {"enabled": False}},
+            "output": {"dir": str(tmp_path / "out")},
+            "reviewers": [
+                {
+                    "name": "judge",
+                    "transport": "http",
+                    "dialect": "openai_chat",
+                    "base_url": "http://x/v1",
+                    "model": "model-judge",
+                }
+            ],
+            "aggregation": {"strategy": "judge", "judge": {"reviewer": "judge"}},
+        }
+    )
+    with pytest.raises(ConfigError, match="Judge 以外の Reviewer"):
+        await run_review(
+            only_judge,
+            workspace(tmp_path),
+            base_dir=tmp_path,
+            scanners=[FakeScanner("semgrep", candidates=[candidate()])],
+            reviewer_setup=reviewer_setup,
+        )
+    assert providers["judge"].closed
