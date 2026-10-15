@@ -6,7 +6,7 @@
 #
 # GHCR への公開 (ghcr.io/sh1n1230/security-checker) は P6 で行う。
 # それまでの GitHub Action は composite (action.yml) で配る。
-FROM python:3.12-slim AS base
+FROM python:3.14-slim AS base
 
 # スキャナの版。空なら scripts/scanner-versions.sh に固定した版 (sha256 も固定) を入れる。
 # `--build-arg GITLEAKS_VERSION=x.y.z` などで上書きした場合は、リリース側のチェックサムで検証する
