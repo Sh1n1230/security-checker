@@ -61,6 +61,31 @@ def test_parse_unified_diff_collects_added_ranges():
     assert changed == {"src/app.py", "requirements.txt", "removed.yml"}
 
 
+def test_parse_unified_diff_ignores_header_like_lines_inside_hunks():
+    # SQL / Lua のコメント (`-- `) の削除や `++ ` で始まる行の追加は、
+    # ハンクの本文でも `--- ` / `+++ ` になる。ファイルヘッダと取り違えない
+    diff = """\
+diff --git a/db/schema.sql b/db/schema.sql
+--- a/db/schema.sql
++++ b/db/schema.sql
+@@ -3 +2,0 @@
+--- old comment
+@@ -10,0 +10,2 @@
++select 1;
++++ not a header
+@@ -20,0 +21 @@
++select 2;
+diff --git a/src/app.py b/src/app.py
+--- a/src/app.py
++++ b/src/app.py
+@@ -1,0 +2 @@
++x = 1
+"""
+    added, changed = parse_unified_diff(diff)
+    assert added == {"db/schema.sql": ((10, 11), (21, 21)), "src/app.py": ((2, 2),)}
+    assert changed == {"db/schema.sql", "src/app.py"}
+
+
 @pytest.fixture
 def scope() -> DiffScope:
     added, changed = parse_unified_diff(DIFF)

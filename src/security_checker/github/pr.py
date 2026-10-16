@@ -75,16 +75,26 @@ class DiffScope:
 
 
 def parse_unified_diff(text: str) -> tuple[dict[str, tuple[tuple[int, int], ...]], set[str]]:
-    """`git diff --unified=0` の出力から、追加行の範囲と変更ファイルを取り出す."""
+    """`git diff --unified=0` の出力から、追加行の範囲と変更ファイルを取り出す.
+
+    `--- ` / `+++ ` はファイルヘッダ (`diff --git` から最初のハンクまで) の中でだけ解釈する。
+    ハンクの本文でも、`-- ` で始まる行の削除や `++ ` で始まる行の追加は同じ形になるため。
+    """
     added: dict[str, list[tuple[int, int]]] = {}
     changed: set[str] = set()
     current: str | None = None
     old_path: str | None = None
+    # `diff --git` 行の無い素の unified diff も受け付けるよう、先頭はヘッダとして扱う
+    in_header = True
     for line in text.splitlines():
-        if line.startswith("--- "):
+        if line.startswith("diff --git "):
+            in_header = True
+            current = old_path = None
+            continue
+        if in_header and line.startswith("--- "):
             old_path = _strip_prefix(line[4:])
             continue
-        if line.startswith("+++ "):
+        if in_header and line.startswith("+++ "):
             current = _strip_prefix(line[4:])
             if current is not None:
                 changed.add(current)
@@ -93,6 +103,8 @@ def parse_unified_diff(text: str) -> tuple[dict[str, tuple[tuple[int, int], ...]
                 changed.add(old_path)
             continue
         match = _HUNK_RE.match(line)
+        if match:
+            in_header = False
         if match and current is not None:
             start = int(match.group(1))
             count = int(match.group(2)) if match.group(2) is not None else 1
