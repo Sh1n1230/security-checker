@@ -11,5 +11,6 @@
 | [0004](0004-fork-pr-rescan-instead-of-artifacts.md) | fork PR の publish 側は成果物を使わず、読むだけで検査し直す | 採用 (2026-10-04) |
 | [0005](0005-composite-action-until-ghcr.md) | GHCR 公開までは composite action で配る | 採用 (2026-10-04) |
 | [0006](0006-outside-diff-candidates-in-sarif.md) | diff の範囲外の候補も SARIF に note で残す | 採用 (2026-10-04) |
+| [0007](0007-no-required-approvals-while-single-maintainer.md) | メンテナが 1 人の間は、マージに承認を必須にしない | 採用 (2026-10-19) |
 
 新しい ADR は連番で足し、既存のものは書き換えずに「置き換えた」ことを新しい ADR に書きます。
