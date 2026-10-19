@@ -28,7 +28,7 @@ classifiers = [
 ]
 dependencies = [
   "httpx[http2]>=0.28.1",
-  "pydantic>=2",
+  "pydantic>=2.14.1",
   "pyyaml>=6",
   "jinja2>=3.1",
   "typer>=0.27.3",
