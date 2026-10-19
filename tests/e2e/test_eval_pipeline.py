@@ -10,11 +10,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 from security_checker.cli import app
 from security_checker.config.schema import Config, ReviewerConfig
-from security_checker.errors import ExitCode
+from security_checker.errors import ConfigError, ExitCode
 from security_checker.eval.dataset import load_dataset
 from security_checker.eval.runner import run_eval, to_markdown
 from security_checker.models.enums import FindingStatus
@@ -256,3 +257,16 @@ def test_cli_keeps_config_warnings_out_of_stdout(tmp_path, monkeypatch):
     assert result.stdout.startswith("# 評価結果")
     assert "num_ctx" not in result.stdout
     assert "num_ctx" in result.stderr
+
+
+async def test_providers_are_closed_even_if_the_review_fails(tmp_path):
+    """review_and_aggregate が例外で抜けても、Provider (の接続) を閉じる."""
+    dataset = load_dataset(make_dataset(tmp_path))
+    provider = ScriptedProvider([])
+    setup = ReviewerSetup(providers=[provider])
+    # 未知の集約戦略は review_and_aggregate の中で ConfigError になる
+    config = make_config(aggregation={"strategy": "no-such-strategy"})
+
+    with pytest.raises(ConfigError, match="no-such-strategy"):
+        await run_eval(dataset, config, reviewer_setup=setup)
+    assert provider.closed

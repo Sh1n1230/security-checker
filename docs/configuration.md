@@ -19,7 +19,9 @@
 - どの層で値が決まったかは `security-checker config show --explain` で見られます。
 - 未知のキーはエラーになります。打ち間違いを黙って無視しません。
 - **受け付けるが効かない設定は無い**ようにしています。方言に合わない項目
-  (例: `ollama_chat` 以外での `num_ctx`) は警告します。
+  (例: `ollama_chat` 以外での `num_ctx`)・transport に合わない項目
+  (例: `transport: process` での `base_url`、`transport: http` での `command`)・
+  `target.root` (検査対象は CLI の引数 `PATH` で決まる) は警告します。
 
 `SECURITY_CHECKER_UNTRUSTED_TARGET=1` のときは、検査対象のツリーから設定を一切読まず、
 `--config` で対象外のファイルを渡す必要があります (fork PR を権限付きで検査するとき。
