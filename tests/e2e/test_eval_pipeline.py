@@ -230,6 +230,35 @@ def test_cli_writes_json_and_markdown(tmp_path, monkeypatch):
     assert "Recall" in md.read_text(encoding="utf-8")
 
 
+def test_cli_keeps_config_warnings_out_of_stdout(tmp_path, monkeypatch):
+    """標準出力は比較表 (Markdown) だけにする. `eval ... > result.md` に警告が混ざらない."""
+    dataset = make_dataset(tmp_path)
+    config = tmp_path / "security-checker.yml"
+    # num_ctx は ollama_chat 専用なので、openai_chat に書くと設定の警告が出る
+    config.write_text(
+        "version: 1\nreviewers:\n"
+        "  - name: r1\n    transport: http\n    dialect: openai_chat\n"
+        "    base_url: http://stub/v1\n    model: stub\n    num_ctx: 4096\n",
+        encoding="utf-8",
+    )
+
+    async def fake_run_eval(dataset_arg, config_arg, **kwargs):
+        from security_checker.eval.runner import run_eval as real
+
+        return await real(
+            dataset_arg, config_arg, reviewer_setup=setup_with([verdict_payload()] * 2)
+        )
+
+    monkeypatch.setattr("security_checker.cli.run_eval", fake_run_eval)
+
+    result = runner.invoke(app, ["eval", "--dataset", str(dataset), "--config", str(config)])
+
+    assert result.exit_code == ExitCode.OK
+    assert result.stdout.startswith("# 評価結果")
+    assert "num_ctx" not in result.stdout
+    assert "num_ctx" in result.stderr
+
+
 async def test_providers_are_closed_even_if_the_review_fails(tmp_path):
     """review_and_aggregate が例外で抜けても、Provider (の接続) を閉じる."""
     dataset = load_dataset(make_dataset(tmp_path))
