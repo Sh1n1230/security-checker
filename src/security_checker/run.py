@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -459,7 +460,11 @@ async def run_review(
             )
         )
 
-    review_pass = await review_and_aggregate(config, setup, tasks, candidates)
+    try:
+        review_pass = await review_and_aggregate(config, setup, tasks, candidates)
+    finally:
+        # 途中で例外になっても接続 (httpx.AsyncClient) を残さない
+        await close_providers(setup)
     schedule = review_pass.schedule
     findings = review_pass.findings
     warnings.extend(
@@ -490,9 +495,6 @@ async def run_review(
     for call_trace in schedule.traces:
         trace.write_call(call_trace)
 
-    for provider in setup.providers:
-        await provider.aclose()
-
     score = compute_score(candidates, runs, findings)
     coverage = _coverage(runs, candidates, reviewed=len(schedule.reviewed_candidate_ids))
     report = Report(
@@ -519,6 +521,13 @@ async def run_review(
     decision = evaluate(report, config.policy)
     _log_finish(report, decision)
     return RunOutcome(report=report, decision=decision, output_dir=output_dir, results=results)
+
+
+async def close_providers(setup: ReviewerSetup) -> None:
+    """Provider をすべて閉じる. 1 つの aclose が失敗しても、残りは閉じる."""
+    async with contextlib.AsyncExitStack() as stack:
+        for provider in setup.providers:
+            stack.push_async_callback(provider.aclose)
 
 
 @dataclass
