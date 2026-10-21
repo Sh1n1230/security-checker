@@ -16,25 +16,6 @@
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(git filter-branch:*)"
-    ],
-    "ask": [
-      "Bash(git commit:*)",
-      "Bash(git push:*)",
-      "Bash(git merge:*)",
-      "Bash(git rebase:*)",
-      "Bash(git cherry-pick:*)",
-      "Bash(git revert:*)",
-      "Bash(git tag:*)",
-      "Bash(git reset:*)",
-      "Bash(git clean:*)",
-      "Bash(git checkout:*)",
-      "Bash(git switch:*)",
-      "Bash(git restore:*)",
-      "Bash(git stash:*)",
-      "Bash(git branch -d:*)",
-      "Bash(git branch -D:*)",
-      "Bash(gh pr:*)",
-      "Bash(glab mr:*)"
     ]
   }
 }
