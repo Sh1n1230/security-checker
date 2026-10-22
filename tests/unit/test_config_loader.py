@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from security_checker.config.loader import available_presets, env_overrides, load_config
+from security_checker.config.schema import Config
 from security_checker.errors import ConfigError
 from security_checker.models.enums import Severity
 
@@ -60,6 +61,13 @@ def test_preset_is_applied_then_overridden_by_file(tmp_path):
     assert loaded.config.policy.fail_on is Severity.CRITICAL  # preset 由来
     assert loaded.config.policy.strict is True  # ファイルが後勝ち
     assert loaded.config.scanners.osv.enabled is False
+
+
+def test_osv_is_enabled_by_default_and_trivy_is_opt_in():
+    """依存の既知脆弱性は、設定を書かなくても検査する (#101)."""
+    config = Config()
+    assert config.scanners.osv.enabled is True
+    assert config.scanners.trivy.enabled is False
 
 
 def test_all_presets_are_valid(tmp_path):
