@@ -124,17 +124,33 @@ if [[ "$requested" == latest ]]; then
 else
   spec="semgrep==${requested#v}"
 fi
-if [[ "$spec" != "semgrep==$PINNED_SEMGREP_VERSION" ]]; then
-  echo "::warning::semgrep は固定版 ($PINNED_SEMGREP_VERSION) ではなく ${spec} を入れます" >&2
-fi
-# uv があれば uv tool (隔離された環境) に、無ければ (Docker イメージのビルド時) pip で入れる
-if command -v uv >/dev/null; then
-  uv tool install --quiet "$spec"
+# 固定版は推移的な依存まで版とハッシュで固定して入れる (semgrep-requirements.txt)。
+# それ以外の版は依存を固定できないので、そのことを警告する
+if [[ "$spec" == "semgrep==$PINNED_SEMGREP_VERSION" ]]; then
+  requirements=(--require-hashes -r "$script_dir/semgrep-requirements.txt")
 else
-  pip install --no-cache-dir --quiet "$spec"
+  echo "::warning::semgrep は固定版 ($PINNED_SEMGREP_VERSION) ではなく ${spec} を入れます (依存はハッシュで検証されません)" >&2
+  requirements=("$spec")
 fi
+# 専用の venv に入れて <インストール先> にリンクする。本体と同じ環境に入れると依存の版がぶつかり、
+# uv tool の bin は PATH に載っている保証が無い。uv が無い場合 (Docker イメージのビルド時) は venv + pip
+venv_dir="$(dirname "$bin_dir")/semgrep-venv"
+if command -v uv >/dev/null; then
+  uv venv --quiet --allow-existing "$venv_dir"
+  uv pip install --quiet --python "$venv_dir/bin/python" "${requirements[@]}"
+else
+  python3 -m venv "$venv_dir"
+  "$venv_dir/bin/pip" install --no-cache-dir --quiet "${requirements[@]}"
+fi
+# semgrep は pysemgrep を PATH から起動するため、両方をリンクする
+for name in semgrep pysemgrep; do
+  if [[ -e "$venv_dir/bin/$name" ]]; then
+    ln -sf "$venv_dir/bin/$name" "$bin_dir/$name"
+  fi
+done
 
 # `| head` で切り詰めない。head が先にパイプを閉じると SIGPIPE になり、pipefail で失敗するため
 "$bin_dir/gitleaks" version
 "$bin_dir/trivy" --version
 "$bin_dir/osv-scanner" --version
+SEMGREP_ENABLE_VERSION_CHECK=0 "$bin_dir/semgrep" --version

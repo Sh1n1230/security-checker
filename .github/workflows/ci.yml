@@ -121,9 +121,11 @@ jobs:
         run: |
           set -euo pipefail
           # action.yml と同じく、版と sha256 を固定して取得する (scripts/scanner-versions.sh)。
-          # セルフスキャンの対象はこれまでどおり gitleaks と semgrep だけにするため、PATH には gitleaks だけを置く
+          # セルフスキャンの対象はこれまでどおり gitleaks と semgrep だけにするため、PATH にはその 2 つだけを置く
           scripts/install-scanners.sh "$RUNNER_TEMP/scanners"
           sudo install -m 0755 "$RUNNER_TEMP/scanners/gitleaks" /usr/local/bin/gitleaks
+          # semgrep は専用 venv へのリンク (実体を動かすと venv の python を見失う)
+          sudo ln -sf "$RUNNER_TEMP/scanners/semgrep" "$RUNNER_TEMP/scanners/pysemgrep" /usr/local/bin/
 
       - name: セルフスキャン
         # --strict: スキャナが失敗したら exit 3 で落とす (「壊れているのに緑」を作らない)
