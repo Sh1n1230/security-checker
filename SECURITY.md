@@ -60,6 +60,18 @@ GitHub の **Private vulnerability reporting** を使います。
 何が外部に送信され、何が送信されないかは [docs/security-model.md](docs/security-model.md) に
 まとめています。`security-checker review --dry-run` で、送信前に送信予定の内容をすべて確認できます。
 
+## 配布物の検証
+
+GitHub Release に添付した配布物 (`dist/*`) には、どの workflow とコミットで作られたかの
+attestation (来歴) を付けています。次で検証できます。
+
+```sh
+gh release download <タグ> --repo Sh1n1230/security-checker
+gh attestation verify <ファイル> --repo Sh1n1230/security-checker
+```
+
+GitHub Action として使う場合は、タグではなくコミット SHA で固定してください (タグは付け替えられます)。
+
 ## 行動規範に反する言動について
 
 セキュリティの問題ではなく、嫌がらせ等の行動規範違反については
