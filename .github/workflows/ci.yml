@@ -59,7 +59,7 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: 依存関係を同期
-        run: uv sync --group dev --frozen
+        run: uv sync --group dev --locked
 
       - name: Lint (ruff)
         run: |
@@ -91,7 +91,7 @@ jobs:
           python-version: "3.12"
 
       - name: 依存関係を同期
-        run: uv sync --group dev --frozen
+        run: uv sync --group dev --locked
 
       - name: テスト
         shell: bash
