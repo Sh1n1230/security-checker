@@ -61,9 +61,21 @@ def test_action_passes_version_inputs_and_defaults_to_pinned(input_name, env_nam
     assert install["env"][env_name] == f"${{{{ inputs.{input_name} }}}}"
 
 
+def test_semgrep_requirements_match_the_pinned_version_and_have_hashes():
+    """semgrep の推移的な依存も版とハッシュで固定する. 版を変えたらここも作り直す (#94)."""
+    text = (ROOT / "scripts" / "semgrep-requirements.txt").read_text(encoding="utf-8")
+    pins = re.findall(r"^([A-Za-z0-9_.-]+)==(\S+)", text, flags=re.MULTILINE)
+    assert ("semgrep", pinned()["PINNED_SEMGREP_VERSION"]) in pins
+    # 各要件の直後にハッシュがある (--require-hashes はハッシュの無い要件があると止まる)
+    blocks = re.split(r"^(?=[A-Za-z0-9_.-]+==)", text, flags=re.MULTILINE)[1:]
+    assert len(blocks) == len(pins)
+    assert all("--hash=sha256:" in block for block in blocks)
+
+
 def test_dockerfile_uses_the_same_installer_without_its_own_versions():
     text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "install-scanners.sh" in text
+    assert "semgrep-requirements.txt" in text
     for env_name in INPUTS.values():
         assert f'ARG {env_name}=""' in text
 
