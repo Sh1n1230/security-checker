@@ -81,7 +81,7 @@ rule:
 
 def test_parse_ignore_file():
     ignore, warnings = parse_ignore_file(IGNORE)
-    assert ignore.path_patterns == ["docs/**", "build/**", "**/secrets.example"]
+    assert ignore.path_patterns == ["docs/**", "/build/", "secrets.example"]
     assert [(r.rule, r.paths) for r in ignore.rules] == [
         ("semgrep/python.lang.security.audit.eval", ()),
         ("generic-api-key", ("tests/**",)),
@@ -94,8 +94,10 @@ def test_parse_ignore_file():
 def test_ignore_matches_paths_and_rules():
     ignore, _ = parse_ignore_file(IGNORE)
     assert ignore.match(make_candidate(path="docs/a.py")) == "docs/**"
-    assert ignore.match(make_candidate(path="build/x/y.py")) == "build/**"
-    assert ignore.match(make_candidate(path="config/secrets.example")) == "**/secrets.example"
+    # 理由には書かれたとおりの行を返す
+    assert ignore.match(make_candidate(path="build/x/y.py")) == "/build/"
+    assert ignore.match(make_candidate(path="config/secrets.example")) == "secrets.example"
+    assert ignore.match(make_candidate(path="src/build/y.py")) is None  # 先頭の / はルート起点
     assert ignore.match(make_candidate(rule_id="python.lang.security.audit.eval")) is not None
     scoped = make_candidate(scanner="gitleaks", rule_id="generic-api-key", path="tests/t.py")
     assert ignore.match(scoped) == "rule:generic-api-key tests/**"

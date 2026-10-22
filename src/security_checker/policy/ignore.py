@@ -95,13 +95,8 @@ def parse_ignore_file(text: str, source: str = IGNORE_FILENAME) -> tuple[IgnoreF
                 continue
             ignore.rules.append(RuleIgnore(rule=parts[0], paths=tuple(parts[1:])))
             continue
-        pattern = line.removeprefix("/")
-        if pattern.endswith("/"):
-            pattern += "**"
-        elif "/" not in pattern:
-            # gitignore と同じく、スラッシュを含まない名前はどの階層にも一致させる
-            pattern = "**/" + pattern
-        ignore.path_patterns.append(pattern)
+        # 書かれたとおりに持つ (理由として表示する)。解釈は target.exclude と共通 (is_excluded)
+        ignore.path_patterns.append(line)
     return ignore, warnings
 
 
