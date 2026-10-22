@@ -21,6 +21,8 @@ on:
   # 週 1 回、既定ブランチを全件検査して拾う
   schedule:
     - cron: "17 3 * * 1"
+  # 導入直後に全件を一度出すとき (docs/adoption.md)
+  workflow_dispatch:
 
 permissions:
   contents: read

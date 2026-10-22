@@ -15,6 +15,7 @@ security-checker を PR ごとに動かし、結果を 3 か所に出す方法�
 ## 1. 最小構成
 
 [ci/security.yml](../ci/security.yml) を `.github/workflows/` にコピーします。
+複数のリポジトリに入れて必須チェックにするまでの手順は [adoption.md](adoption.md) にあります。
 
 ```yaml
 permissions:
