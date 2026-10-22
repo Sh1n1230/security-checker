@@ -1,0 +1,63 @@
+# bundled:ci-lock — CI が lock ファイルを強制していない依存の入れ方 (GitHub Actions の workflow)
+#
+# lock ファイルを置いていても、CI がそれを強制しなければ、検査した依存と実際に入る依存が食い違う。
+# 依存の既知脆弱性の検査 (osv-scanner) は lock ファイルを読むので、この食い違いは検査の前提を崩す。
+#
+#   - `uv sync` に --locked も --frozen も無い: medium (WARNING)。lock が古ければ黙って解決し直す
+#   - `uv sync --frozen` に --locked が無い: low (INFO)。lock を書き換えないが、pyproject.toml との整合は確かめない
+#
+# 同じ job で `uv lock` を実行している (lock を更新するための job) なら対象外。
+# lock ファイルの有無で重大度が変わる手順 (npm install・dotnet restore) は semgrep だけでは書けないため、
+# ここには入れていない。
+#
+# テスト: tests/fixtures/bundled-rules/ci-lock.test.yml (semgrep --test の形式)。
+
+rules:
+  - id: ci-uv-sync-without-locked
+    languages: [yaml]
+    severity: WARNING
+    message: >-
+      CI の `uv sync` に `--locked` がありません。uv.lock が pyproject.toml と食い違っていても、
+      依存を解決し直して通ってしまい、検査した依存と実際に入る依存が食い違います。
+      `uv sync --locked` にしてください。
+    metadata: &metadata
+      category: security
+      cwe:
+        - "CWE-1357: Reliance on Insufficiently Trustworthy Component"
+      references:
+        - https://docs.astral.sh/uv/concepts/projects/sync/#checking-if-the-lockfile-is-up-to-date
+      confidence: HIGH
+    paths: &workflows
+      include:
+        - "/.github/workflows/*.yml"
+        - "/.github/workflows/*.yaml"
+    patterns:
+      - pattern-inside: "steps: $STEPS"
+      # 同じ job で lock を更新している (uv lock) なら、その job の目的は lock の更新なので対象外
+      - metavariable-regex:
+          metavariable: $STEPS
+          regex: '^(?![\s\S]*\buv\s+lock\b)'
+      - pattern: "run: $CMD"
+      # metavariable-regex は先頭から照合するので、複数行の run: | のどこにあっても拾えるよう前置きを許す
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '[\s\S]*?\buv\s+sync\b(?![^\n]*--(locked|frozen)\b)'
+
+  - id: ci-uv-sync-frozen-without-locked
+    languages: [yaml]
+    severity: INFO
+    message: >-
+      CI の `uv sync --frozen` は uv.lock を書き換えませんが、pyproject.toml と整合しているかは
+      確かめません。`pyproject.toml` だけを変えて uv.lock を更新しない変更が通ります。
+      `uv sync --locked` にしてください。
+    metadata: *metadata
+    paths: *workflows
+    patterns:
+      - pattern-inside: "steps: $STEPS"
+      - metavariable-regex:
+          metavariable: $STEPS
+          regex: '^(?![\s\S]*\buv\s+lock\b)'
+      - pattern: "run: $CMD"
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '[\s\S]*?\buv\s+sync\b(?=[^\n]*--frozen\b)(?![^\n]*--locked\b)'

@@ -1,0 +1,31 @@
+# semgrep --test 用の fixture (src/security_checker/rules/semgrep/ci-lock.yml)。workflow として実行はしない。
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # ruleid: ci-uv-sync-without-locked
+      - run: uv sync
+      - name: 複数行のスクリプトの途中にあっても拾う
+        # ruleid: ci-uv-sync-without-locked
+        run: |
+          set -euo pipefail
+          uv sync --group dev
+          uv run pytest
+      # ok: ci-uv-sync-without-locked
+      - run: uv sync --locked
+      # ruleid: ci-uv-sync-frozen-without-locked
+      - run: uv sync --group dev --frozen
+      # ok: ci-uv-sync-frozen-without-locked
+      - run: uv sync --frozen --locked
+      # ok: ci-uv-sync-without-locked
+      - run: uv run pytest
+
+  relock:
+    # lock を更新するための job は対象外
+    runs-on: ubuntu-latest
+    steps:
+      - run: uv lock --upgrade
+      # ok: ci-uv-sync-without-locked
+      - run: uv sync

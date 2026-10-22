@@ -26,7 +26,7 @@ def test_every_bundled_rule_has_fixtures():
 
 
 def test_default_config_uses_the_bundled_llm_rules():
-    assert SemgrepConfig().configs == ["p/default", "bundled:llm"]
+    assert SemgrepConfig().configs == ["p/default", "bundled:llm", "bundled:ci-lock"]
 
 
 @pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep が入っていません")

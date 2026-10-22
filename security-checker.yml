@@ -22,7 +22,7 @@ target:
 scanners:
   semgrep:
     enabled: true
-    config: [p/default, bundled:llm]
+    config: [p/default, bundled:llm, bundled:ci-lock]
     timeout_s: 600
   gitleaks:
     enabled: true
