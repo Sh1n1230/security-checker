@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from security_checker.models.enums import FindingStatus, Severity
+from security_checker.rules import BUNDLED_PREFIX, bundled_semgrep_rule, bundled_semgrep_rules
 
 
 class StrictModel(BaseModel):
@@ -43,7 +44,26 @@ class ScannerConfig(StrictModel):
 
 
 class SemgrepConfig(ScannerConfig):
-    config: str = "p/default"
+    #: `--config` に渡すもの. 1 つなら文字列、複数ならリスト。`bundled:<名前>` で同梱ルールを指す
+    config: str | list[str] = "p/default"
+
+    @field_validator("config")
+    @classmethod
+    def _known_bundled_rules(cls, value: str | list[str]) -> str | list[str]:
+        values = [value] if isinstance(value, str) else value
+        if not values:
+            raise ValueError("scanners.semgrep.config が空です")
+        for item in values:
+            if item.startswith(BUNDLED_PREFIX) and (
+                bundled_semgrep_rule(item.removeprefix(BUNDLED_PREFIX)) is None
+            ):
+                known = ", ".join(BUNDLED_PREFIX + name for name in bundled_semgrep_rules())
+                raise ValueError(f"未知の同梱ルール {item} です。利用可能: {known or '(なし)'}")
+        return value
+
+    @property
+    def configs(self) -> list[str]:
+        return [self.config] if isinstance(self.config, str) else list(self.config)
 
 
 class GitleaksConfig(ScannerConfig):

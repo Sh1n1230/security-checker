@@ -52,7 +52,7 @@
 
 | キー | 既定 | 説明 |
 |---|---|---|
-| `semgrep.enabled` / `config` | `true` / `p/default` | SAST。`config` はルールセットかファイル |
+| `semgrep.enabled` / `config` | `true` / `p/default` | SAST。`config` はルールセットかファイル。複数ならリスト (`[p/default, bundled:<名前>]`)。`bundled:<名前>` は security-checker 同梱のルールで、検査対象のツリーからは読まない |
 | `gitleaks.enabled` | `true` | シークレット。検出値はマスクしてから保存・送信する |
 | `osv.enabled` | `true` | 依存の既知脆弱性 (別名をまとめて 1 件にする)。osv-scanner が未導入なら `skipped` |
 | `trivy.enabled` / `scanners` | `false` / `[config]` | `config` (誤設定) / `vuln` (依存)。`secret` は受け付けない |
