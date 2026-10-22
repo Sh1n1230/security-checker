@@ -61,7 +61,9 @@ class TrivyConfig(ScannerConfig):
 class ScannersConfig(StrictModel):
     semgrep: SemgrepConfig = SemgrepConfig()
     gitleaks: GitleaksConfig = GitleaksConfig()
-    osv: OsvConfig = OsvConfig(enabled=False)
+    # 依存の既知脆弱性は件数が多く機械的に見つかる。未導入なら skipped になるだけなので既定で有効
+    osv: OsvConfig = OsvConfig()
+    # 誤設定の検査はノイズが多く、既定にする根拠が弱い。opt-in
     trivy: TrivyConfig = TrivyConfig(enabled=False)
 
 

@@ -15,7 +15,8 @@ runner = CliRunner()
 
 def disabled_scanners_config(tmp_path: Path) -> None:
     (tmp_path / "security-checker.yml").write_text(
-        "version: 1\nscanners:\n  semgrep: { enabled: false }\n  gitleaks: { enabled: false }\n",
+        "version: 1\nscanners:\n  semgrep: { enabled: false }\n  gitleaks: { enabled: false }\n"
+        "  osv: { enabled: false }\n",
         encoding="utf-8",
     )
 

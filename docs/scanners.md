@@ -46,8 +46,21 @@ v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒�
 
 ### osv-scanner
 
+- **既定で有効**です (osv-scanner が入っていなければ `skipped`)。送信を避けたい場合は
+  `scanners.osv.enabled: false` にしてください。
 - `osv-scanner scan source --recursive` を実行します。依存の問い合わせのため、
   **パッケージ名とバージョンが OSV の API に送られます** (コードは送りません)。
+- 意図して残す脆弱性は、リポジトリの `osv-scanner.toml` に期限つきで書いて抑止します。
+
+  ```toml
+  [[IgnoredVulns]]
+  id = "GHSA-xxxx-xxxx-xxxx"
+  ignoreUntil = 2027-01-31   # 期限を必ず付ける
+  reason = "到達しない経路でしか使っていない。上流の修正版を待つ"
+  ```
+
+  既存の指摘をまとめて扱う場合は `security-checker baseline update` で baseline に入れ、
+  新しく出たものだけをゲートにできます。
 - 同じ脆弱性の別名 (PYSEC / GHSA / CVE) は 1 件にまとめます。別名ごとに候補を作ると、
   同じ問題が何度もレビューされ、何度も PR に出るためです。
 - 終了コード 128 (マニフェストが無い) は「対象が無い」なので `skipped` にします。
