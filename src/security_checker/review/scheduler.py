@@ -202,12 +202,36 @@ class ReviewScheduler:
         await asyncio.gather(
             *(self._review_candidate(runtime, task) for task in tasks for runtime in self.runtimes)
         )
+        self._fill_skipped(tasks)
         for runtime in self.runtimes:
             if runtime.daily is not None:
                 self._result.warnings.extend(dict.fromkeys(runtime.daily.store.errors))
         return self._result
 
     # --- 内部 -------------------------------------------------------------
+
+    def _fill_skipped(self, tasks: list[ReviewTask]) -> None:
+        """一部の Reviewer だけが判定した候補に、判定しなかった Reviewer の SKIPPED を残す.
+
+        無効化・停止で呼ばなかった Reviewer の verdict が欠けると、集約側は
+        「Reviewer が 1 つ」と「残りが失敗した」を区別できない (P9)。
+        誰も判定していない候補は not_reviewed として残すため、ここでは足さない。
+        """
+        for task in tasks:
+            verdicts = self._result.verdicts.get(task.candidate.id)
+            if not verdicts:
+                continue
+            seen = {verdict.reviewer for verdict in verdicts}
+            for runtime in self.runtimes:
+                if runtime.name in seen:
+                    continue
+                reason = (
+                    runtime.disabled_reason
+                    or self._result.stopped_reason
+                    or "この候補はレビューされませんでした"
+                )
+                outcome = runtime.reviewer.error_outcome(task, VerdictStatus.SKIPPED, reason)
+                verdicts.append(outcome.verdict)
 
     async def _review_candidate(self, runtime: ReviewerRuntime, task: ReviewTask) -> None:
         if self._stop.is_set() or runtime.disabled_reason is not None:

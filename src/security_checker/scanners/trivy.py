@@ -106,6 +106,11 @@ def parse_trivy(
                 item.get("Message") or item.get("Description") or item.get("Title") or rule
             )
             resolution = item.get("Resolution")
+            severity = SEVERITY_MAP.get(str(item.get("Severity")).upper())
+            if isinstance(resolution, str):
+                message += f" (対応: {resolution})"
+            if severity is None:
+                message += " (重大度不明のため medium として扱います)"
             candidates.append(
                 Candidate(
                     # 行番号を ID に含めない (§6.1)。同じルールの同じ指摘は出現順で区別する
@@ -114,10 +119,10 @@ def parse_trivy(
                     category=Category.CONFIG,
                     rule_id=rule,
                     title=str(item.get("Title") or rule),
-                    message=message
-                    + (f" (対応: {resolution})" if isinstance(resolution, str) else ""),
+                    message=message,
                     location=Location(path=path, start_line=start, end_line=max(end, start)),
-                    severity_reported=SEVERITY_MAP.get(str(item.get("Severity")).upper()),
+                    # 不明を info にするとゲートから消える。依存の脆弱性・osv にそろえて中とする
+                    severity_reported=severity or Severity.MEDIUM,
                     references=_references(item),
                 )
             )

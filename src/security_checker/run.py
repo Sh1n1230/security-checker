@@ -651,11 +651,13 @@ def _reviewer_runs(setup: ReviewerSetup, schedule: ScheduleResult) -> list[Revie
     summaries: list[ReviewerRun] = []
     for runtime in setup.runtimes:
         name = runtime.name
+        # SKIPPED は呼ばなかった印 (無効化・停止・rpd 上限) なので、
+        # 呼び出し数にも失敗数にも数えない。理由は disabled_reason と stopped_reason に残る
         verdicts = [
             verdict
             for verdict_list in schedule.verdicts.values()
             for verdict in verdict_list
-            if verdict.reviewer == name
+            if verdict.reviewer == name and verdict.status is not VerdictStatus.SKIPPED
         ]
         usage = Usage()
         for verdict in verdicts:

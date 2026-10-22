@@ -18,6 +18,11 @@ Reviewer が 1 つなら、その判定がそのまま結果になります。
 | 脆弱の票が `min_votes` 以上かつ比率が `min_ratio` 以上 | 一致度が高く確信度の平均が 0.8 以上なら `confirmed`、それ以外は `likely` |
 | 全員が「脆弱ではない」 | `false_positive` |
 | それ以外 | `review_required` |
+| 複数の Reviewer に割り当てたが、有効な判定が 1 つしか残らなかった (他はエラー・無効化・停止) | 残った判定が「脆弱」かつ確信度 0.5 以上なら `likely`、それ以外は `review_required`。`false_positive` と `confirmed` にはしない |
+
+最後の行は weighted でも同じです。Reviewer の 1 つがレート制限やタイムアウトで落ちただけで、
+残った 1 つの「脆弱ではない」で候補が消えないようにするためです。`aggregation.detail` に
+`mode: partial_reviewers` と失敗した数 (`failed_verdicts`) が残ります。
 
 重大度は脆弱と判定した Reviewer の中央値 (`consensus.severity` で `max` / `weighted_mean` も選べる)。
 

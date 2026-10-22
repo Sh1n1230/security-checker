@@ -74,8 +74,10 @@ class ConsensusAggregator:
         votes = len(vulnerable)
         ratio = votes / len(valid)
 
-        if len(valid) == 1:
+        if len(verdicts) == 1:
             return self._single(valid[0], candidate, ratio)
+        if len(valid) == 1:
+            return partial_outcome(self.name, valid[0], verdicts, candidate)
 
         if votes >= cfg.consensus.min_votes and ratio >= cfg.consensus.min_ratio:
             mean_confidence = statistics.fmean(v.confidence for v in vulnerable)
@@ -202,6 +204,50 @@ class ConsensusAggregator:
             summary=summary,
             detail=detail,
         )
+
+
+def partial_outcome(
+    strategy: str,
+    survivor: ReviewVerdict,
+    verdicts: list[ReviewVerdict],
+    candidate: Candidate,
+) -> AggregationOutcome:
+    """複数の Reviewer に割り当てたが、有効な判定が 1 つしか残らなかったとき.
+
+    単独 Reviewer の規則 (§13.2) をそのまま当てると、他の Reviewer が落ちただけで
+    残った 1 体の「脆弱ではない」が false_positive になり候補が消える。
+    割れたら答えを出さない原則と P9 に従い、false_positive にも confirmed にもしない。
+    """
+    failed = len(verdicts) - 1
+    if survivor.vulnerable and survivor.confidence >= SINGLE_LIKELY_CONFIDENCE:
+        status = FindingStatus.LIKELY
+    else:
+        status = FindingStatus.REVIEW_REQUIRED
+    if survivor.vulnerable:
+        head = _headline(survivor, limit=SUMMARY_HEAD_LIMIT)
+        summary = f"{head} ({len(verdicts)} 中 1 の Reviewer のみ判定)"
+        severity = survivor.severity
+    else:
+        summary = (
+            f"{len(verdicts)} 中 {failed} の Reviewer が判定できず、残った 1 つの判定だけでは"
+            "決められません。人間による確認を推奨します。"
+        )
+        severity = candidate.severity_reported or Severity.INFO
+    return AggregationOutcome(
+        status=status,
+        severity=severity,
+        confidence=survivor.confidence,
+        agreement=Agreement.NOT_APPLICABLE,
+        summary=summary,
+        detail={
+            "strategy": strategy,
+            "mode": "partial_reviewers",
+            "valid_verdicts": 1,
+            "failed_verdicts": failed,
+            "votes": 1 if survivor.vulnerable else 0,
+            "reviewers": {verdict.reviewer: _describe(verdict) for verdict in verdicts},
+        },
+    )
 
 
 def _headline(verdict: ReviewVerdict, limit: int = SUMMARY_LIMIT) -> str:
