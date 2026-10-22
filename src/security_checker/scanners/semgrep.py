@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from security_checker.config.schema import SemgrepConfig
+from security_checker.errors import ConfigError
 from security_checker.models.candidate import Candidate, IdFactory, Location
 from security_checker.models.enums import Category, Severity
+from security_checker.rules import BUNDLED_PREFIX, bundled_semgrep_rule
 from security_checker.scanners.base import (
     BaseScanner,
     ScanContext,
@@ -147,6 +149,16 @@ def parse_semgrep(
     return candidates, warnings
 
 
+def resolve_config(value: str) -> str:
+    """`bundled:<名前>` を同梱ルールのパスにする. それ以外 (レジストリ名・パス) はそのまま渡す."""
+    if not value.startswith(BUNDLED_PREFIX):
+        return value
+    path = bundled_semgrep_rule(value.removeprefix(BUNDLED_PREFIX))
+    if path is None:  # 設定の検証を通っていれば起きない
+        raise ConfigError(f"未知の同梱ルール {value} です")
+    return str(path)
+
+
 class SemgrepScanner(BaseScanner):
     """`semgrep scan --json` を実行して Candidate を得る."""
 
@@ -169,11 +181,10 @@ class SemgrepScanner(BaseScanner):
             return self.skipped(status.reason or "semgrep が利用できません")
 
         raw_path = ctx.raw_dir / "semgrep.json"
-        argv = [
-            "semgrep",
-            "scan",
-            "--config",
-            self.settings.config,
+        argv = ["semgrep", "scan"]
+        for config in self.settings.configs:
+            argv += ["--config", resolve_config(config)]
+        argv += [
             "--json",
             "--quiet",
             "--metrics=off",
