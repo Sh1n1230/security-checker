@@ -146,6 +146,38 @@ async def test_token_budget_stops_run_and_keeps_partial_results():
     assert len(provider.requests) < 5
 
 
+async def test_disabled_reviewer_leaves_skipped_verdicts():
+    """途中で無効化された Reviewer の分も SKIPPED として残す.
+
+    欠けると、集約側が単独 Reviewer と区別できない (#91)。
+    """
+    _, broken, _, _ = make_scheduler([ProviderAuthError("401")])
+    working = build_runtime(
+        Reviewer("r2", ScriptedProvider([verdict_payload()] * 3)),
+        ReviewerConfig(
+            name="r2", transport="http", dialect="openai_chat", base_url="http://x/v1", model="m"
+        ),
+        default_concurrency=4,
+    )
+    scheduler = ReviewScheduler([broken, working], budget=BudgetConfig())
+    result = await scheduler.run([make_task(index) for index in range(3)])
+
+    for index in range(3):
+        verdicts = {v.reviewer: v for v in result.verdicts[f"c{index}"]}
+        assert set(verdicts) == {"r1", "r2"}
+        assert verdicts["r2"].status is VerdictStatus.OK
+        assert verdicts["r1"].status is not VerdictStatus.OK
+    assert result.calls == 4  # 足した SKIPPED は呼び出しに数えない
+
+
+async def test_unreviewed_candidates_get_no_skipped_verdicts():
+    """誰も判定していない候補は not_reviewed のまま残すため、SKIPPED を足さない."""
+    scheduler, _, _, _ = make_scheduler([ProviderAuthError("401")])
+    result = await scheduler.run([make_task(index) for index in range(3)])
+
+    assert set(result.verdicts) == {"c0"}
+
+
 async def test_no_reviewers_is_reported():
     scheduler = ReviewScheduler([], budget=BudgetConfig())
     result = await scheduler.run([make_task()])

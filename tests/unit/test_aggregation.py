@@ -123,6 +123,26 @@ def test_no_valid_verdicts_is_error(aggregator, cfg):
     assert outcome.detail["valid_verdicts"] == 0
 
 
+@pytest.mark.parametrize(
+    ("survivor", "expected"),
+    [
+        (verdict("a", vulnerable=False, confidence=0.9), FindingStatus.REVIEW_REQUIRED),
+        (verdict("a", confidence=0.95), FindingStatus.LIKELY),
+        (verdict("a", confidence=0.3), FindingStatus.REVIEW_REQUIRED),
+    ],
+)
+@pytest.mark.parametrize("failure", [VerdictStatus.PROVIDER_ERROR, VerdictStatus.SKIPPED])
+def test_partial_failure_does_not_fall_back_to_single_reviewer(
+    aggregator, cfg, survivor, expected, failure
+):
+    """2 体中 1 体が落ちたら、残った 1 体だけで false_positive / confirmed にしない (#91)."""
+    outcome = aggregator.aggregate(CANDIDATE, [survivor, verdict("b", status=failure)], cfg)
+    assert outcome.status is expected
+    assert outcome.detail["mode"] == "partial_reviewers"
+    assert outcome.detail["failed_verdicts"] == 1
+    assert set(outcome.detail["reviewers"]) == {"a", "b"}
+
+
 def test_all_need_more_context_is_inconclusive(aggregator, cfg):
     verdicts = [
         verdict("a", vulnerable=False, needs_more_context=["呼び出し元"]),
