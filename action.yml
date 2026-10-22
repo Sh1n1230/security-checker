@@ -136,9 +136,12 @@ runs:
         # スクリプトもアクションのチェックアウト (= 呼び出し側が SHA で固定したもの) から実行する
         "$GITHUB_ACTION_PATH/scripts/install-scanners.sh" "$BIN"
         echo "$BIN" >> "$GITHUB_PATH"
-        # 本体はアクションのチェックアウト (= 呼び出し側が SHA で固定したもの) から入れる
-        uv tool install --quiet "$GITHUB_ACTION_PATH"
-        echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+        # 本体はアクションのチェックアウト (= 呼び出し側が SHA で固定したもの) から入れる。
+        # 依存も uv.lock の版とハッシュどおりに入れる。uv tool install は lockfile を読まず、
+        # 推移的な依存が実行のたびに PyPI の最新版で解決される (Dockerfile とも食い違う)
+        export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/security-checker-venv"
+        uv sync --quiet --project "$GITHUB_ACTION_PATH" --frozen --no-dev --no-editable
+        echo "$UV_PROJECT_ENVIRONMENT/bin" >> "$GITHUB_PATH"
 
     - name: 実行モードを決める
       id: ctx
