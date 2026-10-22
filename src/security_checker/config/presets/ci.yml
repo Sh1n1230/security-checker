@@ -3,7 +3,7 @@ version: 1
 target:
   mode: auto
 scanners:
-  semgrep: { enabled: true, config: [p/default, "bundled:llm"] }
+  semgrep: { enabled: true, config: [p/default, "bundled:llm", "bundled:ci-lock"] }
   gitleaks: { enabled: true }
   osv: { enabled: true }
   trivy: { enabled: true, scanners: [config] }

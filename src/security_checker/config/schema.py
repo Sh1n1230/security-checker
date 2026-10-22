@@ -45,7 +45,9 @@ class ScannerConfig(StrictModel):
 
 class SemgrepConfig(ScannerConfig):
     #: `--config` に渡すもの. 1 つなら文字列、複数ならリスト。`bundled:<名前>` で同梱ルールを指す
-    config: str | list[str] = Field(default_factory=lambda: ["p/default", "bundled:llm"])
+    config: str | list[str] = Field(
+        default_factory=lambda: ["p/default", "bundled:llm", "bundled:ci-lock"]
+    )
 
     @field_validator("config")
     @classmethod
