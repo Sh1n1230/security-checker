@@ -121,6 +121,24 @@ def test_trivy_misconfig_and_vulns(raw_fixture):
     assert deps[0].cve == ["CVE-2018-18074"]
 
 
+@pytest.mark.parametrize("severity", ["UNKNOWN", None, 3])
+def test_trivy_misconfig_with_unknown_severity_is_medium(severity):
+    """重大度不明の誤設定を info にするとゲートとスコアから消える. 依存の脆弱性と同じく中とする."""
+    item: dict[str, Any] = {
+        "ID": "DS-9999",
+        "Status": "FAIL",
+        "Title": "独自の check",
+        "Message": "m",
+    }
+    if severity is not None:
+        item["Severity"] = severity
+    payload = {"Results": [{"Target": "Dockerfile", "Misconfigurations": [item]}]}
+    candidates, _ = parse_trivy(payload, Path("/repo"))
+    assert len(candidates) == 1
+    assert candidates[0].severity_reported is Severity.MEDIUM
+    assert "重大度不明" in candidates[0].message
+
+
 def test_trivy_without_results_is_empty():
     assert parse_trivy({"SchemaVersion": 2}, Path("/repo")) == ([], [])
 
