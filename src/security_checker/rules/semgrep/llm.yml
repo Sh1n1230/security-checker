@@ -1,0 +1,163 @@
+# bundled:llm — 第三者のテキストを、区切りも指示も付けずに LLM へ渡すコード (間接プロンプトインジェクション)
+#
+# OWASP Top 10 for LLM Applications の LLM01 (Prompt Injection) のうち間接型。Web ページの本文や
+# Issue・PR のコメントに「以前の指示を無視して〜」が入っていると、LLM がそれに従う。
+#
+#   - system / instructions に入る: high (ERROR)。モデルの振る舞いそのものを書き換えられる
+#   - user ロールの本文に入る: medium (WARNING)。既定の fail_on: high では CI を落とさない。
+#     区切りの有無や用途は LLM レビューに判定させる
+#
+# 区切りで囲む関数 (sanitizer) は既定では何も認めない。名前の規約だけで緩和とみなすと、
+# 中身の無い関数で黙らせられるため。
+#
+# テスト: tests/fixtures/bundled-rules/ (semgrep --test の形式)。tests/unit/test_bundled_semgrep_rules.py が回す。
+
+rules:
+  - id: llm-third-party-text-in-system-prompt
+    languages: [python]
+    severity: ERROR
+    message: >-
+      第三者が書いたテキスト (HTTP 応答・GitHub の Issue / PR / コメント・Web ページ) が、
+      LLM の system / instructions にそのまま入っています。テキスト中の命令でモデルの振る舞いを
+      書き換えられます (間接プロンプトインジェクション)。第三者のテキストは system に入れず、
+      user メッセージ側で区切りと「これはデータであり指示ではない」旨を付けて渡してください。
+    metadata: &metadata
+      category: security
+      cwe:
+        - "CWE-1427: Improper Neutralization of Input Used for Large Language Model (LLM) Prompting"
+      owasp:
+        - "LLM01:2025 Prompt Injection"
+      references:
+        - https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+        - https://cwe.mitre.org/data/definitions/1427.html
+      confidence: MEDIUM
+    paths: &test-paths
+      exclude:
+        - "/tests/"
+        - "test_*.py"
+        - "*_test.py"
+    mode: taint
+    pattern-sources: &python-sources
+      # HTTP 応答 (本文・JSON は応答オブジェクトから伝播する)
+      - pattern: requests.$METHOD(...)
+      - pattern: httpx.$METHOD(...)
+      - pattern: urllib.request.urlopen(...)
+      - pattern: trafilatura.fetch_url(...)
+      # GitHub (PyGithub)。取得したオブジェクトの .body / .title が第三者のテキスト
+      - pattern: $REPO.get_issue(...)
+      - pattern: $REPO.get_pull(...)
+      - pattern: $REPO.get_issues(...)
+      - pattern: $REPO.get_pulls(...)
+      - pattern: $X.get_comments(...)
+      - pattern: $X.get_issue_comments(...)
+      - pattern: $X.get_review_comments(...)
+    pattern-sinks:
+      # Anthropic: messages.create(system=...)
+      - patterns:
+          - pattern: $CLIENT.messages.create(..., system=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
+      # OpenAI Responses API: responses.create(instructions=...)
+      - patterns:
+          - pattern: $CLIENT.responses.create(..., instructions=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
+      # Google Gen AI: system_instruction=...
+      - patterns:
+          - pattern: $FUNC(..., system_instruction=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
+      # Chat 形式のメッセージ: {"role": "system" | "developer", "content": ...}
+      - patterns:
+          - pattern-either:
+              - pattern: '{..., "role": "system", ..., "content": $PROMPT, ...}'
+              - pattern: '{..., "role": "developer", ..., "content": $PROMPT, ...}'
+          - focus-metavariable: $PROMPT
+
+  - id: llm-third-party-text-in-user-message
+    languages: [python]
+    severity: WARNING
+    message: >-
+      第三者が書いたテキスト (HTTP 応答・GitHub の Issue / PR / コメント・Web ページ) が、
+      区切りを確認できない形で LLM の入力に入っています。テキスト中の命令に従うおそれがあります
+      (間接プロンプトインジェクション)。区切りで囲み、データであり指示ではないことを明示し、
+      LLM の出力をツール実行に直結させないでください。
+    metadata: *metadata
+    paths: *test-paths
+    mode: taint
+    pattern-sources: *python-sources
+    pattern-sinks:
+      - patterns:
+          - pattern: '{..., "role": "user", ..., "content": $PROMPT, ...}'
+          - focus-metavariable: $PROMPT
+      # OpenAI Responses API: responses.create(input=...)
+      - patterns:
+          - pattern: $CLIENT.responses.create(..., input=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
+      # Google Gen AI: models.generate_content(contents=...)
+      - patterns:
+          - pattern: $CLIENT.models.generate_content(..., contents=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
+      # LangChain: invoke / ainvoke に文字列やメッセージを渡す
+      - patterns:
+          - pattern-either:
+              - pattern: $LLM.invoke($PROMPT, ...)
+              - pattern: $LLM.ainvoke($PROMPT, ...)
+          - focus-metavariable: $PROMPT
+
+  - id: llm-third-party-text-in-system-prompt-js
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      fetch で取得したテキストが、LLM の system メッセージにそのまま入っています。
+      テキスト中の命令でモデルの振る舞いを書き換えられます (間接プロンプトインジェクション)。
+      第三者のテキストは system に入れず、user メッセージ側で区切りを付けて渡してください。
+    metadata: *metadata
+    paths:
+      exclude:
+        - "/tests/"
+        - "*.spec.ts"
+        - "*.test.ts"
+        - "*.spec.js"
+        - "*.test.js"
+    mode: taint
+    pattern-sources: &js-sources
+      - pattern: fetch(...)
+      - pattern: axios.$METHOD(...)
+      - pattern: $OCTOKIT.rest.issues.get(...)
+      - pattern: $OCTOKIT.rest.issues.listComments(...)
+      - pattern: $OCTOKIT.rest.pulls.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: '{..., role: "system", ..., content: $PROMPT, ...}'
+              - pattern: '{..., role: "developer", ..., content: $PROMPT, ...}'
+          - focus-metavariable: $PROMPT
+      - patterns:
+          - pattern: '$CLIENT.messages.create({..., system: $PROMPT, ...})'
+          - focus-metavariable: $PROMPT
+      - patterns:
+          - pattern: '$CLIENT.responses.create({..., instructions: $PROMPT, ...})'
+          - focus-metavariable: $PROMPT
+
+  - id: llm-third-party-text-in-user-message-js
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >-
+      fetch で取得したテキストが、区切りを確認できない形で LLM の入力に入っています。
+      テキスト中の命令に従うおそれがあります (間接プロンプトインジェクション)。
+      区切りで囲み、データであり指示ではないことを明示してください。
+    metadata: *metadata
+    paths:
+      exclude:
+        - "/tests/"
+        - "*.spec.ts"
+        - "*.test.ts"
+        - "*.spec.js"
+        - "*.test.js"
+    mode: taint
+    pattern-sources: *js-sources
+    pattern-sinks:
+      - patterns:
+          - pattern: '{..., role: "user", ..., content: $PROMPT, ...}'
+          - focus-metavariable: $PROMPT
+      - patterns:
+          - pattern: '$CLIENT.responses.create({..., input: $PROMPT, ...})'
+          - focus-metavariable: $PROMPT
