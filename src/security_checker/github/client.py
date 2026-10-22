@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -191,9 +191,35 @@ class CommentResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def _is_ours(comment: Mapping[str, Any]) -> bool:
-    body = comment.get("body") or ""
-    return isinstance(body, str) and body.startswith(SUMMARY_MARKER)
+def _author(comment: Mapping[str, Any]) -> str | None:
+    user = comment.get("user")
+    login = user.get("login") if isinstance(user, Mapping) else None
+    return login if isinstance(login, str) else None
+
+
+def _body(comment: Mapping[str, Any]) -> str:
+    body = comment.get("body")
+    return body if isinstance(body, str) else ""
+
+
+def _split_by_author(
+    comments: list[dict[str, Any]], author: str, has_marker: Callable[[str], bool]
+) -> tuple[list[dict[str, Any]], int]:
+    """マーカー付きのコメントを、指定した投稿者のものとそれ以外の件数に分ける.
+
+    マーカーは HTML コメントで画面に見えず、PR にコメントできる人なら誰でも書ける。
+    投稿者を見ないと、第三者のコメントで sticky サマリの更新先や inline の投稿済み判定を左右できる。
+    """
+    ours = [c for c in comments if has_marker(_body(c)) and _author(c) == author]
+    foreign = sum(1 for c in comments if has_marker(_body(c)) and _author(c) != author)
+    return ours, foreign
+
+
+def _foreign_warning(count: int, kind: str, author: str) -> str:
+    return (
+        f"{kind}のマーカーを含む、{author} 以外のコメントが {count} 件あります。"
+        "無視しました (別のトークンで投稿している場合は github.comment_author を設定してください)"
+    )
 
 
 def post_comments(
@@ -237,7 +263,14 @@ def _post_summary(
     body = render_summary(report, report_url=report_url)
     existing = None
     if settings.comment_mode == "sticky":
-        existing = next((c for c in client.issue_comments(pr) if _is_ours(c)), None)
+        ours, foreign = _split_by_author(
+            client.issue_comments(pr),
+            settings.comment_author,
+            lambda body: body.startswith(SUMMARY_MARKER),
+        )
+        existing = next(iter(ours), None)
+        if foreign:
+            result.warnings.append(_foreign_warning(foreign, "サマリ", settings.comment_author))
 
     if existing is not None:
         updated = client.update_issue_comment(pr, int(existing["id"]), body)
@@ -266,7 +299,16 @@ def _post_inline(
         str(item["filename"]): commentable_ranges(str(item.get("patch") or ""))
         for item in client.pull_files(pr)
     }
-    posted = existing_finding_ids(str(c.get("body") or "") for c in client.review_comments(pr))
+    ours, foreign = _split_by_author(
+        client.review_comments(pr),
+        settings.comment_author,
+        lambda body: bool(existing_finding_ids([body])),
+    )
+    if foreign:
+        result.warnings.append(
+            _foreign_warning(foreign, "inline コメント", settings.comment_author)
+        )
+    posted = existing_finding_ids(_body(c) for c in ours)
     plan = plan_inline(report, settings, commentable, posted)
     result.inline_already_posted = plan.already_posted
     result.inline_outside_diff = plan.outside_diff

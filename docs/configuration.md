@@ -123,6 +123,7 @@
 | `github.comment` / `comment_mode` | `true` / `sticky` | `security-checker comment` の挙動 |
 | `github.inline_comments` / `inline_min_status` / `max_inline_comments` | `true` / `likely` / `20` | |
 | `github.comment_on_clean` | `false` | 指摘ゼロで既存コメントが無いときも投稿するか |
+| `github.comment_author` | `github-actions[bot]` | 自分の投稿とみなすコメントの投稿者。`GITHUB_TOKEN` 以外で投稿するときはその login |
 | `logging.level` / `format` | `info` / `text` | **この節を書いたときだけ**標準エラーにログを出す。`--log-format json` でも可 |
 
 ## 抑制

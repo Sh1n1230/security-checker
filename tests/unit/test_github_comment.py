@@ -208,6 +208,10 @@ def test_commentable_ranges_from_a_patch():
 # --- 投稿 (GitHub API はモック) -----------------------------------------------------
 
 
+BOT = {"login": "github-actions[bot]", "type": "Bot"}
+STRANGER = {"login": "someone", "type": "User"}
+
+
 class FakeGithub:
     """GitHub API の振る舞いを最小限まねる."""
 
@@ -229,7 +233,12 @@ class FakeGithub:
         if path == "/repos/o/r/issues/7/comments" and request.method == "GET":
             return httpx.Response(200, json=self.issue_comments)
         if path == "/repos/o/r/issues/7/comments":
-            comment = {"id": 100, "body": body["body"], "html_url": "https://gh/c/100"}
+            comment = {
+                "id": 100,
+                "body": body["body"],
+                "html_url": "https://gh/c/100",
+                "user": BOT,
+            }
             self.issue_comments.append(comment)
             return httpx.Response(201, json=comment)
         if path.startswith("/repos/o/r/issues/comments/"):
@@ -240,7 +249,7 @@ class FakeGithub:
             return httpx.Response(200, json=self.review_comments)
         if path == "/repos/o/r/pulls/7/reviews":
             for comment in body["comments"]:
-                self.review_comments.append({"body": comment["body"]})
+                self.review_comments.append({"body": comment["body"], "user": BOT})
             return httpx.Response(200, json={"id": 5})
         return httpx.Response(404, json={"message": "not found"})
 
@@ -293,6 +302,38 @@ def test_someone_elses_comment_quoting_the_marker_is_not_edited():
     assert result.summary_action == "created"
 
 
+def test_summary_marker_from_another_author_is_not_edited():
+    """マーカーは誰でも書ける. 第三者のコメントを sticky サマリの更新先にしない (#77)."""
+    fake = FakeGithub(issue_comments=[{"id": 9, "body": SUMMARY_MARKER, "user": STRANGER}])
+    with fake.client() as client:
+        result = post_comments(client, PR, confirmed_report(), GithubConfig())
+    assert result.summary_action == "created"
+    assert ("PATCH", "/repos/o/r/issues/comments/9") not in fake.writes()
+    assert any("1 件" in w for w in result.warnings)
+
+
+def test_finding_marker_from_another_author_does_not_suppress_inline():
+    fake = FakeGithub()
+    with fake.client() as client:
+        post_comments(client, PR, confirmed_report(), GithubConfig())
+        for comment in fake.review_comments:
+            comment["user"] = STRANGER  # 作者が同じ本文を先に書いておいた状況
+        result = post_comments(client, PR, confirmed_report(), GithubConfig())
+    assert result.inline_posted == 1
+    assert result.inline_already_posted == 0
+    assert any("inline" in w for w in result.warnings)
+
+
+def test_comment_author_can_be_configured_for_other_tokens():
+    fake = FakeGithub(issue_comments=[{"id": 9, "body": SUMMARY_MARKER, "user": STRANGER}])
+    with fake.client() as client:
+        result = post_comments(
+            client, PR, confirmed_report(), GithubConfig(comment_author="someone")
+        )
+    assert result.summary_action == "updated"
+    assert result.warnings == []
+
+
 def test_clean_run_without_existing_comment_posts_nothing():
     fake = FakeGithub()
     with fake.client() as client:
@@ -302,7 +343,9 @@ def test_clean_run_without_existing_comment_posts_nothing():
 
 
 def test_clean_run_updates_an_existing_comment_to_green():
-    fake = FakeGithub(issue_comments=[{"id": 3, "body": SUMMARY_MARKER + "\n古い指摘"}])
+    fake = FakeGithub(
+        issue_comments=[{"id": 3, "body": SUMMARY_MARKER + "\n古い指摘", "user": BOT}]
+    )
     with fake.client() as client:
         result = post_comments(client, PR, make_report([]), GithubConfig())
     assert result.summary_action == "updated"

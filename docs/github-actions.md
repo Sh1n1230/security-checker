@@ -104,6 +104,9 @@ security-checker review --full               # 全件
   上限は `github.max_inline_comments` (既定 20)。
   **同じ指摘 (同じ fingerprint) には二度とコメントしません。**
 - `false_positive` は PR に出しません (`report.json` には残ります)。
+- 既存のサマリと inline コメントは、**本文先頭のマーカーと投稿者の両方**で見分けます。
+  投稿者は `github.comment_author` (既定 `github-actions[bot]`) です。PAT や GitHub App のトークンで
+  投稿する場合は、その login を設定してください。マーカーを含む他人のコメントは無視し、件数を警告に出します。
 
 本文の多くは LLM の出力で、レビュー対象のコードに由来する文字列を含みえます。
 投稿前に @メンションの無効化・HTML (コメント・タグ) と画像の無効化・コードスパンからの脱出防止・
