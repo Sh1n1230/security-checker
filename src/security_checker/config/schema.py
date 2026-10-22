@@ -247,6 +247,9 @@ class GithubConfig(StrictModel):
     max_inline_comments: int = Field(default=20, ge=0)
     #: 指摘ゼロのとき、既存コメントが無ければ何も投稿しない (§21.3 ノイズ抑制 2)
     comment_on_clean: bool = False
+    #: 自分の投稿とみなすコメントの投稿者 (login). マーカーは誰でも書けるため投稿者も確かめる。
+    #: GITHUB_TOKEN なら既定のまま。PAT や GitHub App のトークンではその login にする
+    comment_author: str = "github-actions[bot]"
 
 
 class LoggingConfig(StrictModel):

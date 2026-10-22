@@ -87,6 +87,7 @@ output:
 #   inline_min_status: likely   # confirmed | likely | review_required
 #   max_inline_comments: 20
 #   comment_on_clean: false     # 指摘ゼロで既存コメントが無ければ何も投稿しない
+#   comment_author: github-actions[bot]   # PAT / GitHub App で投稿するならその login
 #
 # budget:
 #   max_candidates: 200     # レビューに回す候補の上限
