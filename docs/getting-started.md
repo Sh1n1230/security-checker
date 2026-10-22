@@ -105,5 +105,6 @@ security-checker baseline update
 
 - [configuration.md](configuration.md) — 設定の全項目
 - [github-actions.md](github-actions.md) — PR ごとに動かす
+- [adoption.md](adoption.md) — 複数のリポジトリに導入し、必須チェックにするまで
 - [aggregation.md](aggregation.md) — 複数の Reviewer の結果をどうまとめるか
 - [security-model.md](security-model.md) — 何が外部に送られるか
