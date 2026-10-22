@@ -100,6 +100,21 @@ def test_config_show_outputs_resolved_json(tmp_path):
     assert payload["policy"]["fail_on"] == "critical"
 
 
+def test_config_show_masks_header_values(tmp_path):
+    """headers にはトークンを書きうる. config show は Issue に貼られるので値を出さない (#95)."""
+    (tmp_path / "security-checker.yml").write_text(
+        "version: 1\nreviewers:\n  - name: r1\n    transport: http\n    dialect: openai_chat\n"
+        "    base_url: https://example.invalid/v1\n    model: m\n"
+        "    headers:\n      X-Api-Key: dummy-value-for-repro\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["config", "show", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "dummy-value-for-repro" not in result.stdout
+    assert json.loads(result.stdout)["reviewers"][0]["headers"] == {"X-Api-Key": "****"}
+
+
 def test_config_show_explain_reports_origin(tmp_path):
     (tmp_path / "security-checker.yml").write_text(
         "version: 1\npolicy:\n  fail_on: critical\n", encoding="utf-8"

@@ -484,7 +484,8 @@ async def run_review(
         {
             "run_id": identifier,
             "started_at": started_at,
-            "target": str(root),
+            # 絶対パスは残さない (§6.1)。ユーザー名やディレクトリ構成が artifact に出る
+            "target": root.name,
             "config": config.masked_dump(),
             "scanners": [run.model_dump(mode="json") for run in runs],
             "reviewers": sorted(setup.configs),

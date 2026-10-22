@@ -96,6 +96,10 @@ class ReviewerCapabilities(StrictModel):
     reasoning: bool | None = None
 
 
+#: masked_dump で伏せた値の表現
+MASKED = "****"
+
+
 class ReviewerConfig(StrictModel):
     """Reviewer 定義 (P2 以降で使用).
 
@@ -128,6 +132,8 @@ class ReviewerConfig(StrictModel):
     #: モデルの保持時間 (例: "5m"). 連続レビューでの再ロードを避ける. ollama_chat のみ
     keep_alive: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
+    #: ヘッダ名 → 値を読む環境変数名. 秘密を含むヘッダは headers ではなくこちらに書く (§19.1)
+    headers_env: dict[str, str] = Field(default_factory=dict)
     capabilities: ReviewerCapabilities = ReviewerCapabilities()
     seed: int | None = None
 
@@ -289,5 +295,13 @@ class Config(StrictModel):
         }
 
     def masked_dump(self) -> dict[str, Any]:
-        """`config show` 用. 秘匿値は設計上そもそも保持しないが、名前解決の結果だけを見せる."""
-        return self.model_dump(mode="json")
+        """`config show` とトレース用. 秘匿値は保持しないが、名前解決の結果だけを見せる.
+
+        headers だけは任意の文字列を値に取れ、利用者がトークンを書きうるため値を伏せる。
+        出力は Issue に貼られたり CI の artifact に上がったりする。
+        どのヘッダを送るかは見せ、値は先頭も残さない (形式の判定に使う場面が無いため)。
+        """
+        dumped = self.model_dump(mode="json")
+        for reviewer in dumped["reviewers"]:
+            reviewer["headers"] = dict.fromkeys(reviewer["headers"], MASKED)
+        return dumped

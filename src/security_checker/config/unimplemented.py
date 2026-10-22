@@ -51,7 +51,7 @@ def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = N
 
 
 #: transport: process では読まれない項目 (http transport 専用)
-_HTTP_ONLY = ("base_url", "api_key_env", "headers")
+_HTTP_ONLY = ("base_url", "api_key_env", "headers", "headers_env")
 #: transport: http では読まれない項目 (process transport 専用)
 _PROCESS_ONLY = ("command", "prompt_via")
 

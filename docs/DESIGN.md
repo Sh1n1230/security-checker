@@ -766,6 +766,8 @@ reviewers:
     api_key_env: <ENV_VAR_NAME>
     headers:                      # 任意の追加ヘッダ(サービスが要求する場合)
       X-Some-Header: value
+    headers_env:                  # 秘密を含むヘッダは値を環境変数から読む
+      X-Api-Key: <ENV_VAR_NAME>
     capabilities:                 # 自動判定の上書き(任意)
       structured_output: json_mode
       max_context_tokens: 128000
