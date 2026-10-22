@@ -54,7 +54,7 @@
 |---|---|---|
 | `semgrep.enabled` / `config` | `true` / `p/default` | SAST。`config` はルールセットかファイル |
 | `gitleaks.enabled` | `true` | シークレット。検出値はマスクしてから保存・送信する |
-| `osv.enabled` | `false` | 依存の既知脆弱性 (別名をまとめて 1 件にする) |
+| `osv.enabled` | `true` | 依存の既知脆弱性 (別名をまとめて 1 件にする)。osv-scanner が未導入なら `skipped` |
 | `trivy.enabled` / `scanners` | `false` / `[config]` | `config` (誤設定) / `vuln` (依存)。`secret` は受け付けない |
 | `*.timeout_s` / `extra_args` | | タイムアウトと追加引数 |
 
