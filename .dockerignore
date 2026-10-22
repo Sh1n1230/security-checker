@@ -7,4 +7,5 @@
 !src/
 !scripts/scanner-versions.sh
 !scripts/install-scanners.sh
+!scripts/semgrep-requirements.txt
 **/__pycache__

@@ -58,7 +58,6 @@ jobs:
           BIN="$RUNNER_TEMP/security-checker-bin"
           scripts/install-scanners.sh "$BIN"
           echo "$BIN" >> "$GITHUB_PATH"
-          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
 
 
       - name: SARIF を生成

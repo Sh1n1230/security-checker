@@ -22,7 +22,7 @@ RUN apt-get update \
 
 # composite action と同じスクリプトで入れる (経路ごとに版が食い違わないようにする)。
 # install スクリプトを `curl | sh` で実行しない (検証せずに実行することになるため)
-COPY scripts/scanner-versions.sh scripts/install-scanners.sh /tmp/scanners/
+COPY scripts/scanner-versions.sh scripts/install-scanners.sh scripts/semgrep-requirements.txt /tmp/scanners/
 RUN /tmp/scanners/install-scanners.sh /usr/local/bin && rm -rf /tmp/scanners
 
 # 依存は uv.lock に固定した版をハッシュ検証つきで入れる (`pip install .` だとビルドした日の最新版になる)。

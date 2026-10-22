@@ -17,6 +17,10 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  # PR は差分だけを見るため、lock ファイルを触らない PR では新しく公開された依存の脆弱性が出ない。
+  # 週 1 回、既定ブランチを全件検査して拾う
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
