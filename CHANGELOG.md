@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.2.0](https://github.com/Sh1n1230/security-checker/compare/v2.1.0...v2.2.0) (2026-10-22)
+
+
+### Features
+
+* **config:** osv-scanner を既定で有効にし、週 1 回の全件検査をサンプルに加える ([#119](https://github.com/Sh1n1230/security-checker/issues/119)) ([93bcb14](https://github.com/Sh1n1230/security-checker/commit/93bcb14ec5e8c4a477b2d69851709821da66bd29))
+* **scanners:** scanners.semgrep.config にリストと同梱ルール (bundled:&lt;名前&gt;) を書けるようにする ([#129](https://github.com/Sh1n1230/security-checker/issues/129)) ([3bcc903](https://github.com/Sh1n1230/security-checker/commit/3bcc9031896d34a880f6cac3fff6cd4ec7b94303))
+* **scanners:** 同梱ルール bundled:ci-lock で、CI の uv sync が lock を強制していない手順を検出する ([#134](https://github.com/Sh1n1230/security-checker/issues/134)) ([6da15d4](https://github.com/Sh1n1230/security-checker/commit/6da15d4a02031d17e86cdea5b41d27b01722597c))
+* **scanners:** 同梱ルール bundled:llm で、第三者のテキストを LLM に渡すコードを検出する ([#132](https://github.com/Sh1n1230/security-checker/issues/132)) ([97ecb1c](https://github.com/Sh1n1230/security-checker/commit/97ecb1c01ffae292a0363ab48e6fb5b9bf88396c))
+
+
+### Bug Fixes
+
+* **action:** 本体を uv.lock どおりに入れる ([#116](https://github.com/Sh1n1230/security-checker/issues/116)) ([30d258c](https://github.com/Sh1n1230/security-checker/commit/30d258cb82a844a2f4b28854dfd9772e793cf23b))
+* **aggregate:** Reviewer の一部が失敗したとき、残った 1 体の判定だけで確定させない ([#111](https://github.com/Sh1n1230/security-checker/issues/111)) ([c7224ca](https://github.com/Sh1n1230/security-checker/commit/c7224ca4597b5b2c33dcf924c7809518b7d5adbc))
+* **cli:** eval の設定警告を標準エラーに出し、比較表に混ぜない ([#76](https://github.com/Sh1n1230/security-checker/issues/76)) ([98eb230](https://github.com/Sh1n1230/security-checker/commit/98eb230ae3c5a6f32a42eaa934b370e6dc8a0325))
+* **config:** reviewers[].headers の値を config show とトレースで伏せ、headers_env を追加する ([#113](https://github.com/Sh1n1230/security-checker/issues/113)) ([0da1b95](https://github.com/Sh1n1230/security-checker/commit/0da1b953c905ca435df6df76229352598af510bb))
+* **config:** transport に合わない項目と target.root を黙って無視しない ([#74](https://github.com/Sh1n1230/security-checker/issues/74)) ([73817a7](https://github.com/Sh1n1230/security-checker/commit/73817a7cb5ea553a0fd691728fd9e40d36dd6617))
+* **context:** 未実装の context.max_callers を警告し、効くという記述を外す ([#115](https://github.com/Sh1n1230/security-checker/issues/115)) ([53f1f22](https://github.com/Sh1n1230/security-checker/commit/53f1f22b19a2d4602535a53cb3106f6549812fd8))
+* **github:** diff の解析でハンク本文の --- / +++ 行をファイルヘッダと取り違えない ([#98](https://github.com/Sh1n1230/security-checker/issues/98)) ([8cc5187](https://github.com/Sh1n1230/security-checker/commit/8cc51876b4b721b68abb1161cd73340440c487c0))
+* **github:** PR コメントの投稿済み判定で投稿者も確かめる ([#114](https://github.com/Sh1n1230/security-checker/issues/114)) ([c99a2bb](https://github.com/Sh1n1230/security-checker/commit/c99a2bb65a6e6541ac642614876b75f72c51f352))
+* **run:** レビューが例外で抜けても Provider を閉じる ([#79](https://github.com/Sh1n1230/security-checker/issues/79)) ([b32b0ae](https://github.com/Sh1n1230/security-checker/commit/b32b0ae2cb254383a87310d9ff1e1707c76463f0))
+* **scanners:** semgrep の推移的な依存をハッシュで固定し、専用 venv に入れる ([#118](https://github.com/Sh1n1230/security-checker/issues/118)) ([c4060db](https://github.com/Sh1n1230/security-checker/commit/c4060db56d5a3bfd31db98500007c6e5bc802689))
+* **scanners:** target.exclude の解釈を gitignore にそろえ、全スキャナと ignore ファイルで共通にする ([#117](https://github.com/Sh1n1230/security-checker/issues/117)) ([99c1ac1](https://github.com/Sh1n1230/security-checker/commit/99c1ac15b3ad3ca51de5f20e4ae582bc2dadc752))
+* **scanners:** trivy の誤設定で重大度が不明なら medium として扱う ([#112](https://github.com/Sh1n1230/security-checker/issues/112)) ([f053621](https://github.com/Sh1n1230/security-checker/commit/f053621e2136383177be0e09cddd1b06908924f1))
+
+
+### Documentation
+
+* **adr:** メンテナが 1 人の間はマージに承認を必須にしない (0007) ([#99](https://github.com/Sh1n1230/security-checker/issues/99)) ([f5c41c8](https://github.com/Sh1n1230/security-checker/commit/f5c41c8cdb5ef3c05044914115d16743b5ea30c5))
+* 複数のリポジトリへの導入と、required check にするまでの手順を書く ([#122](https://github.com/Sh1n1230/security-checker/issues/122)) ([9129a80](https://github.com/Sh1n1230/security-checker/commit/9129a80f40204e3a744529d49943310653928601))
+
 ## [2.1.0](https://github.com/Sh1n1230/security-checker/compare/v2.0.0...v2.1.0) (2026-10-10)
 
 
