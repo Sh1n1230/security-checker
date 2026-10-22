@@ -78,6 +78,20 @@ def test_target_root_is_reported():
     assert any("target.root" in message for message in messages)
 
 
+def test_max_callers_is_reported_until_callers_are_collected():
+    """呼び出し元はまだ集めていない. 増やしても文脈は変わらない (#92)."""
+    config = Config.model_validate({"context": {"max_callers": 5}})
+    assert any("context.max_callers" in m for m in unimplemented_warnings(config, {}))
+    # 0 は実際の挙動 (呼び出し元を渡さない) と一致するので警告しない
+    assert unimplemented_warnings(Config.model_validate({"context": {"max_callers": 0}}), {}) == []
+
+
+def test_bundled_presets_do_not_set_max_callers(tmp_path):
+    for preset in ("frugal", "minimal", "thorough"):
+        loaded = load_config(tmp_path, preset=preset)
+        assert not any("max_callers" in message for message in loaded.warnings), preset
+
+
 def test_http_only_fields_on_process_transport_are_reported():
     config = Config.model_validate(
         {
