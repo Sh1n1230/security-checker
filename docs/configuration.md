@@ -46,7 +46,7 @@
 | キー | 既定 | 説明 |
 |---|---|---|
 | `mode` | `auto` | `auto` (PR の文脈なら差分のみ) / `full` / `diff`。CLI の `--base` / `--full` で上書き |
-| `exclude` | vendor・node_modules など | 除外する glob。CLI の `--exclude` は**置き換え** (追加ではない) |
+| `exclude` | vendor・node_modules など | 除外する glob。gitignore と同じ解釈 (`tests` はどの階層の tests にも一致、先頭か途中に `/` があればルート起点、一致したディレクトリの配下も除外)。全スキャナと `.security-checker-ignore` で共通。CLI の `--exclude` は**置き換え** (追加ではない) |
 
 ### scanners
 
