@@ -36,6 +36,13 @@ v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒�
 ### semgrep
 
 - `scanners.semgrep.config` は `p/default` のようなルールセットか、ルールファイルのパス。
+  複数ならリストで書きます。既定は `[p/default, bundled:llm]`。
+- `bundled:<名前>` は security-checker が同梱するルールです。解決先は常にパッケージ内で、
+  検査対象のツリーからは読みません。
+
+  | 名前 | 内容 |
+  |---|---|
+  | `bundled:llm` | 第三者のテキスト (HTTP 応答・GitHub の Issue / PR / コメント・Web ページ) を、区切りを確認できない形で LLM に渡すコード (間接プロンプトインジェクション。OWASP LLM01 / CWE-1427)。system / instructions に入れば high、user メッセージなら medium。Python (OpenAI・Anthropic・Google Gen AI・LangChain) と JavaScript / TypeScript (fetch・axios・Octokit → OpenAI / Anthropic)。テストコード (`tests/`・`test_*.py`・`*.spec.ts` など) は対象外 |
 - 生出力は `raw/semgrep.json` に、パスを相対にして保存します。
 
 ### gitleaks

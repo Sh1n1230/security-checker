@@ -73,7 +73,7 @@ target-version = "py311"
 # 設計書内のコードブロックまで整形されないよう、対象を明示する
 include = ["src/**/*.py", "tests/**/*.py", "pyproject.toml"]
 # 意図的に脆弱なサンプルは検査対象外 (直すと E2E テストの意味がなくなる)
-extend-exclude = ["tests/fixtures/vulnerable-app"]
+extend-exclude = ["tests/fixtures/vulnerable-app", "tests/fixtures/bundled-rules"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "ASYNC", "S"]
@@ -92,7 +92,7 @@ allowed-confusables = ["×", "－", "–"]
 python_version = "3.11"
 strict = true
 files = ["src", "tests"]
-exclude = "tests/fixtures/vulnerable-app"
+exclude = "tests/fixtures/(vulnerable-app|bundled-rules)"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]

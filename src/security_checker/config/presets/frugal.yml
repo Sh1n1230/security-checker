@@ -1,7 +1,7 @@
 # frugal — コスト優先。候補数と文脈量を絞る。
 version: 1
 scanners:
-  semgrep: { enabled: true, config: p/default }
+  semgrep: { enabled: true, config: [p/default, "bundled:llm"] }
   gitleaks: { enabled: true }
   osv: { enabled: true }
   trivy: { enabled: false }
