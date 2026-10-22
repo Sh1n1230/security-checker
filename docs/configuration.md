@@ -21,7 +21,8 @@
 - **受け付けるが効かない設定は無い**ようにしています。方言に合わない項目
   (例: `ollama_chat` 以外での `num_ctx`)・transport に合わない項目
   (例: `transport: process` での `base_url`、`transport: http` での `command`)・
-  `target.root` (検査対象は CLI の引数 `PATH` で決まる) は警告します。
+  `target.root` (検査対象は CLI の引数 `PATH` で決まる)・
+  `context.max_callers` (呼び出し元の収集は未実装。既定値と `0` 以外) は警告します。
 
 `SECURITY_CHECKER_UNTRUSTED_TARGET=1` のときは、検査対象のツリーから設定を一切読まず、
 `--config` で対象外のファイルを渡す必要があります (fork PR を権限付きで検査するとき。
@@ -110,7 +111,8 @@
 | `budget.max_usd` / `max_total_tokens` | `1.0` / `2,000,000` | 超えたら新規呼び出しを止め、部分結果を出す |
 | `budget.on_exceed` | `stop_and_report` | `warn_and_continue` にすると止めない |
 | `concurrency.scanners` / `reviews_per_provider` | `4` / `4` | |
-| `context.window_lines` / `max_callers` / `max_tokens_per_task` | `40` / `3` / `8000` | LLM に渡す文脈 |
+| `context.window_lines` / `max_tokens_per_task` | `40` / `8000` | LLM に渡す文脈 |
+| `context.max_callers` | `3` | **未実装**。呼び出し元のコードはまだ文脈に含めない (既定値と `0` 以外を書くと警告) |
 
 ### output / github / logging
 

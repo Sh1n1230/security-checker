@@ -129,7 +129,7 @@ output). See [docs/providers.md](docs/providers.md).
 
 ```text
 Scanners ─► normalize ─► suppress (baseline / ignore / annotations) ─► diff scope
-        ─► context builder (code window, callers, repo facts) ─► reviewers (rate / budget limited)
+        ─► context builder (code window, repo facts) ─► reviewers (rate / budget limited)
         ─► aggregation (consensus / weighted / judge) ─► policy ─► terminal / JSON / Markdown / SARIF / PR
 ```
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from security_checker.config.schema import Config, ReviewerConfig
+from security_checker.config.schema import Config, ContextConfig, ReviewerConfig
 
 
 def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = None) -> list[str]:
@@ -30,6 +30,14 @@ def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = N
         warnings.append(
             f"target.root ({config.target.root}) は使われません。"
             "検査対象は `security-checker scan PATH` / `review PATH` の引数で指定してください"
+        )
+
+    # 呼び出し元の収集は未実装で、CodeContext.callers は常に空。0 なら実際の挙動と一致する
+    default_callers = ContextConfig.model_fields["max_callers"].default
+    if config.context.max_callers not in (0, default_callers):
+        warnings.append(
+            f"context.max_callers ({config.context.max_callers}) は未実装のため効きません。"
+            "LLM に渡す文脈に呼び出し元のコードは含まれません"
         )
 
     for reviewer in config.reviewers:

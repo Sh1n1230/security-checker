@@ -8,7 +8,6 @@ scanners:
   trivy: { enabled: false }
 context:
   window_lines: 30
-  max_callers: 1
 budget:
   max_candidates: 50
 policy:
