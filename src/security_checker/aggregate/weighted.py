@@ -20,7 +20,7 @@ from security_checker.aggregate.base import (
     SEVERITY_NUMBER,
     AggregationOutcome,
 )
-from security_checker.aggregate.consensus import _describe, _headline
+from security_checker.aggregate.consensus import _describe, _headline, partial_outcome
 from security_checker.config.schema import AggregationConfig
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Agreement, FindingStatus, Severity
@@ -63,6 +63,10 @@ class WeightedAggregator:
                     "total_verdicts": len(verdicts),
                 },
             )
+
+        if len(valid) == 1 and len(verdicts) > 1:
+            # 残った 1 体の重みだけで正規化すると、その判定がそのまま ±confidence のスコアになる
+            return partial_outcome(self.name, valid[0], verdicts, candidate)
 
         total_weight = sum(self.weight_of(verdict) for verdict in valid)
         if total_weight <= 0:

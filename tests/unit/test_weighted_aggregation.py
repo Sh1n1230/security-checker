@@ -175,3 +175,15 @@ def test_detail_keeps_the_calculation():
     assert "score" in outcome.detail
     assert "weights" in outcome.detail
     assert "reviewers" in outcome.detail
+
+
+@pytest.mark.parametrize("failure", [VerdictStatus.PROVIDER_ERROR, VerdictStatus.SKIPPED])
+def test_partial_failure_is_not_false_positive(failure):
+    """失敗した Reviewer を除いて正規化すると、残った 1 体の判定がそのまま確定してしまう (#91)."""
+    outcome = WeightedAggregator().aggregate(
+        CANDIDATE,
+        [verdict("a", vulnerable=False, confidence=0.9), verdict("b", status=failure)],
+        CFG,
+    )
+    assert outcome.status is FindingStatus.REVIEW_REQUIRED
+    assert outcome.detail["mode"] == "partial_reviewers"
