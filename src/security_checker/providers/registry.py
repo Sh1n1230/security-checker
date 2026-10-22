@@ -64,6 +64,24 @@ def resolve_api_key(reviewer: ReviewerConfig, environ: dict[str, str] | None = N
     return value
 
 
+def resolve_headers(
+    reviewer: ReviewerConfig, environ: dict[str, str] | None = None
+) -> dict[str, str]:
+    """追加ヘッダ. headers_env の値は API キーと同じく環境変数からのみ取得する (§19.1)."""
+    source = environ if environ is not None else dict(os.environ)
+    headers = dict(reviewer.headers)
+    for name, variable in reviewer.headers_env.items():
+        value = source.get(variable)
+        if not value:
+            raise ConfigError(
+                f"reviewer '{reviewer.name}': ヘッダ {name} の環境変数 {variable} "
+                "が設定されていません。"
+                f"`export {variable}=...` を実行するか、headers_env を修正してください"
+            )
+        headers[name] = value
+    return headers
+
+
 def resolve_capabilities(
     reviewer: ReviewerConfig,
     preset: BasePreset | None,
@@ -129,7 +147,7 @@ def build_http_provider(
         model=reviewer.model,
         capabilities=resolve_capabilities(reviewer, preset),
         api_key=resolve_api_key(key_source, environ),
-        extra_headers=dict(reviewer.headers),
+        extra_headers=resolve_headers(reviewer, environ),
         client=client,
     )
 

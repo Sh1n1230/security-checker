@@ -15,6 +15,7 @@ from security_checker.providers.registry import (
     build_provider,
     resolve_api_key,
     resolve_capabilities,
+    resolve_headers,
 )
 
 
@@ -79,6 +80,18 @@ def test_build_http_provider():
     assert provider.transport == "http"
     assert provider.dialect == "openai_chat"
     assert provider.model == "m"
+
+
+def test_headers_env_reads_values_from_the_environment():
+    config = reviewer(headers={"X-Plain": "p"}, headers_env={"X-Api-Key": "MY_HEADER_KEY"})
+    headers = resolve_headers(config, {"MY_HEADER_KEY": "v"})
+    assert headers == {"X-Plain": "p", "X-Api-Key": "v"}
+
+
+def test_headers_env_without_the_variable_is_config_error():
+    config = reviewer(headers_env={"X-Api-Key": "MY_HEADER_KEY"})
+    with pytest.raises(ConfigError, match="MY_HEADER_KEY"):
+        build_http_provider(config, environ={}, presets={})
 
 
 def test_unknown_dialect_is_config_error():

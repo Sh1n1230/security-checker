@@ -67,6 +67,7 @@
 |---|---|
 | `name` / `transport` | 必須。`transport` は `http` / `process` |
 | `dialect` / `base_url` / `model` / `api_key_env` | http 用。キーは**環境変数名**だけを書く |
+| `headers` / `headers_env` | http 用の追加ヘッダ。秘密を含むヘッダは `headers_env` に**環境変数名**を書く (`X-Api-Key: MY_ENV`)。`headers` の値は `config show` とトレースでは伏せる |
 | `command` / `preset` / `prompt_via` | process 用 |
 | `weight` | `weighted` 集約での重み |
 | `timeout_s` / `concurrency` / `max_output_tokens` / `seed` | 呼び出しの制御 |
