@@ -229,12 +229,14 @@ def test_unquoted_secret_on_the_detected_line_is_masked(repo):
 
 def test_values_near_a_non_secret_candidate_are_masked(repo):
     """semgrep などの候補の文脈窓に入った値も伏せる (カテゴリによらない)."""
+    # このファイル自体が自己検査で秘密鍵として検出されないよう、見出しを組み立てる
+    pem_label = "OPENSSH " + "PRIVATE KEY"
     (repo / "src" / "conf.py").write_text(
         f"password: {ENV_VALUE}\n"
         f"KEY = {SECRET}\n"
-        "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+        f"-----BEGIN {pem_label}-----\n"
         "TESTONLYdummyPrivateKeyBodyLine1\n"
-        "-----END OPENSSH PRIVATE KEY-----\n"
+        f"-----END {pem_label}-----\n"
         "eval(user_input)\n",
         encoding="utf-8",
     )
@@ -246,7 +248,7 @@ def test_values_near_a_non_secret_candidate_are_masked(repo):
     assert ENV_VALUE not in primary.text
     assert SECRET not in primary.text
     assert "TESTONLYdummyPrivateKeyBodyLine1" not in primary.text
-    assert "-----BEGIN OPENSSH PRIVATE KEY-----" in primary.text
+    assert f"-----BEGIN {pem_label}-----" in primary.text
     assert "eval(user_input)" in primary.text
 
 
