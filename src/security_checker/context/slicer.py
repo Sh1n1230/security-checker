@@ -15,6 +15,18 @@ MAX_FILE_BYTES = 2_000_000
 BINARY_SNIFF_BYTES = 4096
 
 
+def resolve_inside(root: Path, relative: str) -> Path | None:
+    """`root / relative` を解決し、root の配下に収まるときだけ返す."""
+    try:
+        base = root.resolve()
+        path = (root / relative).resolve()
+    except (OSError, RuntimeError):  # RuntimeError: リンクの循環 (Python 3.12 まで)
+        return None
+    if not path.is_relative_to(base):
+        return None
+    return path
+
+
 def read_text_file(path: Path) -> list[str] | None:
     """テキストとして読めなければ None. バイナリを文脈に混ぜない."""
     try:
@@ -35,8 +47,15 @@ def line_window(
     window_lines: int,
     label: str = "primary",
 ) -> CodeSlice | None:
-    """該当行の前後 window_lines 行を切り出す."""
-    lines = read_text_file(root / location.path)
+    """該当行の前後 window_lines 行を切り出す.
+
+    読むのは検査対象 (root) の配下にあるファイルだけ。シンボリックリンクや `..` で
+    外を指すパスは、リンク先を解決したうえで読まない (policy/ignore.py と同じ規則)。
+    """
+    path = resolve_inside(root, location.path)
+    if path is None:
+        return None
+    lines = read_text_file(path)
     if lines is None:
         return None
     total = len(lines)

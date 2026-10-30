@@ -176,3 +176,90 @@ def test_repo_facts(repo):
 def test_repo_facts_can_be_disabled(repo):
     task = builder(repo, include_repo_facts=False).build(sast_candidate())
     assert task.repo_facts.languages == []
+
+
+# --- 検査対象の外を読まない / 引用符の無い値も伏せる ---------------------------
+
+ENV_VALUE = "TESTONLYdummyValue0123456789"  # gitleaks:allow
+
+
+def test_line_window_does_not_follow_a_symlink_outside_root(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "host.txt").write_text("outside-content\n", encoding="utf-8")
+    root = tmp_path / "repo"
+    root.mkdir()
+    try:
+        (root / "link.txt").symlink_to(outside / "host.txt")
+    except (OSError, NotImplementedError):
+        pytest.skip("この環境ではシンボリックリンクを作れない")
+    location = Location(path="link.txt", start_line=1, end_line=1)
+    assert line_window(root, location, window_lines=5) is None
+
+
+def test_line_window_follows_a_symlink_inside_root(repo):
+    try:
+        (repo / "alias.py").symlink_to(repo / "src" / "app.py")
+    except (OSError, NotImplementedError):
+        pytest.skip("この環境ではシンボリックリンクを作れない")
+    slice_ = line_window(repo, Location(path="alias.py", start_line=3, end_line=3), window_lines=1)
+    assert slice_ is not None
+    assert "line3" in slice_.text
+
+
+def test_line_window_does_not_read_a_parent_path(tmp_path):
+    (tmp_path / "secret.txt").write_text("outside-content\n", encoding="utf-8")
+    root = tmp_path / "repo"
+    root.mkdir()
+    location = Location(path="../secret.txt", start_line=1, end_line=1)
+    assert line_window(root, location, window_lines=5) is None
+
+
+def test_unquoted_secret_on_the_detected_line_is_masked(repo):
+    (repo / ".env").write_text(f"DEBUG=1\nSERVICE_CREDENTIALS={ENV_VALUE}\n", encoding="utf-8")
+    candidate = secret_candidate().model_copy(
+        update={"location": Location(path=".env", start_line=2, end_line=2, snippet="TEST****")}
+    )
+    primary = builder(repo).build(candidate).code_context.primary
+    assert primary is not None
+    assert ENV_VALUE not in primary.text
+    assert "SERVICE_CREDENTIALS=" in primary.text
+    assert "DEBUG=1" in primary.text
+
+
+def test_values_near_a_non_secret_candidate_are_masked(repo):
+    """semgrep などの候補の文脈窓に入った値も伏せる (カテゴリによらない)."""
+    (repo / "src" / "conf.py").write_text(
+        f"password: {ENV_VALUE}\n"
+        f"KEY = {SECRET}\n"
+        "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+        "TESTONLYdummyPrivateKeyBodyLine1\n"
+        "-----END OPENSSH PRIVATE KEY-----\n"
+        "eval(user_input)\n",
+        encoding="utf-8",
+    )
+    candidate = sast_candidate().model_copy(
+        update={"location": Location(path="src/conf.py", start_line=6, end_line=6)}
+    )
+    primary = builder(repo).build(candidate).code_context.primary
+    assert primary is not None
+    assert ENV_VALUE not in primary.text
+    assert SECRET not in primary.text
+    assert "TESTONLYdummyPrivateKeyBodyLine1" not in primary.text
+    assert "-----BEGIN OPENSSH PRIVATE KEY-----" in primary.text
+    assert "eval(user_input)" in primary.text
+
+
+def test_references_to_secrets_are_kept(repo):
+    """値ではなく参照 (関数呼び出し・環境変数の読み出し) は判断材料なので伏せない."""
+    (repo / "src" / "ref.py").write_text(
+        'token = os.environ["SERVICE_TOKEN"]\npassword = load_password_from_vault(name)\n',
+        encoding="utf-8",
+    )
+    candidate = sast_candidate().model_copy(
+        update={"location": Location(path="src/ref.py", start_line=1, end_line=1)}
+    )
+    primary = builder(repo).build(candidate).code_context.primary
+    assert primary is not None
+    assert 'os.environ["SERVICE_TOKEN"]' in primary.text
+    assert "load_password_from_vault(name)" in primary.text
