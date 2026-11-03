@@ -19,6 +19,7 @@ from security_checker.errors import ConfigError, ExitCode
 from security_checker.eval.dataset import load_dataset
 from security_checker.eval.runner import run_eval, to_markdown
 from security_checker.models.enums import FindingStatus
+from security_checker.providers.errors import ProviderServerError
 from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import build_runtime
 from security_checker.run import ReviewerSetup
@@ -270,3 +271,63 @@ async def test_providers_are_closed_even_if_the_review_fails(tmp_path):
     with pytest.raises(ConfigError, match="no-such-strategy"):
         await run_eval(dataset, config, reviewer_setup=setup)
     assert provider.closed
+
+
+# --- 採点できない run と保留だらけの run は失敗にする (#176, #177) ----------------------
+
+
+def _invoke_eval(tmp_path: Path, monkeypatch: Any, script: list[Any], *extra: str) -> Any:
+    dataset = make_dataset(tmp_path)
+    config = tmp_path / "security-checker.yml"
+    config.write_text(
+        "version: 1\nreviewers:\n"
+        "  - name: r1\n    transport: http\n    dialect: openai_chat\n"
+        "    base_url: http://stub/v1\n    model: stub\n",
+        encoding="utf-8",
+    )
+
+    async def fake_run_eval(dataset_arg, config_arg, **kwargs):
+        from security_checker.eval.runner import run_eval as real
+
+        return await real(dataset_arg, config_arg, reviewer_setup=setup_with(script))
+
+    monkeypatch.setattr("security_checker.cli.run_eval", fake_run_eval)
+    return runner.invoke(
+        app, ["eval", "--dataset", str(dataset), "--config", str(config), "--quiet", *extra]
+    )
+
+
+def test_cli_fails_when_cases_could_not_be_graded(tmp_path, monkeypatch):
+    script = [ProviderServerError("500")] * 6
+    result = _invoke_eval(tmp_path, monkeypatch, script)
+    assert result.exit_code == ExitCode.EXECUTION_ERROR
+    assert "--allow-incomplete" in result.output
+
+
+def test_cli_can_allow_incomplete_runs(tmp_path, monkeypatch):
+    script = [ProviderServerError("500")] * 6
+    result = _invoke_eval(tmp_path, monkeypatch, script, "--allow-incomplete")
+    assert result.exit_code == ExitCode.OK
+
+
+def test_cli_fails_when_too_many_cases_are_deferred(tmp_path, monkeypatch):
+    unsure = verdict_payload(vulnerable=True, severity="high", confidence=0.3)
+    result = _invoke_eval(tmp_path, monkeypatch, [unsure] * 2)
+    assert result.exit_code == ExitCode.POLICY_VIOLATION
+    assert "--max-deferred-rate" in result.output
+
+
+def test_cli_deferred_rate_limit_can_be_raised(tmp_path, monkeypatch):
+    unsure = verdict_payload(vulnerable=True, severity="high", confidence=0.3)
+    result = _invoke_eval(tmp_path, monkeypatch, [unsure] * 2, "--max-deferred-rate", "1.0")
+    assert result.exit_code == ExitCode.OK
+
+
+async def test_a_run_stopped_by_budget_does_not_score_unreviewed_cases(tmp_path):
+    dataset = load_dataset(make_dataset(tmp_path))
+    setup = setup_with([verdict_payload(vulnerable=False, severity="none")] * 2)
+    result = await run_eval(
+        dataset, make_config(budget={"max_total_tokens": 1}), reviewer_setup=setup
+    )
+    assert result.metrics.not_reviewed == 1
+    assert "未レビュー 1" in to_markdown(result)

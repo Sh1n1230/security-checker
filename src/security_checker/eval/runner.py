@@ -158,18 +158,24 @@ def to_markdown(result: EvalResult) -> str:
         "",
         f"- Reviewer: {', '.join(result.reviewers) or '(なし)'}",
         f"- 集約戦略: {result.aggregation}",
-        f"- ケース数: {metrics.cases} (エラー {metrics.errors})",
+        f"- ケース数: {metrics.cases} "
+        f"(採点外: エラー {metrics.errors} / 未レビュー {metrics.not_reviewed})",
         "",
         "## 指標",
         "",
         "| 指標 | 値 | 位置づけ |",
         "|---|---|---|",
-        f"| **Recall (検出率)** | {_pct(metrics.recall)} | **主指標**。見逃しを増やしていないか |",
+        f"| **Recall (検出率)** | {_pct(metrics.recall)} | "
+        "**主指標**。陽性全体のうち自動で検出した割合。保留は検出に数えない |",
+        f"| 判定した中での Recall | {_pct(metrics.answered_recall)} | "
+        "参考値。保留が増えると上がるので比較に使わない |",
         f"| Precision | {_pct(metrics.precision)} | 副指標。ノイズの少なさ |",
         f"| F1 | {_pct(metrics.f1)} | 総合 |",
-        f"| **FP 削減率** | {_pct(metrics.fp_reduction)} | このツールの価値そのもの |",
+        f"| **FP 削減率** | {_pct(metrics.fp_reduction)} | "
+        "このツールの価値そのもの。保留した陰性は削減に数えない |",
         f"| **見逃した真陽性** | {metrics.missed_true_positives} 件 | **0 に近いことが必須条件** |",
-        f"| review_required 率 | {_pct(metrics.review_required_rate)} | 高すぎると実用性が下がる |",
+        f"| review_required 率 | {_pct(metrics.review_required_rate)} | "
+        f"高すぎると実用性が下がる (人間に渡した FP {metrics.deferred_negatives} 件) |",
         f"| Severity MAE | {_num(metrics.severity_mae)} | 重大度判定の質 |",
         f"| CWE 一致率 | {_pct(metrics.cwe_match_rate)} | 分類の質 |",
         f"| コスト | {_usd(metrics)} | 実運用可能性 |",
