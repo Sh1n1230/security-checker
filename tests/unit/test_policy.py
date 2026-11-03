@@ -7,9 +7,19 @@ import pytest
 from security_checker.config.schema import PolicyConfig
 from security_checker.errors import ExitCode
 from security_checker.models.candidate import Candidate
-from security_checker.models.enums import Category, ScanStatus, Severity
-from security_checker.models.report import Coverage, Report, ScannerRun, Score, TargetInfo, utcnow
+from security_checker.models.enums import Category, FindingStatus, ScanStatus, Severity
+from security_checker.models.finding import Finding, SuppressionReason
+from security_checker.models.report import (
+    Coverage,
+    Report,
+    ReviewerRun,
+    ScannerRun,
+    Score,
+    TargetInfo,
+    utcnow,
+)
 from security_checker.policy.engine import evaluate
+from tests.factories import make_candidate, make_report
 
 
 def build_report(
@@ -88,3 +98,49 @@ def test_reasons_are_reported():
     decision = evaluate(report, PolicyConfig())
     assert decision.failed
     assert "policy.fail_on" in decision.reasons[0]
+
+
+# --- レビューが最後まで行われなかった run (#159) --------------------------------
+
+
+def _finding(status: FindingStatus, **overrides: object) -> Finding:
+    candidate = make_candidate()
+    return Finding(candidate=candidate, status=status, severity=Severity.CRITICAL, **overrides)
+
+
+@pytest.mark.parametrize(
+    ("findings", "overrides"),
+    [
+        ([_finding(FindingStatus.NOT_REVIEWED)], {}),
+        ([_finding(FindingStatus.ERROR)], {}),
+        ([_finding(FindingStatus.FALSE_POSITIVE)], {"stopped_reason": "予算を超えました"}),
+        (
+            [_finding(FindingStatus.REVIEW_REQUIRED)],
+            {"reviewers": [ReviewerRun(name="r2", disabled_reason="401 Unauthorized")]},
+        ),
+    ],
+)
+def test_strict_treats_an_incomplete_review_as_an_execution_error(findings, overrides):
+    report = make_report([make_candidate()], findings, **overrides)
+    assert evaluate(report, PolicyConfig(strict=True)).exit_code is ExitCode.EXECUTION_ERROR
+    # strict でなければレビュー済みの結果で判定する。exit は変えない
+    assert evaluate(report, PolicyConfig(strict=False)).exit_code is ExitCode.OK
+
+
+def test_all_reasons_for_an_incomplete_review_are_listed():
+    report = make_report(
+        [make_candidate()],
+        [_finding(FindingStatus.NOT_REVIEWED)],
+        stopped_reason="予算を超えました",
+        reviewers=[ReviewerRun(name="r2", disabled_reason="401 Unauthorized")],
+    )
+    reasons = evaluate(report, PolicyConfig(strict=True)).reasons
+    assert len(reasons) == 3
+    assert any("r2" in reason for reason in reasons)
+    assert any("予算を超えました" in reason for reason in reasons)
+
+
+def test_a_suppressed_not_reviewed_candidate_is_not_incomplete():
+    finding = _finding(FindingStatus.NOT_REVIEWED, suppressed=SuppressionReason.BASELINE)
+    report = make_report([make_candidate()], [finding])
+    assert evaluate(report, PolicyConfig(strict=True)).exit_code is ExitCode.OK
