@@ -118,7 +118,11 @@ class ReviewerCapabilities(StrictModel):
     supports_temperature: bool | None = None
     supports_seed: bool | None = None
     reasoning: bool | None = None
+    output_limit_param: Literal["max_tokens", "max_completion_tokens"] | None = None
 
+
+#: transport: process の timeout_s の既定 (§9.7)
+PROCESS_TIMEOUT_S = 300
 
 #: masked_dump で伏せた値の表現
 MASKED = "****"
@@ -132,7 +136,10 @@ class ReviewerConfig(StrictModel):
 
     name: str
     transport: Literal["http", "process"]
+    #: false なら読み込み時に外す. 手元で共有の Reviewer を止めるために使う
+    enabled: bool = True
     weight: float = Field(default=1.0, ge=0.0)
+    #: 既定は transport で変わる (http 120 / process 300)。_default_timeout を参照
     timeout_s: int = Field(default=120, gt=0)
     concurrency: int = Field(default=1, gt=0)
     rate_limit: RateLimit = RateLimit()
@@ -168,6 +175,14 @@ class ReviewerConfig(StrictModel):
     prompt_via: Literal["stdin", "file"] = "stdin"
     #: stdout の解釈方法. 現状は「最初の JSON オブジェクトを抽出する」のみ
     parse: Literal["json_in_stdout"] = "json_in_stdout"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_timeout(cls, data: Any) -> Any:
+        """process の応答は数十秒〜数分かかるので、既定のタイムアウトを長くする (§9.7)."""
+        if isinstance(data, dict) and data.get("transport") == "process":
+            return {"timeout_s": PROCESS_TIMEOUT_S, **data}
+        return data
 
     @model_validator(mode="after")
     def _validate_transport(self) -> ReviewerConfig:
@@ -238,6 +253,8 @@ class BudgetConfig(StrictModel):
     max_usd: float | None = Field(default=1.0, ge=0.0)
     max_total_tokens: int | None = Field(default=2_000_000, gt=0)
     on_exceed: Literal["stop_and_report", "warn_and_continue"] = "stop_and_report"
+    #: run 全体のレビュー時間の上限 (秒). Judge の段も含む (§23)
+    deadline_s: float = Field(default=1800.0, gt=0)
 
 
 class ConcurrencyConfig(StrictModel):

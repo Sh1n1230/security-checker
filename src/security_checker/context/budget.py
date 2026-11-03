@@ -10,6 +10,8 @@ from collections.abc import Callable
 from functools import lru_cache
 
 CHARS_PER_TOKEN = 4
+#: プロンプトのうちコード本文以外 (system・Finding の欄・facts・Notes・Schema) の見積り
+PROMPT_OVERHEAD_TOKENS = 1500
 
 
 @lru_cache(maxsize=1)

@@ -8,9 +8,10 @@ from typing import Any
 import pytest
 
 from security_checker.config.schema import ContextConfig
+from security_checker.context.budget import PROMPT_OVERHEAD_TOKENS, estimate_tokens
 from security_checker.context.builder import ContextBuilder
 from security_checker.context.facts import collect_repo_facts
-from security_checker.context.slicer import line_window, shrink
+from security_checker.context.slicer import TRUNCATED_LINE_MARK, line_window, shrink
 from security_checker.models.candidate import Candidate, Location, PackageRef
 from security_checker.models.enums import Category, Severity
 from security_checker.models.task import CodeSlice, RepoFacts
@@ -123,7 +124,9 @@ def test_secret_values_are_masked_before_sending(repo):
 
 
 def test_budget_truncates_and_notes_it(repo):
-    task = builder(repo, window_lines=50, max_tokens_per_task=20).build(sast_candidate())
+    task = builder(repo, window_lines=50, max_tokens_per_task=PROMPT_OVERHEAD_TOKENS + 20).build(
+        sast_candidate()
+    )
     primary = task.code_context.primary
     assert primary is not None
     assert task.code_context.truncated is True
@@ -265,3 +268,54 @@ def test_references_to_secrets_are_kept(repo):
     assert primary is not None
     assert 'os.environ["SERVICE_TOKEN"]' in primary.text
     assert "load_password_from_vault(name)" in primary.text
+
+
+# --- 予算を超えた文脈を送らない (#147) -----------------------------------------------
+
+
+def long_line_candidate(path: str = "app.min.js") -> Candidate:
+    return sast_candidate().model_copy(
+        update={"location": Location(path=path, start_line=1, end_line=1)}
+    )
+
+
+def test_a_very_long_line_is_clipped_to_the_budget(tmp_path):
+    (tmp_path / "app.min.js").write_text("var a=1;" * 200_000 + "\n", encoding="utf-8")
+    task = builder(tmp_path, max_tokens_per_task=8000).build(long_line_candidate())
+    primary = task.code_context.primary
+    assert primary is not None
+    assert task.code_context.truncated
+    assert primary.text.endswith(TRUNCATED_LINE_MARK)
+    assert estimate_tokens(primary.text) + PROMPT_OVERHEAD_TOKENS <= 8000
+    assert task.budget.estimated_input_tokens <= 8000
+
+
+def test_no_body_is_sent_when_the_budget_cannot_hold_any(tmp_path):
+    (tmp_path / "app.min.js").write_text("var a=1;\n", encoding="utf-8")
+    task = builder(tmp_path, max_tokens_per_task=PROMPT_OVERHEAD_TOKENS).build(
+        long_line_candidate()
+    )
+    assert task.code_context.primary is None
+    assert task.code_context.truncated
+    assert any("コード本文は提示していません" in note for note in task.notes)
+
+
+def test_the_estimate_counts_the_whole_prompt(repo):
+    task = builder(repo).build(sast_candidate())
+    primary = task.code_context.primary
+    assert primary is not None
+    assert (
+        task.budget.estimated_input_tokens == estimate_tokens(primary.text) + PROMPT_OVERHEAD_TOKENS
+    )
+
+
+def test_the_smaller_provider_limit_wins(tmp_path):
+    (tmp_path / "app.min.js").write_text("var a=1;" * 200_000 + "\n", encoding="utf-8")
+    config = ContextConfig(max_tokens_per_task=8000)
+    task = ContextBuilder(tmp_path, config, RepoFacts(), max_input_tokens=2000).build(
+        long_line_candidate()
+    )
+    primary = task.code_context.primary
+    assert task.budget.max_tokens_per_task == 2000
+    assert primary is not None
+    assert estimate_tokens(primary.text) + PROMPT_OVERHEAD_TOKENS <= 2000

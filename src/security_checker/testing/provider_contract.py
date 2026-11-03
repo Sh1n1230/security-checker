@@ -101,6 +101,14 @@ SPAWNER_SCRIPT = (
     "time.sleep(120)"
 )
 
+#: 親はすぐ終了し、孫だけが stdout を持ったまま残る
+EARLY_EXIT_SPAWNER_SCRIPT = (
+    "import pathlib,subprocess,sys;"
+    "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(120)']);"
+    "pathlib.Path(sys.argv[1]).write_text(str(child.pid), encoding='utf-8');"
+    "print('{}')"
+)
+
 CHILD_REAP_DEADLINE_S = 10.0
 
 
@@ -177,6 +185,27 @@ class ProcessProviderContractTests(ProviderContractTests):
         """契約 10: タイムアウトで子プロセスが残らない (killpg)."""
         pid_file = tmp_path / "child.pid"
         provider = self.make_process_provider(python_command(SPAWNER_SCRIPT, str(pid_file)))
+        with pytest.raises(ProviderTimeoutError):
+            await provider.complete(self.make_request(timeout_s=1.5))
+
+        assert _exists(pid_file), "フィクスチャが子プロセスを起動できていない"
+        child_pid = int(_read(pid_file))
+        deadline = time.monotonic() + CHILD_REAP_DEADLINE_S
+        while time.monotonic() < deadline:
+            if not _process_alive(child_pid):
+                break
+            await asyncio.sleep(0.1)
+        assert not _process_alive(child_pid), f"孫プロセス {child_pid} が残っている"
+        await provider.aclose()
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(os.name != "posix", reason="プロセスグループは POSIX の概念")
+    async def test_timeout_reaps_a_grandchild_after_the_parent_exits(self, tmp_path: Path) -> None:
+        """契約 10: 親が先に終了しても、stdout を持った孫プロセスが残らない."""
+        pid_file = tmp_path / "child.pid"
+        provider = self.make_process_provider(
+            python_command(EARLY_EXIT_SPAWNER_SCRIPT, str(pid_file))
+        )
         with pytest.raises(ProviderTimeoutError):
             await provider.complete(self.make_request(timeout_s=1.5))
 

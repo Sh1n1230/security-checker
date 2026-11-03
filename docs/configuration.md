@@ -15,6 +15,9 @@
 ```
 
 - `security-checker.local.yml` は git 管理しない個人用の層です (手元でだけ使う Reviewer など)。
+  **`reviewers` だけは置き換えません。** `name` をキーに合成し、同じ名前は項目ごとに上書き、
+  新しい名前は末尾に足します。手元で共有の Reviewer を止めるには `{name: team, enabled: false}` と書きます。
+  他のリストは、ほかの層と同じく丸ごと置き換えます。
 - 環境変数は `SECURITY_CHECKER__POLICY__FAIL_ON=critical` の形 (`__` で階層を区切る)。
 - どの層で値が決まったかは `security-checker config show --explain` で見られます。
 - 未知のキーはエラーになります。打ち間違いを黙って無視しません。
@@ -56,7 +59,7 @@
 | `gitleaks.enabled` | `true` | シークレット。検出値はマスクしてから保存・送信する |
 | `osv.enabled` | `true` | 依存の既知脆弱性 (別名をまとめて 1 件にする)。osv-scanner が未導入なら `skipped` |
 | `trivy.enabled` / `scanners` | `false` / `[config]` | `config` (誤設定) / `vuln` (依存)。`secret` は受け付けない |
-| `*.timeout_s` / `extra_args` | | タイムアウトと追加引数 |
+| `*.timeout_s` / `extra_args` | | スキャナのプロセス全体の上限 (秒) と追加引数。出力の先や形式を変えるフラグは使えません (警告します) |
 
 詳細は [scanners.md](scanners.md)。
 
@@ -108,10 +111,11 @@
 | キー | 既定 | 説明 |
 |---|---|---|
 | `budget.max_candidates` | `200` | レビューに回す候補の上限 (超えた分は `not_reviewed`) |
-| `budget.max_usd` / `max_total_tokens` | `1.0` / `2,000,000` | 超えたら新規呼び出しを止め、部分結果を出す |
+| `budget.max_usd` / `max_total_tokens` | `1.0` / `2,000,000` | 超える見込みになったら新規の呼び出しを止め、部分結果を出す。送信の直前に、使用量・送信中の分・次の呼び出しの見積り (出力は上限で数える) の合計で判定する |
+| `budget.deadline_s` | `1800` | レビューの実行時間の上限 (秒)。Judge の段も含む。超えたら新規の呼び出しを止め、部分結果を出す。送信中の呼び出しは待つので、`reviewers[].timeout_s` の分だけ超えることがある |
 | `budget.on_exceed` | `stop_and_report` | `warn_and_continue` にすると止めない |
 | `concurrency.scanners` / `reviews_per_provider` | `4` / `4` | |
-| `context.window_lines` / `max_tokens_per_task` | `40` / `8000` | LLM に渡す文脈 |
+| `context.window_lines` / `max_tokens_per_task` | `40` / `8000` | LLM に渡す文脈。`max_tokens_per_task` はプロンプト全体の上限で、本文以外に約 1,500 トークン使います。Reviewer の `max_context_tokens − max_output_tokens` のほうが小さければ、そちらに合わせます |
 | `context.max_callers` | `3` | **未実装**。呼び出し元のコードはまだ文脈に含めない (既定値と `0` 以外を書くと警告) |
 
 ### output / github / logging

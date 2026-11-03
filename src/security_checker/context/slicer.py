@@ -78,6 +78,31 @@ def line_window(
     )
 
 
+#: 行の途中で切ったことを LLM に示す印
+TRUNCATED_LINE_MARK = " …(line truncated)"
+
+
+def clip_lines(slice_: CodeSlice, *, focus_line: int, max_chars: int) -> CodeSlice | None:
+    """行数を減らしても収まらないとき、該当行だけを残して文字数で切る.
+
+    minify されたファイルのように 1 行が長いと、行数を減らしても大きさが変わらない。
+    `max_chars` に印すら入らなければ None を返す (本文を送らない)。
+    """
+    room = max_chars - len(TRUNCATED_LINE_MARK)
+    lines = slice_.text.splitlines()
+    if room <= 0 or not lines:
+        return None
+    index = max(0, min(len(lines) - 1, focus_line - slice_.start_line))
+    line_number = slice_.start_line + index
+    return CodeSlice(
+        path=slice_.path,
+        start_line=line_number,
+        end_line=line_number,
+        text=lines[index][:room] + TRUNCATED_LINE_MARK,
+        label=slice_.label,
+    )
+
+
 def shrink(slice_: CodeSlice, *, keep_lines: int, focus_line: int) -> CodeSlice:
     """予算超過時にウィンドウを縮める. 該当行を必ず含めたまま前後を削る."""
     lines = slice_.text.splitlines()

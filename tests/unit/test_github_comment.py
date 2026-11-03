@@ -36,7 +36,12 @@ from security_checker.github.comment import (
 )
 from security_checker.models.candidate import Location
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
+from security_checker.models.finding import Finding
 from security_checker.models.report import ScannerRun
+from security_checker.models.verdict import VerdictStatus
+from security_checker.policy.engine import PolicyDecision
+from security_checker.report.markdown import render_markdown
+from security_checker.report.sarif import render_sarif
 from tests.factories import make_candidate, make_finding, make_report, make_verdict
 
 PR = PullRequestContext(repository="o/r", number=7, head_sha="abc")
@@ -505,3 +510,58 @@ def test_comment_neutralizes_html_images_and_backtick_breakout():
     assert "`src/a'b.py:3`" in body
     # コードスパンの中に閉じ込められている (外に抜けて HTML として描画されない)
     assert "`a'<img src=x>'b`" in body
+
+
+# --- 指摘の理由に反対意見やエラーを載せない (#164) -----------------------------------------
+
+
+def _mixed_finding() -> Finding:
+    candidate = make_candidate("c1")
+    verdicts = [
+        make_verdict(
+            "alpha",
+            "c1",
+            status=VerdictStatus.PROVIDER_ERROR,
+            vulnerable=False,
+            severity=Severity.NONE,
+            reasoning="alpha: HTTP 503 が 3 回続きました",
+            remediation=None,
+            attack_path=[],
+        ),
+        make_verdict(
+            "gamma",
+            "c1",
+            vulnerable=False,
+            severity=Severity.NONE,
+            reasoning="呼び出し元で整数にキャストされており到達しません",
+        ),
+        make_verdict("beta", "c1", reasoning="入力がシェルに連結されています"),
+    ]
+    return make_finding(candidate, FindingStatus.LIKELY, verdicts=verdicts)
+
+
+def test_every_output_gives_the_same_supporting_reason():
+    finding = _mixed_finding()
+    report = make_report([finding.candidate], [finding])
+    sarif_message = render_sarif(report)["runs"][0]["results"][0]["message"]["text"]
+    outputs = {
+        "inline": render_inline(finding),
+        "summary": render_summary(report),
+        "sarif": sarif_message,
+        "markdown": render_markdown(report, PolicyDecision(exit_code=ExitCode.OK)),
+    }
+    for name, text in outputs.items():
+        assert "入力がシェルに連結されています" in text, name
+    for name in ("inline", "summary", "sarif"):
+        assert "HTTP 503" not in outputs[name], name
+        assert "キャストされており" not in outputs[name], name
+
+
+def test_without_a_supporting_verdict_no_reason_is_shown():
+    candidate = make_candidate("c1")
+    verdict = make_verdict(
+        "alpha", "c1", vulnerable=False, severity=Severity.NONE, reasoning="到達しません"
+    )
+    finding = make_finding(candidate, FindingStatus.REVIEW_REQUIRED, verdicts=[verdict])
+    assert finding.supporting_reasoning == ""
+    assert "到達しません" not in render_inline(finding)

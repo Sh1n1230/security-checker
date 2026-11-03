@@ -16,10 +16,10 @@ import pytest
 from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 from security_checker.providers.errors import ProviderResponseError
 from security_checker.providers.http.dialects.anthropic_messages import (
-    REASONING_HEADROOM_TOKENS,
     TOOL_NAME,
     AnthropicMessagesDialect,
 )
+from security_checker.providers.http.dialects.base import REASONING_HEADROOM_TOKENS
 
 SCHEMA = {"type": "object", "properties": {"vulnerable": {"type": "boolean"}}}
 

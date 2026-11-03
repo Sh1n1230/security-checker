@@ -73,8 +73,9 @@ def test_review_required_is_neither_a_hit_nor_a_miss():
     assert metrics.true_positives == 0
     assert metrics.false_negatives == 0
     assert metrics.deferred_positives == 1
-    # 母数が 0 のときは 0.0 ではなく None (読み違えを防ぐ)
-    assert metrics.recall is None
+    assert metrics.recall == 0.0  # 保留は自動の検出に数えない
+    # 判定が 1 件も無ければ、判定した中での値は 0.0 ではなく None (読み違えを防ぐ)
+    assert metrics.answered_recall is None
     assert metrics.review_required_rate == 1.0
 
 
@@ -102,8 +103,8 @@ def test_false_positive_reduction_is_relative_to_the_scanner():
             outcome("n4", expected=False, status=FindingStatus.REVIEW_REQUIRED),
         ]
     )
-    # 4 件中 1 件だけ報告に残った
-    assert metrics.fp_reduction == pytest.approx(0.75)
+    # 4 件中 2 件を切り捨てた。保留は削減に数えない
+    assert metrics.fp_reduction == pytest.approx(0.5)
     assert metrics.false_positives == 1
 
 
@@ -160,3 +161,70 @@ def test_cost_is_not_summed_when_a_transport_cannot_report_it():
 
 def test_empty_input_is_not_an_error():
     assert evaluate_outcomes([]).cases == 0
+
+
+# --- 保留と打ち切りで数字を良く見せない (#176, #177) -----------------------------------
+
+
+def _case(index: int, vulnerable: bool, status: FindingStatus) -> CaseOutcome:
+    return CaseOutcome(
+        case_id=str(index),
+        expected_vulnerable=vulnerable,
+        expected_severity=Severity.HIGH if vulnerable else Severity.NONE,
+        status=status,
+        severity=Severity.HIGH,
+    )
+
+
+def test_deferring_everything_does_not_look_good():
+    metrics = evaluate_outcomes(
+        [_case(i, i < 48, FindingStatus.REVIEW_REQUIRED) for i in range(100)]
+    )
+    assert metrics.recall == 0.0
+    assert metrics.fp_reduction == 0.0
+    assert metrics.review_required_rate == 1.0
+
+
+def test_deferring_positives_does_not_raise_recall():
+    answered = [_case(i, True, FindingStatus.CONFIRMED) for i in range(40)] + [
+        _case(i, True, FindingStatus.FALSE_POSITIVE) for i in range(40, 48)
+    ]
+    deferred = [
+        *[_case(i, True, FindingStatus.CONFIRMED) for i in range(10)],
+        _case(10, True, FindingStatus.FALSE_POSITIVE),
+        *[_case(i, True, FindingStatus.REVIEW_REQUIRED) for i in range(11, 48)],
+    ]
+    answered_metrics, deferred_metrics = evaluate_outcomes(answered), evaluate_outcomes(deferred)
+    assert answered_metrics.recall == pytest.approx(40 / 48)
+    assert deferred_metrics.recall == pytest.approx(10 / 48)
+    # 判定した中での値は別に出す. こちらは上がる
+    assert answered_metrics.answered_recall == pytest.approx(40 / 48)
+    assert deferred_metrics.answered_recall == pytest.approx(10 / 11)
+
+
+def test_not_reviewed_cases_are_not_graded():
+    metrics = evaluate_outcomes(
+        [
+            _case(0, False, FindingStatus.FALSE_POSITIVE),
+            _case(1, False, FindingStatus.NOT_REVIEWED),
+            _case(2, True, FindingStatus.NOT_REVIEWED),
+            _case(3, True, FindingStatus.ERROR),
+        ]
+    )
+    assert (metrics.cases, metrics.not_reviewed, metrics.errors) == (4, 2, 1)
+    assert metrics.fp_reduction == 1.0  # 判定された陰性 1 件だけが分母
+    assert metrics.recall is None
+    assert metrics.review_required_rate == 0.0
+
+
+def test_fp_reduction_counts_only_dismissed_negatives():
+    metrics = evaluate_outcomes(
+        [
+            _case(0, False, FindingStatus.FALSE_POSITIVE),
+            _case(1, False, FindingStatus.CONFIRMED),
+            _case(2, False, FindingStatus.REVIEW_REQUIRED),
+            _case(3, False, FindingStatus.INCONCLUSIVE),
+        ]
+    )
+    assert metrics.fp_reduction == 0.25
+    assert metrics.deferred_negatives == 2
