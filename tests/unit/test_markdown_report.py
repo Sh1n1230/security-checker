@@ -205,6 +205,47 @@ def test_failed_verdict_is_reported_not_hidden(candidate):
     assert "`r2` は判定できませんでした" in body
 
 
+def test_finding_block_code_spans_survive_backticks_in_metadata(candidate):
+    """Reviewer / scanner / rule_id go through md.code_span so backticks cannot break the table (#266)."""
+    nasty = Candidate(
+        id="c2",
+        scanner="sem`grep",
+        category=Category.SAST,
+        rule_id="rules.`inject",
+        title="command-injection",
+        message="msg",
+        location=Location(path="src/app.py", start_line=1, end_line=1),
+        severity_reported=Severity.HIGH,
+    )
+    body = render_markdown(
+        make_report(
+            nasty,
+            [
+                finding(
+                    nasty,
+                    FindingStatus.CONFIRMED,
+                    verdicts=[
+                        verdict("rev`iewer"),
+                        verdict("bad`rev", status=VerdictStatus.PROVIDER_ERROR, vulnerable=False),
+                    ],
+                )
+            ],
+            reviewers=[
+                ReviewerRun(name="local`cmd", transport="process", dialect="text_io", calls=1)
+            ],
+        ),
+        PolicyDecision(ExitCode.OK),
+    )
+    assert "検出元: `sem'grep` / `rules.'inject`" in body
+    assert "| `rev'iewer` |" in body
+    assert "**`rev'iewer`**" in body
+    assert "`bad'rev` は判定できませんでした" in body
+    assert "`local'cmd` (process, 1 回)" in body
+    # A raw unescaped span would let a backtick close early and inject a pipe break.
+    assert "`sem`grep`" not in body
+    assert "`rev`iewer`" not in body
+
+
 def test_reviewer_and_usage_row(candidate):
     report = make_report(
         candidate,
