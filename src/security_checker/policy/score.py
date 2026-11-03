@@ -65,17 +65,23 @@ def compute_score(
     capped = {key: min(value, CATEGORY_CAP) for key, value in deductions.items()}
     value = max(0, 100 - sum(capped.values()))
 
-    incomplete = [run for run in runs if run.status is not ScanStatus.OK]
-    partial_reason = None
-    if incomplete:
-        partial_reason = "、".join(
-            f"{run.scanner} {'未実行' if run.status is ScanStatus.SKIPPED else '失敗'}"
-            for run in incomplete
-        )
+    incomplete = [
+        f"{run.scanner} {'未実行' if run.status is ScanStatus.SKIPPED else '失敗'}"
+        for run in runs
+        if run.status is not ScanStatus.OK
+    ]
+    # 減点されない未レビューの候補で、止まった run ほど高く見えないようにする
+    not_reviewed = sum(
+        1
+        for finding in findings or []
+        if finding.status is FindingStatus.NOT_REVIEWED and finding.suppressed is None
+    )
+    if not_reviewed:
+        incomplete.append(f"候補 {not_reviewed} 件が未レビュー")
     return Score(
         value=value,
         rank=rank_for(value),
         partial=bool(incomplete),
-        partial_reason=partial_reason,
+        partial_reason="、".join(incomplete) if incomplete else None,
         deductions=capped,
     )

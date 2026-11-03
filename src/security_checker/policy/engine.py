@@ -38,17 +38,13 @@ def evaluate(report: Report, policy: PolicyConfig) -> PolicyDecision:
             reasons=[f"スキャナが失敗しました (strict): {names}"],
         )
 
+    if policy.strict:
+        incomplete = _incomplete_review(report)
+        if incomplete:
+            return PolicyDecision(exit_code=ExitCode.EXECUTION_ERROR, reasons=incomplete)
+
     if report.findings:
         # レビュー済み: 「LLM が脆弱と判断したもの」だけをゲートにする
-        if policy.strict:
-            errored = [f for f in report.findings if f.status is FindingStatus.ERROR]
-            if errored:
-                return PolicyDecision(
-                    exit_code=ExitCode.EXECUTION_ERROR,
-                    reasons=[
-                        f"有効な判定が得られなかった候補が {len(errored)} 件あります (strict)"
-                    ],
-                )
         threshold = policy.fail_on
         if threshold is not Severity.NONE:
             blocking = [
@@ -84,3 +80,21 @@ def evaluate(report: Report, policy: PolicyConfig) -> PolicyDecision:
     if reasons:
         return PolicyDecision(exit_code=ExitCode.POLICY_VIOLATION, reasons=reasons)
     return PolicyDecision(exit_code=ExitCode.OK, reasons=[])
+
+
+def _incomplete_review(report: Report) -> list[str]:
+    """レビューが最後まで行われなかった理由 (§20.1). strict では「ツールが壊れた」側に数える."""
+    reasons: list[str] = []
+    disabled = [run.name for run in report.reviewers if run.disabled_reason is not None]
+    if disabled:
+        reasons.append(f"無効化された Reviewer があります (strict): {', '.join(disabled)}")
+    if report.stopped_reason:
+        reasons.append(f"レビューが途中で停止しました (strict): {report.stopped_reason}")
+    active = [f for f in report.findings if f.suppressed is None]
+    not_reviewed = sum(1 for f in active if f.status is FindingStatus.NOT_REVIEWED)
+    if not_reviewed:
+        reasons.append(f"レビューされなかった候補が {not_reviewed} 件あります (strict)")
+    errored = sum(1 for f in active if f.status is FindingStatus.ERROR)
+    if errored:
+        reasons.append(f"有効な判定が得られなかった候補が {errored} 件あります (strict)")
+    return reasons
