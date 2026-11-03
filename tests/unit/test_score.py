@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from security_checker.models.candidate import Candidate
-from security_checker.models.enums import Category, ScanStatus, Severity
+from security_checker.models.enums import Category, FindingStatus, ScanStatus, Severity
+from security_checker.models.finding import Finding
 from security_checker.models.report import ScannerRun
 from security_checker.policy.score import compute_score, rank_for
 
@@ -78,3 +79,14 @@ def test_rank_boundaries():
     assert rank_for(69) == "C"
     assert rank_for(50) == "C"
     assert rank_for(49) == "D"
+
+
+def test_not_reviewed_candidates_make_the_score_partial():
+    candidate = make_candidate(Severity.HIGH)
+    finding = Finding(
+        candidate=candidate, status=FindingStatus.NOT_REVIEWED, severity=Severity.HIGH
+    )
+    run = ScannerRun(scanner="semgrep", category=Category.SAST, status=ScanStatus.OK)
+    score = compute_score([candidate], [run], [finding])
+    assert score.partial
+    assert "未レビュー" in (score.partial_reason or "")

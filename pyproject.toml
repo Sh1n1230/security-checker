@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-openai = ["openai>=3.31.0"]
+openai = ["openai>=3.36.1"]
 google = ["google-genai"]
 anthropic = ["anthropic"]
 tiktoken = ["tiktoken"]
@@ -58,7 +58,7 @@ dev = [
   "pytest-asyncio>=0.24",
   "pytest-cov>=5",
   "respx>=0.21",
-  "ruff>=0.17.0",
+  "ruff>=0.17.1",
   "syrupy>=6.1.1",
   "types-pyyaml",
 ]
