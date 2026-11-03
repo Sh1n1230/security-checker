@@ -15,6 +15,9 @@
 ```
 
 - `security-checker.local.yml` は git 管理しない個人用の層です (手元でだけ使う Reviewer など)。
+  **`reviewers` だけは置き換えません。** `name` をキーに合成し、同じ名前は項目ごとに上書き、
+  新しい名前は末尾に足します。手元で共有の Reviewer を止めるには `{name: team, enabled: false}` と書きます。
+  他のリストは、ほかの層と同じく丸ごと置き換えます。
 - 環境変数は `SECURITY_CHECKER__POLICY__FAIL_ON=critical` の形 (`__` で階層を区切る)。
 - どの層で値が決まったかは `security-checker config show --explain` で見られます。
 - 未知のキーはエラーになります。打ち間違いを黙って無視しません。
