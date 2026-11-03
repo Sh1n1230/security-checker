@@ -84,7 +84,7 @@
 | キー | 既定 | 説明 |
 |---|---|---|
 | `strategy` | `consensus` | `consensus` / `weighted` / `judge` |
-| `consensus.min_votes` / `min_ratio` / `severity` | `2` / `0.5` / `median` | |
+| `consensus.min_votes` / `min_ratio` / `severity` | `2` / `0.5` / `median` | 票は常に過半数が必要です。`min_ratio` は 0.5 より上げるときに使い、0.5 未満は効かないので警告します |
 | `weighted.threshold` | `0.6` | |
 | `judge.reviewer` | | Judge 役の Reviewer 名 (一次レビューには参加しない) |
 | `judge.fallback` | `consensus` | Judge が失敗したとき / Judge に回さない候補の戦略 |
