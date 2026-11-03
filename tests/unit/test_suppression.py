@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 from security_checker.cli import app
 from security_checker.config.schema import Config
 from security_checker.errors import ConfigError, ExitCode
-from security_checker.models.candidate import Location
+from security_checker.models.candidate import Location, PackageRef
 from security_checker.models.enums import ScanStatus, Severity
 from security_checker.models.finding import SuppressionReason
 from security_checker.policy.baseline import load_baseline, write_baseline
@@ -274,3 +274,51 @@ def test_cli_scan_with_a_missing_baseline_is_a_config_error(tmp_path, monkeypatc
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["scan", str(tmp_path)])
     assert result.exit_code == ExitCode.CONFIG_ERROR
+
+
+# --- 行末の注釈は次の行に効かない (#157) ----------------------------------------
+
+
+def test_trailing_annotation_does_not_reach_the_next_line(tmp_path):
+    (tmp_path / "app.py").write_text(
+        "run(a, shell=True)  # security-checker: ignore[rules.command-injection] reason=固定\n"
+        "run(user_input, shell=True)\n",
+        encoding="utf-8",
+    )
+    reader = AnnotationReader(tmp_path)
+    same = make_candidate(location=Location(path="app.py", start_line=1, end_line=1))
+    following = make_candidate(location=Location(path="app.py", start_line=2, end_line=2))
+    assert reader.find(same) is not None
+    assert reader.find(following) is None
+
+
+@pytest.mark.parametrize(
+    "comment",
+    [
+        "# security-checker: ignore[*] reason=x",
+        "    // security-checker: ignore[*] reason=x",
+        "/* security-checker: ignore[*] reason=x */",
+        "<!-- security-checker: ignore[*] reason=x -->",
+        "-- security-checker: ignore[*] reason=x",
+        "{# security-checker: ignore[*] reason=x #}",
+    ],
+)
+def test_annotation_only_line_applies_to_the_next_line(tmp_path, comment):
+    (tmp_path / "app.py").write_text(f"{comment}\nrun(a)\n", encoding="utf-8")
+    candidate = make_candidate(location=Location(path="app.py", start_line=2, end_line=2))
+    assert AnnotationReader(tmp_path).find(candidate) is not None
+
+
+# --- rule:<id> <path> は依存の候補にも効く (#156) ---------------------------------
+
+
+@pytest.mark.parametrize("scanner", ["osv", "trivy"])
+def test_rule_with_path_matches_the_manifest_of_a_dependency(scanner):
+    dependency = make_candidate(
+        scanner=scanner,
+        rule_id="GHSA-xxxx",
+        location=None,
+        package=PackageRef(ecosystem="PyPI", name="foo", version="1.0", manifest="uv.lock"),
+    )
+    assert parse_ignore_file("rule:GHSA-xxxx uv.lock\n")[0].match(dependency) is not None
+    assert parse_ignore_file("rule:GHSA-xxxx other.lock\n")[0].match(dependency) is None

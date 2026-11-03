@@ -150,14 +150,19 @@ docs/**
 /build/
 # ルール。scanner/rule_id でも rule_id だけでもよい
 rule:semgrep/python.lang.security.audit.eval-detected
-# ルールをパスで限定する
+# ルールをパスで限定する。依存の候補 (osv / trivy) は manifest のパスで照合する
 rule:generic-api-key tests/**
+rule:GHSA-xxxx-xxxx-xxxx uv.lock
 ```
 
-**コード内の注釈** — 候補の行かその直前の行に書く。**理由の記述を必須**とし、理由が無いと警告します。
+**コード内の注釈** — **理由の記述を必須**とし、理由が無いと警告します。行末に書くとその行にだけ効き、
+注釈だけの行に書くと次の行に効きます。行末の注釈は次の行には効きません。
 
 ```python
 subprocess.run(cmd, shell=True)  # security-checker: ignore[python.lang.security.audit.subprocess-shell-true] reason=cmd は固定文字列のみ
+
+# security-checker: ignore[python.lang.security.audit.subprocess-shell-true] reason=cmd は固定文字列のみ
+subprocess.run(cmd, shell=True)
 ```
 
 信用できない検査対象 (`SECURITY_CHECKER_UNTRUSTED_TARGET=1`) では、検査対象の中の ignore ファイルと
