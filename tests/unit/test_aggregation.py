@@ -338,7 +338,7 @@ def test_consensus_weighted_mean_uses_the_reviewer_weights():
     ],
 )
 def test_not_vulnerable_needs_decisive_confidence(confidence, expected):
-    def no(name):
+    def no(name: str) -> ReviewVerdict:
         return verdict(name, vulnerable=False, severity=Severity.NONE, confidence=confidence)
 
     multi = ConsensusAggregator().aggregate(CANDIDATE, [no("a"), no("b")], AggregationConfig())
