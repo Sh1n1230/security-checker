@@ -118,6 +118,7 @@ class ReviewerCapabilities(StrictModel):
     supports_temperature: bool | None = None
     supports_seed: bool | None = None
     reasoning: bool | None = None
+    output_limit_param: Literal["max_tokens", "max_completion_tokens"] | None = None
 
 
 #: transport: process の timeout_s の既定 (§9.7)
@@ -250,6 +251,8 @@ class BudgetConfig(StrictModel):
     max_usd: float | None = Field(default=1.0, ge=0.0)
     max_total_tokens: int | None = Field(default=2_000_000, gt=0)
     on_exceed: Literal["stop_and_report", "warn_and_continue"] = "stop_and_report"
+    #: run 全体のレビュー時間の上限 (秒). Judge の段も含む (§23)
+    deadline_s: float = Field(default=1800.0, gt=0)
 
 
 class ConcurrencyConfig(StrictModel):

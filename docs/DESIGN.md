@@ -715,6 +715,7 @@ class Capabilities(BaseModel):
     supports_system_role: bool = True
     supports_temperature: bool = True
     supports_seed: bool = False
+    output_limit_param: str = "max_tokens"     # openai_chat の出力上限のキー (max_completion_tokens)
 
 class CompletionRequest(BaseModel):
     system: str
@@ -1348,8 +1349,18 @@ class AggregationOutcome(BaseModel):
 ### 13.2 単一 Reviewer の場合
 
 Reviewer が 1 個のときは Aggregator を通すが、`agreement = not_applicable` とし、
-`status` は confidence だけで決める(`>= 0.8` → confirmed / `>= 0.5` → likely / それ未満 → review_required)。
+`status` は confidence だけで決める。
+
+| 判定 | confidence | status |
+|---|---|---|
+| 脆弱 | `>= 0.8` | confirmed |
+| 脆弱 | `>= 0.5` | likely |
+| 脆弱 | それ未満 | review_required |
+| 脆弱ではない | `>= 0.8` かつ文脈不足を訴えていない | false_positive |
+| 脆弱ではない | それ以外 | review_required(自信の無い判定で候補を消さない) |
+
 **「1 モデルの合意」を high agreement と偽装しない**ことが重要。
+この規則は戦略によらない。Reviewer が 1 体なら consensus でも weighted でも同じ結果になる。
 
 ---
 
@@ -1359,23 +1370,33 @@ Reviewer が 1 個のときは Aggregator を通すが、`agreement = not_applic
 
 ```text
 valid    = [v for v in verdicts if v.status == ok]
-vuln     = [v for v in valid if v.vulnerable and v.confidence >= min_confidence]
+vuln     = [v for v in valid if v.vulnerable]    # 確信度によらず数える
 
 votes    = len(vuln)
 ratio    = votes / len(valid)
 
 if valid が空                       → error
-elif votes >= min_votes and ratio >= min_ratio:
+elif votes >= min_votes and ratio >= min_ratio and ratio > 0.5:    # 半々は過半数ではない
       status = confirmed if (agreement == high and mean_conf >= 0.8) else likely
-elif votes == 0                     → false_positive
+elif votes == 0:
+      status = false_positive if (mean_conf >= 0.8 and 文脈不足の訴えが無い) else review_required
 else                                → review_required        # 割れた
 ```
+
+票は確信度によらず数え、確信度は集約後の値を `policy.min_confidence` と比べる
+(未満なら review_required に落とす)。低確信度の「脆弱」票を数えないと `votes == 0` になり、
+見逃しが増えるため。一致度が `low` のときの confidence の上限 0.5 は、`min_confidence` の既定 0.5 と
+同じ値なので、既定の設定では格下げとしては働かない。
 
 `severity` の決め方は設定で選ぶ。
 
 - `median`(既定): 「脆弱」と判定した Reviewer の severity の中央値。外れ値に強い。
 - `max`: 最も厳しい判定を採る。見逃しを嫌う運用向け。
-- `weighted_mean`: severity を数値化(critical=4…none=0)して重み付き平均し、四捨五入。
+- `weighted_mean`: severity を数値化(critical=5, high=4, medium=3, low=2, info=1, none=0)して
+  `reviewers[].weight` で重み付き平均し、四捨五入。
+
+中央値と平均は x.5 を常に上へ丸める(medium と high に割れたら high)。段によって向きが変わる
+偶数丸めは説明がつかず、主指標が Recall なので厳しい側に倒す。
 
 既定を `median` にするのは、1 モデルの過大評価でノイズが増えるのを防ぐため。
 「見逃しゼロ優先」の利用者は `max` に切り替えられる。
@@ -1458,7 +1479,7 @@ Reviewer C ─┘
 | 0 | ポリシー違反なし |
 | 1 | ポリシー違反あり(`fail_on` 以上の Finding が存在) |
 | 2 | 設定エラー(不正な YAML、reviewers 未定義、キー未設定 など) |
-| 3 | 実行エラー(scanner/provider の failed、`--strict` 時) |
+| 3 | 実行エラー(`--strict` 時。scanner の failed、Reviewer の無効化、予算や上限によるレビューの停止、未レビュー・判定不能の候補) |
 
 **1 と 3 を分けるのが重要。** 「脆弱性が見つかった」と「ツールが壊れた」を CI が区別できないと、
 v1 と同じ「壊れているのに緑」の事故が起きる。
@@ -1486,7 +1507,8 @@ v1 の「100 点満点・A〜D ランク」は残すが、**主要な出力で�
 
 v2 のスコアは次の性質を持つ。
 
-- `partial: true` フラグ: scanner が 1 つでも skipped/failed なら必ず立ち、スコアの横に明示する。
+- `partial: true` フラグ: scanner が 1 つでも skipped/failed か、未レビューの候補があれば必ず立ち、
+  スコアの横に明示する。
 - カバレッジを併記: 「4 スキャナ中 3 実行 / 候補 47 件中 47 件レビュー済み」。
 - 集計対象は `confirmed` と `likely` のみ。`review_required` は減点せず**別枠でカウント**する
   (人間の確認待ちを「減点」と表現するのは誤り)。
@@ -1746,11 +1768,11 @@ LLM レビューは本質的に「自分のコードを外部サービスに送�
 | `ConfigError` | YAML 不正、必須 env 欠落、未知の provider 名 | 即 exit 2。実行しない |
 | `ToolMissing` | semgrep 未導入 | 警告 + `status=skipped`。続行 |
 | `ToolFailed` | semgrep が exit 2 | 警告 + `status=failed`。続行。`--strict` で exit 3 |
-| `ProviderAuthError` | 401/403 | その Reviewer を即無効化。他は続行。最後に exit 3 |
+| `ProviderAuthError` | 401/403 | その Reviewer を即無効化。他は続行。`--strict` なら最後に exit 3 |
 | `ProviderRateLimitError` | 429 | バックオフして再試行(§22) |
 | `ProviderTimeoutError` | | 再試行 → 尽きたら該当 Verdict を `provider_error` |
 | `SchemaViolation` | 検証失敗 | 修復 1 回 → `schema_error` |
-| `BudgetExceeded` | 予算上限 | 走行中断。**部分結果を必ず出力**して exit 1 or 0 |
+| `BudgetExceeded` | 予算上限 | 走行中断。**部分結果を必ず出力**する。`--strict` なら exit 3、それ以外はレビュー済みの結果で exit 1 or 0 |
 | `InternalError` | 想定外 | スタックトレースを trace に保存し exit 3 |
 
 ### 20.2 原則
@@ -1926,9 +1948,12 @@ rate_limit:
 
 ### 22.2 429 への対応
 
-- `Retry-After` ヘッダがあれば**必ず尊重**する。
+- `Retry-After` ヘッダは**上限の範囲で尊重**する(HTTP-date 形式も読む)。上限は残りのデッドラインと
+  60 秒の小さい方で、超える値は待たずにその候補を `provider_error` にする。日次上限に達した提供元が
+  数時間の値を返すと CI のジョブごと止まるため。
 - なければ指数バックオフ + フルジッター(`min(cap, base * 2^n) * random()`)。
-- 429 が続く場合、その Provider の実効 rpm を動的に下げる(適応的スロットリング)。
+- 429 が 2 回続くと、その Provider の実効 rpm を半分に下げる(適応的スロットリング。下限 1)。
+  成功が 5 回続くと 2 倍に戻し、`rate_limit.rpm` の宣言を上限に回復する。
   無料枠ユーザーが「とりあえず動く」ことを優先する。
 
 ### 22.3 無料枠向けプリセット
@@ -1943,11 +1968,11 @@ rate_limit:
 | 対象 | 既定 | 備考 |
 |---|---|---|
 | 1 LLM リクエストのタイムアウト | 120s | reasoning モデルは長いので設定可 |
-| リトライ対象 | 429 / 5xx / timeout / 接続エラー | 400/401/403 はリトライしない |
+| リトライ対象 | 429 / 408 / 5xx / timeout / 接続エラー | その他の 4xx はリトライしない。構造化出力の降格は 400 のときだけ |
 | 最大試行 | 3(初回 + 2 リトライ) | |
 | バックオフ | 指数 + フルジッター、上限 60s | |
 | スキーマ修復リトライ | 1 回(上記とは別枠) | §10.2 |
-| run 全体のデッドライン | 30 分(設定可) | 超過で中断 + 部分結果出力 |
+| run 全体のデッドライン | 30 分(`budget.deadline_s`) | 超過で中断 + 部分結果出力。Judge の段も含む |
 | スキャナのタイムアウト | 600s | semgrep は大規模リポで長い |
 
 **サーキットブレーカ**: 同一 Reviewer で

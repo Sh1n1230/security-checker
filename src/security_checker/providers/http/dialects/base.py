@@ -13,6 +13,17 @@ from pydantic import BaseModel, ConfigDict
 from security_checker.models.verdict import Usage
 from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 
+#: 思考トークンを持つモデルでは、出力の上限を思考で使い切って本文が切れる。
+#: reasoning を宣言している場合だけ、その分の余裕を足す (§9.6)
+REASONING_HEADROOM_TOKENS = 4096
+
+
+def output_limit(req: CompletionRequest, capabilities: Capabilities) -> int:
+    """方言が送る出力の上限. 上限に思考トークンを含むかは問わず、宣言があれば余裕を足す."""
+    if capabilities.reasoning:
+        return req.max_output_tokens + REASONING_HEADROOM_TOKENS
+    return req.max_output_tokens
+
 
 class DialectResponse(BaseModel):
     """方言が HTTP レスポンス JSON から取り出した共通形."""
@@ -63,7 +74,11 @@ class Dialect(Protocol):
 
     def parse_response(self, payload: dict[str, Any]) -> DialectResponse: ...
 
-    def health_payload(self, model: str) -> dict[str, Any]: ...
+    def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]: ...
+
+    def is_auth_error(self, status: int, body: str) -> bool:
+        """401/403 以外で返る認証エラーか. 鍵の不備を別のコードで返す形のために置く."""
+        ...
 
     def explain_error(self, status: int, body: str) -> str | None:
         """4xx の本文から、利用者が次に取れる行動を導けるなら文章にして返す.

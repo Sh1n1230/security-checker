@@ -11,7 +11,11 @@ from typing import Any
 from security_checker.models.verdict import Usage
 from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 from security_checker.providers.errors import ProviderResponseError
-from security_checker.providers.http.dialects.base import DialectOptions, DialectResponse
+from security_checker.providers.http.dialects.base import (
+    DialectOptions,
+    DialectResponse,
+    output_limit,
+)
 
 SCHEMA_NAME = "security_review_verdict"
 
@@ -54,7 +58,7 @@ class OpenAIChatDialect:
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "max_tokens": req.max_output_tokens,
+            capabilities.output_limit_param: output_limit(req, capabilities),
         }
         if capabilities.supports_temperature:
             payload["temperature"] = req.temperature
@@ -121,12 +125,15 @@ class OpenAIChatDialect:
             model_reported=payload.get("model") if isinstance(payload.get("model"), str) else None,
         )
 
-    def health_payload(self, model: str) -> dict[str, Any]:
+    def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]:
         return {
             "model": model,
             "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 1,
+            capabilities.output_limit_param: 1,
         }
+
+    def is_auth_error(self, status: int, body: str) -> bool:
+        return False
 
     def explain_error(self, status: int, body: str) -> str | None:
         """この形はサービスごとに本文が違いすぎるため、推測しない."""

@@ -39,6 +39,9 @@ reviewers:
    `additionalProperties` / `maxLength` / `pattern` / `minimum` のような**値の制約は落とします**
 
 落ちた制約はプロンプト側のスキーマ提示には残るため、完全に失われるわけではありません。
+出力の上限は既定で `max_tokens` で送ります。`max_completion_tokens` しか受け付けないエンドポイントでは
+`capabilities.output_limit_param: max_completion_tokens` を指定してください (`openai` プリセットは指定済みです)。
+
 それでもスキーマが拒否される場合は `capabilities.structured_output: json_mode` を指定してください
 （エラーメッセージにもそう出ます）。
 
@@ -61,8 +64,8 @@ reviewers:
    構造化出力を得ます。応答の `content[].input` がそのまま検証済みの構造化データになるので、
    散文の混入を構造的に排除できます
 
-思考トークンを持つモデルでは、`capabilities.reasoning: true` を宣言してください。
-出力予算に余裕を足すため、思考で予算を使い切って本文が切れるのを防げます。
+思考トークンを持つモデルでは、方言によらず `capabilities.reasoning: true` を宣言してください。
+出力の上限に余裕 (4096 トークン) を足すため、思考で上限を使い切って本文が切れるのを防げます。
 
 ## ローカルのエンドポイント（API キー不要）
 

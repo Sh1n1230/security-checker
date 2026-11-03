@@ -51,6 +51,8 @@ class Capabilities(BaseModel):
     supports_system_role: bool = True
     supports_temperature: bool = True
     supports_seed: bool = False
+    #: 出力の上限を送るキー. openai_chat の形のエンドポイントでだけ意味を持つ
+    output_limit_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
 
 
 class CompletionRequest(BaseModel):
@@ -129,6 +131,7 @@ class CapabilityOverrides(BaseModel):
     supports_temperature: bool | None = None
     supports_seed: bool | None = None
     reasoning: bool | None = None
+    output_limit_param: Literal["max_tokens", "max_completion_tokens"] | None = None
 
     def apply(self, base: Capabilities) -> Capabilities:
         updates = {key: value for key, value in self.model_dump().items() if value is not None}

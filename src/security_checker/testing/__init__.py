@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from security_checker.testing.cassette import CassetteMissError, CassetteProvider
-from security_checker.testing.fakes import FakeScanner, ScriptedProvider, verdict_payload
+from security_checker.testing.fakes import (
+    FakeScanner,
+    ScriptedProvider,
+    SlowProvider,
+    verdict_payload,
+)
 from security_checker.testing.provider_contract import (
     ProcessProviderContractTests,
     ProviderContractTests,
@@ -19,6 +24,7 @@ __all__ = [
     "ProviderContractTests",
     "ScannerContractTests",
     "ScriptedProvider",
+    "SlowProvider",
     "python_command",
     "verdict_payload",
 ]
