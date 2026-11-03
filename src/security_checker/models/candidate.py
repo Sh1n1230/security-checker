@@ -79,6 +79,9 @@ class Candidate(BaseModel):
     redacted: bool = False
     #: 同じ指摘を報告した他のスキャナ (dedupe で 1 件にまとめた分)
     also_reported_by: list[str] = Field(default_factory=list)
+    #: 秘密の値の sha256. baseline の照合だけに使い、実行中のメモリから外へ出さない。
+    #: 低エントロピーの値は総当たりで戻せるので、レポートにもログにも載せない (§19.2, ADR 0008)
+    secret_digest: str | None = Field(default=None, exclude=True, repr=False)
 
     @property
     def where(self) -> str:
