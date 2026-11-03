@@ -4,12 +4,14 @@
 P3 (No Automatic Modification) は transport の性質によらず守る必要があるため、
 対象が何であるかを問わず次を一律に強制する。
 
-1. リポジトリの外で起動する — cwd は毎回作り直す空の一時ディレクトリ
+1. リポジトリの外で起動する — cwd は毎回作り直す空の一時ディレクトリ。
+   リポジトリのパスを指す環境変数 (PWD など) も渡さない
 2. シェルを経由しない — argv のリストで起動し、`shell=False` 固定
 3. プロンプトは stdin か一時ファイルで渡す — コマンドライン引数に埋め込まない
    (長さ制限・`ps` からの可視性・フラグとしての誤解釈を避ける)
-4. 実行後に一時 cwd の差分を検査する — 書き込みは warning と trace に残す
-5. プロセスグループごと kill する — タイムアウト時に子プロセスを残さない
+4. 実行後に一時 cwd の差分を検査する — 書き込みは warning と trace に残す。
+   検知できるのは一時 cwd の中だけで、絶対パスでの cwd の外への書き込みは検知しない
+5. プロセスグループごと kill する — タイムアウトでも正常終了でも子プロセスを残さない
 6. 出力は上限つきで読む — 上限を超えた分は読み捨て、メモリに溜めない (#48)
 """
 
@@ -28,6 +30,7 @@ from typing import Literal
 
 POSIX = os.name == "posix"
 TERM_GRACE_S = 3.0
+GROUP_POLL_S = 0.05
 CREATED_PATHS_LIMIT = 20
 OUTPUT_LIMIT = 200_000
 #: メモリに保持する出力のバイト数の上限.
@@ -35,6 +38,19 @@ OUTPUT_LIMIT = 200_000
 OUTPUT_BYTE_LIMIT = OUTPUT_LIMIT * 4
 _READ_CHUNK = 64 * 1024
 TRUNCATED_NOTICE = "\n…(truncated)"
+
+#: 子に渡さない環境変数. 値がリポジトリのパスであり、資格情報ではないもの
+REPOSITORY_PATH_VARIABLES = (
+    "OLDPWD",
+    "INIT_CWD",
+    "GITHUB_WORKSPACE",
+    "CI_PROJECT_DIR",
+    "CI_WORKSPACE",
+    "CIRCLE_WORKING_DIRECTORY",
+    "BITBUCKET_CLONE_DIR",
+    "BUILD_SOURCESDIRECTORY",
+    "WORKSPACE",
+)
 
 PromptVia = Literal["stdin", "file"]
 
@@ -66,9 +82,9 @@ async def run_sandboxed(
 ) -> SandboxResult:
     """コマンドを隔離した一時ディレクトリで実行し、stdout を回収する.
 
-    `environ` を省略すると呼び出し元の環境をそのまま引き継ぐ。
+    `environ` を省略すると呼び出し元の環境を引き継ぐ。
     process transport の存在意義は「そのコマンド側の既存ログインを使う」ことなので、
-    資格情報を含む環境を落とさない (§9.7)。
+    資格情報を含む環境は落とさない。リポジトリのパスを指す変数だけを除く (§9.7)。
     """
     started = time.monotonic()
     with (
@@ -83,7 +99,7 @@ async def run_sandboxed(
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=dict(environ) if environ is not None else None,
+            env=_child_environment(os.environ if environ is None else environ, cwd),
             # POSIX では新しいセッション = 新しいプロセスグループ。killpg で一掃するために必要。
             start_new_session=POSIX,
         )
@@ -92,6 +108,8 @@ async def run_sandboxed(
             stdout, stderr = await asyncio.wait_for(
                 _communicate_capped(process, stdin_data), timeout=timeout_s
             )
+            # 1 起動 = 1 判定。stdout を閉じて残った孫プロセスも片づける
+            await terminate(process)
         except TimeoutError:
             timed_out = True
             stdout, stderr = _Captured(), _Captured()
@@ -109,6 +127,18 @@ async def run_sandboxed(
             created_paths=created_paths(cwd),
             duration_ms=int((time.monotonic() - started) * 1000),
         )
+
+
+def _child_environment(environ: Mapping[str, str], cwd: Path) -> dict[str, str]:
+    """子に渡す環境. Python は cwd= を指定しても PWD を書き換えないので、ここで直す."""
+    started_in = os.getcwd()
+    child = {
+        name: value
+        for name, value in environ.items()
+        if name not in REPOSITORY_PATH_VARIABLES and value != started_in
+    }
+    child["PWD"] = str(cwd)
+    return child
 
 
 def _prepare_input(
@@ -137,8 +167,8 @@ def _prepare_input(
 def created_paths(cwd: Path) -> tuple[str, ...]:
     """実行後の一時 cwd に何が作られたかを見る.
 
-    空で始まったディレクトリなので、残っているものはすべて Reviewer の書き込みである。
-    P3 が守られていることの唯一の実測値 (§25.2 の契約テスト 9 番)。
+    空で始まったディレクトリなので、残っているものはすべて Reviewer の書き込みである
+    (§25.2 の契約テスト 9 番)。絶対パスでこの外に書かれた場合は検知できない。
     """
     found: list[str] = []
     for path in sorted(cwd.rglob("*")):
@@ -152,24 +182,48 @@ def created_paths(cwd: Path) -> tuple[str, ...]:
 async def terminate(process: asyncio.subprocess.Process) -> None:
     """プロセスグループごと片づける. SIGTERM を試してから SIGKILL に上げる.
 
-    Windows には SIGKILL が無い。`_signal_group` はシグナルによらず TerminateProcess
-    (`process.kill()`) で止めるので、1 回だけ試す。
+    親が先に終了していても、グループに残った孫には届ける。判断の基準は
+    「親が終了したか」ではなく「グループが空になったか」である。
+
+    Windows には SIGKILL もプロセスグループも無い。`_signal_group` はシグナルによらず
+    TerminateProcess (`process.kill()`) で止めるので、動いている間に 1 回だけ試す。
     """
-    signals = (signal.SIGTERM, signal.SIGKILL) if POSIX else (signal.SIGTERM,)
-    for signal_number in signals:
-        if process.returncode is not None:
+    if not POSIX:
+        if process.returncode is None:
+            _signal_group(process, signal.SIGTERM)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(asyncio.shield(process.wait()), timeout=TERM_GRACE_S)
+        return
+    for signal_number in (signal.SIGTERM, signal.SIGKILL):
+        if not _group_alive(process):
             return
         _signal_group(process, signal_number)
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(asyncio.shield(process.wait()), timeout=TERM_GRACE_S)
-            return
+        deadline = time.monotonic() + TERM_GRACE_S
+        # プロセスグループの終了を知らせる仕組みは OS に無いので、ポーリングする
+        while _group_alive(process) and time.monotonic() < deadline:  # noqa: ASYNC110
+            await asyncio.sleep(GROUP_POLL_S)
+
+
+def _group_alive(process: asyncio.subprocess.Process) -> bool:
+    """グループに生きているプロセスが残っているか."""
+    try:
+        os.killpg(process.pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:  # PermissionError: 存在はするがシグナルを送れない
+        return True
+    return True
 
 
 def _signal_group(process: asyncio.subprocess.Process, signal_number: int) -> None:
-    """POSIX ではプロセスグループ全体に、それ以外ではプロセス単体に送る."""
+    """POSIX ではプロセスグループ全体に、それ以外ではプロセス単体に送る.
+
+    `start_new_session=True` で起動しているので、グループ ID は親の PID と同じ。
+    親が回収された後は `getpgid` が失敗するため、PID をそのまま使う。
+    """
     with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
         if POSIX:
-            os.killpg(os.getpgid(process.pid), signal_number)
+            os.killpg(process.pid, signal_number)
             return
         process.kill()
 

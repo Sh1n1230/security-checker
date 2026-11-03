@@ -618,13 +618,17 @@ class RepoFacts(BaseModel):
 
 ```yaml
 context:
-  max_tokens_per_task: 8000        # 1 候補あたりの入力上限
+  max_tokens_per_task: 8000        # 1 候補あたりの入力上限 (プロンプト全体)
   window_lines: 40
   max_callers: 3
   include_repo_facts: true
 ```
 
-Provider の `max_context_tokens` と突き合わせ、小さい方を採用する。
+Provider の `max_context_tokens − max_output_tokens` と突き合わせ、小さい方を採用する
+(全 Reviewer に同じ依頼を送るので、Reviewer のうち最も小さい値を使う)。
+コード本文に使えるのは、そこから本文以外(system・Finding の欄・facts・Notes・Schema。約 1,500 トークン)を
+除いた残りである。行数を減らしても収まらない場合(minify されたファイルなど)は該当行を文字数で切り、
+それでも収まらなければ本文を送らず、Notes に理由を書く。
 予算超過時の切り詰め順序は **related → callers → file_tree → window 縮小** の順(primary は最後まで守る)。
 切り詰めた場合は `truncated: true` を立て、プロンプトにも「文脈が省略されている」旨を明記して
 LLM が過信しないようにする。
@@ -715,6 +719,7 @@ class Capabilities(BaseModel):
     supports_system_role: bool = True
     supports_temperature: bool = True
     supports_seed: bool = False
+    output_limit_param: str = "max_tokens"     # openai_chat の出力上限のキー (max_completion_tokens)
 
 class CompletionRequest(BaseModel):
     system: str
@@ -913,7 +918,9 @@ P3(No Automatic Modification)はこのツールの根幹なので、
 **対象が何であるかによらず**次を一律に強制する。
 
 1. **リポジトリの外で起動する。** cwd は毎回作り直す空の一時ディレクトリ。
-   コマンドにリポジトリのパスを渡さない。コードはプロンプトとして stdin から渡す。
+   コマンドにリポジトリのパスを渡さない。`PWD` など、リポジトリのパスを指す環境変数も子に渡さない
+   (資格情報を含むその他の環境は、既存のログインを使うために引き継ぐ)。
+   コードはプロンプトとして stdin から渡す。
 2. **書き込み能力を無効化した状態で起動する。** 同梱プリセットは
    非対話 + ツール無効(または読み取り専用サンドボックス)の指定を**必ず**含み、
    `requires_readonly_flags: true` を申告する(§9.7)。
@@ -926,9 +933,9 @@ P3(No Automatic Modification)はこのツールの根幹なので、
    作るわけにはいかない。
 4. **実行後に一時ディレクトリの差分を検査する。** ファイルが作られていたら
    「Reviewer が書き込みを試みた」として **warning を出し、trace に記録する。**
-   これは P3 が守られていることの実測でもある。
-5. **プロセスグループごと kill する。** タイムアウト時に子プロセスが残らないよう
-   `start_new_session=True` + `killpg`。
+   検知できるのは一時ディレクトリの中だけで、絶対パスでその外に書かれた場合は検知しない。
+5. **プロセスグループごと kill する。** タイムアウトでも正常終了でも子プロセスが残らないよう
+   `start_new_session=True` + `killpg`。親が先に終了していても、グループに残った孫まで止める。
 
 #### 制約(正直に書く)
 
@@ -1346,8 +1353,18 @@ class AggregationOutcome(BaseModel):
 ### 13.2 単一 Reviewer の場合
 
 Reviewer が 1 個のときは Aggregator を通すが、`agreement = not_applicable` とし、
-`status` は confidence だけで決める(`>= 0.8` → confirmed / `>= 0.5` → likely / それ未満 → review_required)。
+`status` は confidence だけで決める。
+
+| 判定 | confidence | status |
+|---|---|---|
+| 脆弱 | `>= 0.8` | confirmed |
+| 脆弱 | `>= 0.5` | likely |
+| 脆弱 | それ未満 | review_required |
+| 脆弱ではない | `>= 0.8` かつ文脈不足を訴えていない | false_positive |
+| 脆弱ではない | それ以外 | review_required(自信の無い判定で候補を消さない) |
+
 **「1 モデルの合意」を high agreement と偽装しない**ことが重要。
+この規則は戦略によらない。Reviewer が 1 体なら consensus でも weighted でも同じ結果になる。
 
 ---
 
@@ -1357,23 +1374,33 @@ Reviewer が 1 個のときは Aggregator を通すが、`agreement = not_applic
 
 ```text
 valid    = [v for v in verdicts if v.status == ok]
-vuln     = [v for v in valid if v.vulnerable and v.confidence >= min_confidence]
+vuln     = [v for v in valid if v.vulnerable]    # 確信度によらず数える
 
 votes    = len(vuln)
 ratio    = votes / len(valid)
 
 if valid が空                       → error
-elif votes >= min_votes and ratio >= min_ratio:
+elif votes >= min_votes and ratio >= min_ratio and ratio > 0.5:    # 半々は過半数ではない
       status = confirmed if (agreement == high and mean_conf >= 0.8) else likely
-elif votes == 0                     → false_positive
+elif votes == 0:
+      status = false_positive if (mean_conf >= 0.8 and 文脈不足の訴えが無い) else review_required
 else                                → review_required        # 割れた
 ```
+
+票は確信度によらず数え、確信度は集約後の値を `policy.min_confidence` と比べる
+(未満なら review_required に落とす)。低確信度の「脆弱」票を数えないと `votes == 0` になり、
+見逃しが増えるため。一致度が `low` のときの confidence の上限 0.5 は、`min_confidence` の既定 0.5 と
+同じ値なので、既定の設定では格下げとしては働かない。
 
 `severity` の決め方は設定で選ぶ。
 
 - `median`(既定): 「脆弱」と判定した Reviewer の severity の中央値。外れ値に強い。
 - `max`: 最も厳しい判定を採る。見逃しを嫌う運用向け。
-- `weighted_mean`: severity を数値化(critical=4…none=0)して重み付き平均し、四捨五入。
+- `weighted_mean`: severity を数値化(critical=5, high=4, medium=3, low=2, info=1, none=0)して
+  `reviewers[].weight` で重み付き平均し、四捨五入。
+
+中央値と平均は x.5 を常に上へ丸める(medium と high に割れたら high)。段によって向きが変わる
+偶数丸めは説明がつかず、主指標が Recall なので厳しい側に倒す。
 
 既定を `median` にするのは、1 モデルの過大評価でノイズが増えるのを防ぐため。
 「見逃しゼロ優先」の利用者は `max` に切り替えられる。
@@ -1926,9 +1953,12 @@ rate_limit:
 
 ### 22.2 429 への対応
 
-- `Retry-After` ヘッダがあれば**必ず尊重**する。
+- `Retry-After` ヘッダは**上限の範囲で尊重**する(HTTP-date 形式も読む)。上限は残りのデッドラインと
+  60 秒の小さい方で、超える値は待たずにその候補を `provider_error` にする。日次上限に達した提供元が
+  数時間の値を返すと CI のジョブごと止まるため。
 - なければ指数バックオフ + フルジッター(`min(cap, base * 2^n) * random()`)。
-- 429 が続く場合、その Provider の実効 rpm を動的に下げる(適応的スロットリング)。
+- 429 が 2 回続くと、その Provider の実効 rpm を半分に下げる(適応的スロットリング。下限 1)。
+  成功が 5 回続くと 2 倍に戻し、`rate_limit.rpm` の宣言を上限に回復する。
   無料枠ユーザーが「とりあえず動く」ことを優先する。
 
 ### 22.3 無料枠向けプリセット
@@ -1943,11 +1973,11 @@ rate_limit:
 | 対象 | 既定 | 備考 |
 |---|---|---|
 | 1 LLM リクエストのタイムアウト | 120s | reasoning モデルは長いので設定可 |
-| リトライ対象 | 429 / 5xx / timeout / 接続エラー | 400/401/403 はリトライしない |
+| リトライ対象 | 429 / 408 / 5xx / timeout / 接続エラー | その他の 4xx はリトライしない。構造化出力の降格は 400 のときだけ |
 | 最大試行 | 3(初回 + 2 リトライ) | |
 | バックオフ | 指数 + フルジッター、上限 60s | |
 | スキーマ修復リトライ | 1 回(上記とは別枠) | §10.2 |
-| run 全体のデッドライン | 30 分(設定可) | 超過で中断 + 部分結果出力 |
+| run 全体のデッドライン | 30 分(`budget.deadline_s`) | 超過で中断 + 部分結果出力。Judge の段も含む |
 | スキャナのタイムアウト | 600s | semgrep は大規模リポで長い |
 
 **サーキットブレーカ**: 同一 Reviewer で

@@ -11,16 +11,16 @@
 
 from __future__ import annotations
 
-import statistics
 from collections.abc import Mapping
 
 from security_checker.aggregate.agreement import compute_agreement
-from security_checker.aggregate.base import (
-    NUMBER_SEVERITY,
-    SEVERITY_NUMBER,
-    AggregationOutcome,
+from security_checker.aggregate.base import AggregationOutcome, aggregate_severity
+from security_checker.aggregate.consensus import (
+    _describe,
+    _headline,
+    partial_outcome,
+    single_outcome,
 )
-from security_checker.aggregate.consensus import _describe, _headline, partial_outcome
 from security_checker.config.schema import AggregationConfig
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Agreement, FindingStatus, Severity
@@ -68,6 +68,22 @@ class WeightedAggregator:
             # 残った 1 体の重みだけで正規化すると、その判定がそのまま ±confidence のスコアになる
             return partial_outcome(self.name, valid[0], verdicts, candidate)
 
+        if all(verdict.needs_more_context for verdict in valid) and not any(
+            verdict.vulnerable for verdict in valid
+        ):
+            return self._outcome(
+                FindingStatus.INCONCLUSIVE,
+                valid,
+                candidate,
+                score=0.0,
+                summary="文脈が不足しているため判断できませんでした。人間の確認を推奨します。",
+                extra={"reason": "all_reviewers_requested_more_context"},
+            )
+
+        if len(verdicts) == 1:
+            # 戦略を変えても、Reviewer が 1 体なら同じ結果にする (§13.2)
+            return single_outcome(self.name, valid[0], candidate)
+
         total_weight = sum(self.weight_of(verdict) for verdict in valid)
         if total_weight <= 0:
             # 全員の重みが 0 なら、多数決の材料が無い。黙って 0 点にしない
@@ -82,18 +98,6 @@ class WeightedAggregator:
                     "valid_verdicts": len(valid),
                     "total_weight": total_weight,
                 },
-            )
-
-        if all(verdict.needs_more_context for verdict in valid) and not any(
-            verdict.vulnerable for verdict in valid
-        ):
-            return self._outcome(
-                FindingStatus.INCONCLUSIVE,
-                valid,
-                candidate,
-                score=0.0,
-                summary="文脈が不足しているため判断できませんでした。人間の確認を推奨します。",
-                extra={"reason": "all_reviewers_requested_more_context"},
             )
 
         score = (
@@ -144,29 +148,7 @@ class WeightedAggregator:
     # --- 内部 -------------------------------------------------------------
 
     def _severity(self, vulnerable: list[ReviewVerdict], cfg: AggregationConfig) -> Severity:
-        """「脆弱」と答えた Reviewer の severity から決める.
-
-        weighted_mean のときだけ重みを使う。median / max は外れ値の扱いの話であって、
-        重みの話ではないため。
-        """
-        if not vulnerable:
-            return Severity.NONE
-        numbers = [SEVERITY_NUMBER[verdict.severity] for verdict in vulnerable]
-        mode = cfg.consensus.severity
-        if mode == "max":
-            value = float(max(numbers))
-        elif mode == "weighted_mean":
-            weights = [self.weight_of(verdict) for verdict in vulnerable]
-            total = sum(weights)
-            value = (
-                sum(number * weight for number, weight in zip(numbers, weights, strict=True))
-                / total
-                if total > 0
-                else statistics.fmean(numbers)
-            )
-        else:
-            value = float(statistics.median(numbers))
-        return NUMBER_SEVERITY[round(value)]
+        return aggregate_severity(vulnerable, cfg.consensus.severity, self.weight_of)
 
     def _summary(self, vulnerable: list[ReviewVerdict], score: float) -> str:
         if not vulnerable:

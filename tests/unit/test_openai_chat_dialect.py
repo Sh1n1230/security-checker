@@ -8,6 +8,10 @@ import pytest
 
 from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 from security_checker.providers.errors import ProviderResponseError
+from security_checker.providers.http.dialects.anthropic_messages import AnthropicMessagesDialect
+from security_checker.providers.http.dialects.base import REASONING_HEADROOM_TOKENS
+from security_checker.providers.http.dialects.gemini_generate import GeminiGenerateDialect
+from security_checker.providers.http.dialects.ollama_chat import OllamaChatDialect
 from security_checker.providers.http.dialects.openai_chat import OpenAIChatDialect
 
 SCHEMA = {"type": "object", "properties": {"vulnerable": {"type": "boolean"}}}
@@ -115,3 +119,45 @@ def test_parse_response_tolerates_missing_usage(dialect: OpenAIChatDialect) -> N
 def test_broken_responses_raise(dialect: OpenAIChatDialect, payload: dict[str, Any]) -> None:
     with pytest.raises(ProviderResponseError):
         dialect.parse_response(payload)
+
+
+@pytest.mark.parametrize("param", ["max_tokens", "max_completion_tokens"])
+def test_output_limit_uses_the_declared_key(param: str) -> None:
+    """推論モデルは max_tokens を拒否し、max_tokens しか通らない互換サーバもある (#169)."""
+    capabilities = Capabilities.model_validate({"output_limit_param": param})
+    other = {"max_tokens", "max_completion_tokens"} - {param}
+    payload = OpenAIChatDialect().build_payload(
+        CompletionRequest(system="s", user="u", max_output_tokens=100),
+        model="m",
+        capabilities=capabilities,
+        mode=StructuredMode.PROMPT_ONLY,
+    )
+    assert payload[param] == 100
+    assert not other & set(payload)
+    health = OpenAIChatDialect().health_payload("m", capabilities)
+    assert health[param] == 1
+    assert not other & set(health)
+
+
+@pytest.mark.parametrize(
+    ("dialect", "read"),
+    [
+        (OpenAIChatDialect(), lambda p: p["max_tokens"]),
+        (GeminiGenerateDialect(), lambda p: p["generationConfig"]["maxOutputTokens"]),
+        (AnthropicMessagesDialect(), lambda p: p["max_tokens"]),
+        (OllamaChatDialect(), lambda p: p["options"]["num_predict"]),
+    ],
+)
+def test_reasoning_headroom_applies_to_every_dialect(dialect: Any, read: Any) -> None:
+    request = CompletionRequest(system="s", user="u", max_output_tokens=100)
+    plain = dialect.build_payload(
+        request, model="m", capabilities=Capabilities(), mode=StructuredMode.PROMPT_ONLY
+    )
+    reasoning = dialect.build_payload(
+        request,
+        model="m",
+        capabilities=Capabilities(reasoning=True),
+        mode=StructuredMode.PROMPT_ONLY,
+    )
+    assert read(plain) == 100
+    assert read(reasoning) == 100 + REASONING_HEADROOM_TOKENS

@@ -27,7 +27,11 @@ CweId = Annotated[str, StringConstraints(pattern=r"^CWE-[0-9]+$")]
 
 
 class Usage(BaseModel):
-    """トークン使用量. input / output / reasoning / cached を区別して持つ (設計書 §24.3)."""
+    """トークン使用量. input / output / reasoning / cached を区別して持つ (設計書 §24.3).
+
+    `output_tokens` は請求対象の出力トークン全体で、推論トークンを含む。
+    `reasoning_tokens` はその内訳。提供元の数え方の違いは方言が吸収する。
+    """
 
     model_config = ConfigDict(frozen=True)
 

@@ -53,7 +53,15 @@ class ProviderServerError(ProviderError):
 
 
 class ProviderBadRequestError(ProviderError):
-    """400. スキーマ非対応などが含まれるため、降格して再試行する余地がある (§10.2)."""
+    """4xx (認証・レート制限・タイムアウトを除く).
+
+    400 にはスキーマ非対応が含まれるので、降格して再試行する余地がある (§10.2)。
+    404 や 413 は降格しても変わらない。`status` で見分ける。
+    """
+
+    def __init__(self, message: str, *, provider: str | None = None, status: int = 400) -> None:
+        super().__init__(message, provider=provider)
+        self.status = status
 
 
 class ProviderResponseError(ProviderError):
