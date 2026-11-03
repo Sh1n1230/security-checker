@@ -30,6 +30,9 @@ from security_checker.review.structured import (
     verdict_schema,
 )
 
+#: レビューは再現性を優先する (§11.5)
+REVIEW_TEMPERATURE = 0.0
+
 
 class SendCancelledError(Exception):
     """送信の直前に止められた (予算超過・無効化・デッドライン). 提供元には何も送っていない."""
@@ -166,7 +169,7 @@ class Reviewer:
                 json_schema=schema,
                 structured_mode=capabilities.structured_output,
                 max_output_tokens=self.max_output_tokens,
-                temperature=0.0,
+                temperature=REVIEW_TEMPERATURE,
                 seed=self.seed if capabilities.supports_seed else None,
                 timeout_s=self.timeout_s,
             )
@@ -267,11 +270,14 @@ class Reviewer:
         if self.save_prompts:
             prompt["system"] = system
             prompt["user"] = user
+        # 設定値ではなく実際に送った値を残す. 再現の調査を誤らせないため (§24.2)
+        capabilities = self.provider.capabilities
         params: dict[str, Any] = {
             "transport": self.provider.transport,
             "dialect": self.provider.dialect,
-            "temperature": 0.0,
-            "seed": self.seed,
+            "temperature": REVIEW_TEMPERATURE if capabilities.supports_temperature else None,
+            "seed": self.seed if capabilities.supports_seed else None,
+            "seed_configured": self.seed,
             "max_output_tokens": self.max_output_tokens,
             "structured_mode": self.provider.capabilities.structured_output.value,
             "language": self.language,

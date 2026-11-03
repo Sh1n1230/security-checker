@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Agreement, FindingStatus, Severity
-from security_checker.models.verdict import ReviewVerdict
+from security_checker.models.verdict import ReviewVerdict, VerdictStatus
 
 
 class SuppressionReason(StrEnum):
@@ -48,3 +48,17 @@ class Finding(BaseModel):
     aggregation: AggregationDetail | None = None
 
     suppressed: SuppressionReason | None = None
+
+    @property
+    def supporting_reasoning(self) -> str:
+        """指摘の根拠として載せる理由. 無ければ空文字列.
+
+        「脆弱」と判定した Reviewer の文章だけを選ぶ。反対意見やエラーメッセージを
+        指摘の理由として見せない。inline・SARIF・サマリ・report.md で共通に使う。
+        """
+        for verdict in self.verdicts:
+            if verdict.status is VerdictStatus.OK and verdict.vulnerable:
+                reasoning = verdict.reasoning.strip()
+                if reasoning:
+                    return reasoning
+        return ""

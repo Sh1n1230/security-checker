@@ -32,6 +32,7 @@ from security_checker.run import (
     build_reviewers,
     close_providers,
     review_and_aggregate,
+    smallest_input_limit,
 )
 
 
@@ -58,7 +59,7 @@ class _Prepared:
     by_id: dict[str, EvalCase] = field(default_factory=dict)
 
 
-def _prepare(dataset: Dataset, config: Config, workspace: Path) -> _Prepared:
+def _prepare(dataset: Dataset, config: Config, workspace: Path, setup: ReviewerSetup) -> _Prepared:
     prepared = _Prepared()
     for case in dataset.cases:
         root = workspace / case.id
@@ -67,7 +68,12 @@ def _prepare(dataset: Dataset, config: Config, workspace: Path) -> _Prepared:
         target.write_text(case.code, encoding="utf-8")
 
         candidate = case.to_candidate()
-        builder = ContextBuilder(root, config.context, collect_repo_facts(root))
+        builder = ContextBuilder(
+            root,
+            config.context,
+            collect_repo_facts(root),
+            max_input_tokens=smallest_input_limit(setup),
+        )
         prepared.tasks.append(builder.build(candidate))
         prepared.candidates.append(candidate)
         prepared.by_id[case.id] = case
@@ -96,7 +102,7 @@ async def run_eval(
     try:
         with tempfile.TemporaryDirectory(prefix="security-checker-eval-") as temporary:
             root = workspace or Path(temporary)
-            prepared = _prepare(dataset, config, root)
+            prepared = _prepare(dataset, config, root, setup)
 
             review_pass = await review_and_aggregate(
                 config, setup, prepared.tasks, prepared.candidates

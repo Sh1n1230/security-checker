@@ -153,20 +153,30 @@ def drop_hallucinated_evidence(
     """提示した範囲外を指す evidence を落とす (§11.3).
 
     ハルシネーションした位置をレポートに載せない。落としたことは warning に残す。
+    コードを 1 行も提示していない候補 (依存パッケージなど) の evidence はすべて範囲外である。
     """
-    primary = task.code_context.primary
-    if primary is None or not judgement.evidence:
+    if not judgement.evidence:
         return judgement, []
+    context = task.code_context
+    shown = [*([context.primary] if context.primary is not None else []), *context.callers]
 
     kept = []
     warnings = []
     for item in judgement.evidence:
-        same_file = item.path.replace("\\", "/").endswith(primary.path)
-        in_range = primary.start_line <= item.start_line <= primary.end_line
-        if same_file and in_range:
+        path = item.path.replace("\\", "/").removeprefix("./")
+        inside = item.start_line <= item.end_line and any(
+            path == slice_.path
+            and slice_.start_line <= item.start_line
+            and item.end_line <= slice_.end_line
+            for slice_ in shown
+        )
+        if inside:
             kept.append(item)
         else:
-            warnings.append(f"提示範囲外の evidence を除外しました: {item.path}:{item.start_line}")
+            warnings.append(
+                f"提示範囲外の evidence を除外しました: "
+                f"{item.path}:{item.start_line}-{item.end_line}"
+            )
     if len(kept) == len(judgement.evidence):
         return judgement, []
     return judgement.model_copy(update={"evidence": kept}), warnings

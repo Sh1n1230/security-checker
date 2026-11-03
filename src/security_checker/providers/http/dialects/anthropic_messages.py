@@ -19,15 +19,16 @@ from typing import Any
 from security_checker.models.verdict import Usage
 from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 from security_checker.providers.errors import ProviderResponseError
-from security_checker.providers.http.dialects.base import DialectOptions, DialectResponse
+from security_checker.providers.http.dialects.base import (
+    DialectOptions,
+    DialectResponse,
+    output_limit,
+)
 
 #: 構造化出力を受け取るための関数名. 応答の content[].input がそのまま結果になる
 TOOL_NAME = "submit_review"
 #: この形のバージョン指定ヘッダ. headers 設定で上書きできる
 DEFAULT_API_VERSION = "2023-06-01"
-#: 思考トークンを持つモデルでは、出力予算を食い尽くして本文が切れる。
-#: reasoning を宣言している場合だけ、その分の余裕を足す (§9.6)
-REASONING_HEADROOM_TOKENS = 4096
 
 
 class AnthropicMessagesDialect:
@@ -65,13 +66,9 @@ class AnthropicMessagesDialect:
         capabilities: Capabilities,
         mode: StructuredMode,
     ) -> dict[str, Any]:
-        max_tokens = req.max_output_tokens
-        if capabilities.reasoning:
-            max_tokens += REASONING_HEADROOM_TOKENS
-
         payload: dict[str, Any] = {
             "model": model,
-            "max_tokens": max_tokens,
+            "max_tokens": output_limit(req, capabilities),
             "messages": [{"role": "user", "content": req.user}],
         }
         if capabilities.supports_system_role:
@@ -137,12 +134,15 @@ class AnthropicMessagesDialect:
             model_reported=model_reported if isinstance(model_reported, str) else None,
         )
 
-    def health_payload(self, model: str) -> dict[str, Any]:
+    def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]:
         return {
             "model": model,
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "ping"}],
         }
+
+    def is_auth_error(self, status: int, body: str) -> bool:
+        return False
 
     def explain_error(self, status: int, body: str) -> str | None:
         """次に取れる行動が分かる場合だけ文章にする (§20.2)."""

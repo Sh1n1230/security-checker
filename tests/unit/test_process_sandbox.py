@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -172,3 +174,64 @@ async def test_command_that_ignores_stdin_is_not_an_error():
     result = await run_sandboxed(python("print('ok')"), prompt="x" * 1_000_000, timeout_s=30)
     assert result.exit_code == 0
     assert result.stdout.strip() == "ok"
+
+
+# --- リポジトリのパスを環境変数で渡さない (#167) ------------------------------------
+
+
+async def test_child_does_not_receive_the_repository_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    environ = {
+        "PATH": "/usr/bin:/bin",
+        "PWD": str(tmp_path),
+        "OLDPWD": str(tmp_path),
+        "GITHUB_WORKSPACE": str(tmp_path),
+        "SOME_DIR": str(tmp_path),
+        "GITHUB_TOKEN": "kept",
+    }
+    script = "import json,os,sys;sys.stdin.read();print(json.dumps(dict(os.environ)))"
+    result = await run_sandboxed([sys.executable, "-c", script], prompt="x", environ=environ)
+    seen = json.loads(result.stdout)
+    assert str(tmp_path) not in seen.values()
+    assert "GITHUB_WORKSPACE" not in seen
+    assert seen["GITHUB_TOKEN"] == environ["GITHUB_TOKEN"]
+    assert seen["PWD"] != str(tmp_path)
+
+
+# --- 親が先に終了しても孫を残さない (#166) ------------------------------------------
+
+
+@pytest.mark.skipif(os.name != "posix", reason="プロセスグループは POSIX の概念")
+async def test_grandchild_is_reaped_after_a_normal_exit(tmp_path):
+    """stdout を閉じて残る孫も片づける. 1 起動 = 1 判定で、残るプロセスは要らない."""
+    pid_file = tmp_path / "pid"
+    script = (
+        "import pathlib,subprocess,sys;"
+        "c=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'],"
+        "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,stdin=subprocess.DEVNULL);"
+        "pathlib.Path(sys.argv[1]).write_text(str(c.pid));print('ok')"
+    )
+    result = await run_sandboxed([sys.executable, "-c", script, str(pid_file)], prompt="x")
+    assert result.stdout.strip() == "ok"
+    assert result.exit_code == 0
+    child = int(pid_file.read_text())
+    for _ in range(100):
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            return
+        await asyncio.sleep(0.05)
+    os.kill(child, signal.SIGKILL)
+    pytest.fail("孫プロセスが残っている")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="プロセスグループは POSIX の概念")
+async def test_timeout_does_not_wait_extra_when_the_parent_exited_first():
+    """孫まで止めるので EOF がすぐ来る. 猶予の 3 秒を使い切らない."""
+    script = (
+        "import subprocess,sys;"
+        "subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);print('{}')"
+    )
+    result = await run_sandboxed([sys.executable, "-c", script], prompt="x", timeout_s=1.0)
+    assert result.timed_out
+    assert result.duration_ms < 3000

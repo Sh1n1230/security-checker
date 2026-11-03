@@ -10,12 +10,14 @@ from typing import Any
 
 import pytest
 
+from security_checker.observability.cost import ModelPrice
 from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 from security_checker.providers.errors import ProviderResponseError
 from security_checker.providers.http.dialects.gemini_generate import (
     GeminiGenerateDialect,
     to_response_schema,
 )
+from security_checker.providers.http.dialects.openai_chat import OpenAIChatDialect
 from security_checker.review.structured import verdict_schema
 
 SCHEMA: dict[str, Any] = {
@@ -206,3 +208,32 @@ def test_the_real_verdict_schema_converts_without_unsupported_keywords() -> None
     walk(converted)
     assert converted["type"] == "OBJECT"
     assert "severity" in converted["properties"]
+
+
+def test_thinking_tokens_are_billed_as_output() -> None:
+    """請求額が同じ応答は、方言によらず同じ金額に見積もる (#168)."""
+    price = ModelPrice(input_per_1m=1.0, output_per_1m=10.0)
+    gemini = GeminiGenerateDialect().parse_response(
+        {
+            "candidates": [{"content": {"parts": [{"text": "{}"}]}, "finishReason": "STOP"}],
+            "usageMetadata": {
+                "promptTokenCount": 1000,
+                "candidatesTokenCount": 200,
+                "thoughtsTokenCount": 3000,
+                "totalTokenCount": 4200,
+            },
+        }
+    )
+    chat = OpenAIChatDialect().parse_response(
+        {
+            "choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}],
+            "usage": {
+                "prompt_tokens": 1000,
+                "completion_tokens": 3200,
+                "completion_tokens_details": {"reasoning_tokens": 3000},
+            },
+        }
+    )
+    assert gemini.usage.total_tokens == chat.usage.total_tokens == 4200
+    assert gemini.usage.reasoning_tokens == chat.usage.reasoning_tokens == 3000
+    assert price.estimate(gemini.usage) == price.estimate(chat.usage)

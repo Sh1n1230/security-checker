@@ -6,12 +6,17 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 from security_checker.config.schema import ContextConfig
-from security_checker.context.budget import estimate_tokens
+from security_checker.context.budget import (
+    CHARS_PER_TOKEN,
+    PROMPT_OVERHEAD_TOKENS,
+    estimate_tokens,
+)
 from security_checker.context.redact import mask_secret, redact_known_patterns, redact_text
-from security_checker.context.slicer import line_window, shrink
+from security_checker.context.slicer import clip_lines, line_window, shrink
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category
 from security_checker.models.task import (
@@ -29,9 +34,21 @@ SECRET_MIN_LENGTH = 8
 class ContextBuilder:
     """候補ごとにレビュー用の文脈を組み立てる."""
 
-    def __init__(self, root: Path, config: ContextConfig, repo_facts: RepoFacts) -> None:
+    def __init__(
+        self,
+        root: Path,
+        config: ContextConfig,
+        repo_facts: RepoFacts,
+        *,
+        max_input_tokens: int | None = None,
+    ) -> None:
+        """`max_input_tokens` は Provider 側の上限 (max_context_tokens - 出力上限).
+
+        全 Reviewer に同じ依頼を送る (§11.4) ので、Reviewer のうち最も小さい値を渡す。
+        """
         self.root = root
         self.config = config
+        self.input_limit = min(config.max_tokens_per_task, max_input_tokens or sys.maxsize)
         self.repo_facts = repo_facts if config.include_repo_facts else RepoFacts()
 
     def build(self, candidate: Candidate) -> ReviewTask:
@@ -60,20 +77,27 @@ class ContextBuilder:
 
         if primary is not None:
             primary, truncated = self._fit_budget(primary, candidate)
-            if truncated:
+            if primary is None:
+                notes.append(
+                    "トークン予算に収まらないため、コード本文は提示していません。"
+                    "判断に足りなければ needs_more_context に記載してください。"
+                )
+            elif truncated:
                 notes.append(
                     "トークン予算のため文脈を切り詰めています。"
                     "判断に足りなければ needs_more_context に記載してください。"
                 )
 
         context = CodeContext(primary=primary, truncated=truncated)
-        estimated = estimate_tokens(primary.text) if primary is not None else 0
+        estimated = PROMPT_OVERHEAD_TOKENS + (
+            estimate_tokens(primary.text) if primary is not None else 0
+        )
         return ReviewTask(
             candidate=candidate,
             code_context=context,
             repo_facts=self.repo_facts,
             budget=TokenBudget(
-                max_tokens_per_task=self.config.max_tokens_per_task,
+                max_tokens_per_task=self.input_limit,
                 estimated_input_tokens=estimated,
             ),
             notes=notes,
@@ -92,21 +116,36 @@ class ContextBuilder:
         text = _mask_detected_lines(text, slice_.start_line, candidate)
         return slice_.model_copy(update={"text": text})
 
-    def _fit_budget(self, slice_: CodeSlice, candidate: Candidate) -> tuple[CodeSlice, bool]:
-        """予算超過時はウィンドウを縮める (primary は最後まで守る・§8.3)."""
-        limit = self.config.max_tokens_per_task
+    def _fit_budget(self, slice_: CodeSlice, candidate: Candidate) -> tuple[CodeSlice | None, bool]:
+        """予算超過時はウィンドウを縮める (primary は最後まで守る・§8.3).
+
+        予算はプロンプト全体の上限なので、本文に使えるのは本文以外を除いた残りである。
+        行数で収まらなければ文字数で切り、それでも収まらなければ本文を送らない。
+        """
+        limit = self.input_limit - PROMPT_OVERHEAD_TOKENS
+        if limit <= 0:
+            return None, True
         if estimate_tokens(slice_.text) <= limit:
             return slice_, False
 
         focus = candidate.location.start_line if candidate.location else slice_.start_line
         keep = max(MIN_WINDOW_LINES, self.config.window_lines)
-        current = slice_
         while keep >= MIN_WINDOW_LINES:
             current = shrink(slice_, keep_lines=keep, focus_line=focus)
             if estimate_tokens(current.text) <= limit:
                 return current, True
             keep //= 2
-        return current, True
+
+        # 文字数の換算は概算なので、実際に数えて収まるまで縮める
+        max_chars = limit * CHARS_PER_TOKEN
+        while max_chars > 0:
+            clipped = clip_lines(slice_, focus_line=focus, max_chars=max_chars)
+            if clipped is None:
+                return None, True
+            if estimate_tokens(clipped.text) <= limit:
+                return clipped, True
+            max_chars //= 2
+        return None, True
 
 
 def _secret_hints(candidate: Candidate) -> list[str]:

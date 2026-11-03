@@ -21,3 +21,6 @@ capabilities:
   # 設定側の capabilities で上書きできる (利用者の明示指定が最優先・§9.3)。
   max_context_tokens: 128000
   max_output_tokens: 16384
+  # max_tokens は非推奨で、推論モデルは 400 で拒否する。
+  # 公式: https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create
+  output_limit_param: max_completion_tokens

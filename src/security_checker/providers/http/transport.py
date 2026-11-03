@@ -85,15 +85,22 @@ class HttpProvider:
                     ),
                     timeout_s=req.timeout_s,
                 )
-            except ProviderBadRequestError:
-                weaker = next_weaker_mode(mode) if req.json_schema is not None else None
+            except ProviderBadRequestError as exc:
+                # 降格で解決しうるのは 400 だけ。404 や 413 は何度送っても同じ
+                weaker = (
+                    next_weaker_mode(mode)
+                    if req.json_schema is not None and exc.status == 400
+                    else None
+                )
                 if weaker is None:
                     raise
                 mode = weaker
-                self._effective_mode = weaker
-                self._degraded_to = weaker
                 continue
 
+            # 降格して受け付けられたときだけ覚える。失敗した候補の巻き添えを残さない
+            if req.json_schema is not None and mode is not self._effective_mode:
+                self._effective_mode = mode
+                self._degraded_to = mode
             parsed = self.dialect_impl.parse_response(payload)
             return CompletionResponse(
                 text=parsed.text,
@@ -109,7 +116,9 @@ class HttpProvider:
     async def health_check(self) -> HealthStatus:
         started = time.monotonic()
         try:
-            await self._post(self.dialect_impl.health_payload(self.model), timeout_s=30.0)
+            await self._post(
+                self.dialect_impl.health_payload(self.model, self._capabilities), timeout_s=30.0
+            )
         except Exception as exc:  # 到達性の確認なので、種類を問わず結果に畳む
             return HealthStatus(ok=False, detail=str(exc))
         return HealthStatus(ok=True, latency_ms=int((time.monotonic() - started) * 1000))
@@ -154,7 +163,7 @@ class HttpProvider:
         if status < 400:
             return
         detail = _excerpt(response.text)
-        if status in (401, 403):
+        if status in (401, 403) or self.dialect_impl.is_auth_error(status, response.text):
             raise ProviderAuthError(
                 f"{self.name}: 認証に失敗しました ({status})。"
                 f"api_key_env に指定した環境変数の値を確認してください: {detail}",
@@ -166,6 +175,11 @@ class HttpProvider:
                 provider=self.name,
                 retry_after=_retry_after(response),
             )
+        if status == 408:
+            raise ProviderTimeoutError(
+                f"{self.name}: サーバがタイムアウトを返しました (408): {detail}",
+                provider=self.name,
+            )
         if status >= 500:
             raise ProviderServerError(
                 f"{self.name}: サーバエラー ({status}): {detail}", provider=self.name
@@ -176,6 +190,7 @@ class HttpProvider:
             f"{self.name}: リクエストが拒否されました ({status}): {detail}"
             + (f" — {hint}" if hint else ""),
             provider=self.name,
+            status=status,
         )
 
 
