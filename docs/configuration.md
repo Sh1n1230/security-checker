@@ -59,6 +59,8 @@
 | `gitleaks.enabled` | `true` | シークレット。検出値はマスクしてから保存・送信する |
 | `osv.enabled` | `true` | 依存の既知脆弱性 (別名をまとめて 1 件にする)。osv-scanner が未導入なら `skipped` |
 | `trivy.enabled` / `scanners` | `false` / `[config]` | `config` (誤設定) / `vuln` (依存)。`secret` は受け付けない |
+| `scanners.plugins.<名前>` | | entry point で登録した自作スキャナを有効にする ([scanners.md](scanners.md)) |
+| `*.timeout_s` / `extra_args` | | タイムアウトと追加引数 |
 | `*.timeout_s` / `extra_args` | | スキャナのプロセス全体の上限 (秒) と追加引数。出力の先や形式を変えるフラグは使えません (警告します) |
 
 詳細は [scanners.md](scanners.md)。
