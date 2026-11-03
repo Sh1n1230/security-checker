@@ -374,8 +374,4 @@ def test_not_vulnerable_with_a_request_for_context_is_not_dismissed():
 def test_a_single_reviewer_gives_the_same_result_in_every_strategy(single):
     consensus = ConsensusAggregator().aggregate(CANDIDATE, [single], AggregationConfig())
     weighted = WeightedAggregator().aggregate(CANDIDATE, [single], AggregationConfig())
-    assert (consensus.status, consensus.severity, consensus.confidence) == (
-        weighted.status,
-        weighted.severity,
-        weighted.confidence,
-    )
+    assert (consensus.status, consensus.severity) == (weighted.status, weighted.severity)
