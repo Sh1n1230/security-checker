@@ -10,6 +10,7 @@ import pytest
 from security_checker.aggregate.agreement import compute_agreement
 from security_checker.aggregate.consensus import ConsensusAggregator
 from security_checker.aggregate.findings import build_findings
+from security_checker.aggregate.weighted import WeightedAggregator
 from security_checker.config.schema import AggregationConfig, PolicyConfig
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Agreement, Category, FindingStatus, Severity
@@ -269,3 +270,108 @@ def test_headline_never_cuts_mid_sentence():
     text = "あ" * 500
     assert _first_sentence(text, 200).endswith("…")
     assert len(_first_sentence(text, 200)) <= 202
+
+
+# --- 半々は過半数ではない (#153) ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("votes", "against", "min_votes"),
+    [(2, 2, 2), (1, 1, 1)],
+)
+def test_an_even_split_is_review_required(votes, against, min_votes):
+    verdicts = [verdict(f"v{i}") for i in range(votes)] + [
+        verdict(f"n{i}", vulnerable=False, severity=Severity.NONE) for i in range(against)
+    ]
+    cfg = AggregationConfig.model_validate({"consensus": {"min_votes": min_votes}})
+    outcome = ConsensusAggregator().aggregate(CANDIDATE, verdicts, cfg)
+    assert outcome.status is FindingStatus.REVIEW_REQUIRED
+
+
+def test_a_strict_majority_is_still_reported():
+    verdicts = [
+        verdict("a"),
+        verdict("b"),
+        verdict("c", vulnerable=False, severity=Severity.NONE),
+    ]
+    outcome = ConsensusAggregator().aggregate(CANDIDATE, verdicts, AggregationConfig())
+    assert outcome.status in (FindingStatus.LIKELY, FindingStatus.CONFIRMED)
+
+
+# --- 重大度の丸めは常に上 (#154) ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("low", "high", "expected"),
+    [
+        (Severity.INFO, Severity.LOW, Severity.LOW),
+        (Severity.LOW, Severity.MEDIUM, Severity.MEDIUM),
+        (Severity.MEDIUM, Severity.HIGH, Severity.HIGH),
+        (Severity.HIGH, Severity.CRITICAL, Severity.CRITICAL),
+    ],
+)
+@pytest.mark.parametrize("mode", ["median", "weighted_mean"])
+@pytest.mark.parametrize("aggregator", [ConsensusAggregator, WeightedAggregator])
+def test_severity_ties_round_up_in_every_band(aggregator, mode, low, high, expected):
+    cfg = AggregationConfig.model_validate({"consensus": {"severity": mode}})
+    verdicts = [verdict("a", severity=low), verdict("b", severity=high)]
+    assert aggregator().aggregate(CANDIDATE, verdicts, cfg).severity is expected
+
+
+def test_consensus_weighted_mean_uses_the_reviewer_weights():
+    cfg = AggregationConfig.model_validate({"consensus": {"severity": "weighted_mean"}})
+    verdicts = [verdict("a", severity=Severity.CRITICAL), verdict("b", severity=Severity.LOW)]
+    aggregator = ConsensusAggregator({"a": 9.0, "b": 1.0})
+    assert aggregator.aggregate(CANDIDATE, verdicts, cfg).severity is Severity.CRITICAL
+
+
+# --- 自信の無い「脆弱ではない」で候補を消さない (#155) -------------------------------
+
+
+@pytest.mark.parametrize(
+    ("confidence", "expected"),
+    [
+        (0.2, FindingStatus.REVIEW_REQUIRED),
+        (0.79, FindingStatus.REVIEW_REQUIRED),
+        (0.8, FindingStatus.FALSE_POSITIVE),
+        (0.95, FindingStatus.FALSE_POSITIVE),
+    ],
+)
+def test_not_vulnerable_needs_decisive_confidence(confidence, expected):
+    def no(name: str) -> ReviewVerdict:
+        return verdict(name, vulnerable=False, severity=Severity.NONE, confidence=confidence)
+
+    multi = ConsensusAggregator().aggregate(CANDIDATE, [no("a"), no("b")], AggregationConfig())
+    single = ConsensusAggregator().aggregate(CANDIDATE, [no("a")], AggregationConfig())
+    assert multi.status is expected
+    assert single.status is expected
+    if expected is FindingStatus.REVIEW_REQUIRED:
+        # 候補の重大度を残す。none にすると人間が見る優先度が下がる
+        assert multi.severity is Severity.MEDIUM
+        assert single.severity is Severity.MEDIUM
+
+
+def test_not_vulnerable_with_a_request_for_context_is_not_dismissed():
+    verdicts = [
+        verdict("a", vulnerable=False, severity=Severity.NONE),
+        verdict("b", vulnerable=False, severity=Severity.NONE, needs_more_context=["呼び出し元"]),
+    ]
+    outcome = ConsensusAggregator().aggregate(CANDIDATE, verdicts, AggregationConfig())
+    assert outcome.status is FindingStatus.REVIEW_REQUIRED
+
+
+@pytest.mark.parametrize(
+    "single",
+    [
+        verdict("a", confidence=0.9),
+        verdict("a", confidence=0.55),
+        verdict("a", confidence=0.3),
+        verdict("a", vulnerable=False, severity=Severity.NONE, confidence=0.9),
+        verdict("a", vulnerable=False, severity=Severity.NONE, confidence=0.3),
+        verdict("a", vulnerable=False, severity=Severity.NONE, needs_more_context=["x"]),
+    ],
+)
+def test_a_single_reviewer_gives_the_same_result_in_every_strategy(single):
+    consensus = ConsensusAggregator().aggregate(CANDIDATE, [single], AggregationConfig())
+    weighted = WeightedAggregator().aggregate(CANDIDATE, [single], AggregationConfig())
+    assert (consensus.status, consensus.severity) == (weighted.status, weighted.severity)

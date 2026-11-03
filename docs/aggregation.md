@@ -15,8 +15,9 @@ Reviewer が 1 つなら、その判定がそのまま結果になります。
 
 | 条件 | 結果 |
 |---|---|
-| 脆弱の票が `min_votes` 以上かつ比率が `min_ratio` 以上 | 一致度が高く確信度の平均が 0.8 以上なら `confirmed`、それ以外は `likely` |
-| 全員が「脆弱ではない」 | `false_positive` |
+| 脆弱の票が `min_votes` 以上、比率が `min_ratio` 以上、かつ過半数 (半々は含まない) | 一致度が高く確信度の平均が 0.8 以上なら `confirmed`、それ以外は `likely` |
+| 全員が「脆弱ではない」、確信度の平均が 0.8 以上で、文脈不足を訴える Reviewer がいない | `false_positive` |
+| 全員が「脆弱ではない」だが確信度が低い | `review_required` |
 | それ以外 | `review_required` |
 | 複数の Reviewer に割り当てたが、有効な判定が 1 つしか残らなかった (他はエラー・無効化・停止) | 残った判定が「脆弱」かつ確信度 0.5 以上なら `likely`、それ以外は `review_required`。`false_positive` と `confirmed` にはしない |
 
@@ -24,7 +25,19 @@ Reviewer が 1 つなら、その判定がそのまま結果になります。
 残った 1 つの「脆弱ではない」で候補が消えないようにするためです。`aggregation.detail` に
 `mode: partial_reviewers` と失敗した数 (`failed_verdicts`) が残ります。
 
-重大度は脆弱と判定した Reviewer の中央値 (`consensus.severity` で `max` / `weighted_mean` も選べる)。
+重大度は脆弱と判定した Reviewer の中央値です (`consensus.severity` で `max` / `weighted_mean` も選べます。
+`weighted_mean` は `reviewers[].weight` で加重します)。割り切れないときは x.5 を上へ丸めるので、
+medium と high に割れたら high、high と critical に割れたら critical になります。
+
+Reviewer が 1 つのときは、戦略によらず次の規則です。
+
+| 判定 | 確信度 | 結果 |
+|---|---|---|
+| 脆弱 | 0.8 以上 | `confirmed` |
+| 脆弱 | 0.5 以上 | `likely` |
+| 脆弱 | 0.5 未満 | `review_required` |
+| 脆弱ではない | 0.8 以上 (文脈不足を訴えていない) | `false_positive` |
+| 脆弱ではない | それ以外 | `review_required` |
 
 ## weighted
 

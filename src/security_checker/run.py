@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import tempfile
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -560,7 +561,10 @@ async def review_and_aggregate(
             "aggregation.strategy: judge には、Judge 以外の Reviewer が少なくとも 1 つ必要です"
         )
 
-    schedule = await ReviewScheduler(reviewers, budget=config.budget).run(tasks)
+    started = time.monotonic()
+    schedule = await ReviewScheduler(
+        reviewers, budget=config.budget, deadline_s=config.budget.deadline_s
+    ).run(tasks)
     findings = build_findings(
         candidates,
         schedule.verdicts,
@@ -569,7 +573,8 @@ async def review_and_aggregate(
         policy=config.policy,
     )
     if judge is not None:
-        findings = await _judge(config, judge, tasks, findings, schedule, warnings)
+        remaining_s = config.budget.deadline_s - (time.monotonic() - started)
+        findings = await _judge(config, judge, tasks, findings, schedule, warnings, remaining_s)
     return ReviewPass(findings=findings, schedule=schedule, warnings=warnings)
 
 
@@ -580,6 +585,7 @@ async def _judge(
     findings: list[Finding],
     schedule: ScheduleResult,
     warnings: list[str],
+    deadline_s: float,
 ) -> list[Finding]:
     """割れた候補を Judge に回し、結果を Finding に反映する. 失敗は fallback のまま残す."""
     targets = {f.candidate.id for f in findings if needs_judge(f, config.aggregation)}
@@ -602,7 +608,8 @@ async def _judge(
         ]
 
     by_id = {f.candidate.id: f for f in findings}
-    judged = await ReviewScheduler([judge], budget=budget).run(
+    # デッドラインは run 全体の上限なので、Judge の段には残り時間だけを渡す
+    judged = await ReviewScheduler([judge], budget=budget, deadline_s=max(0.0, deadline_s)).run(
         [task for task in tasks if task.candidate.id in targets],
         opinions={cid: anonymize(cid, by_id[cid].verdicts) for cid in targets},
     )
