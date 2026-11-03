@@ -240,5 +240,5 @@ def test_outside_diff_candidates_stay_in_sarif_as_notes():
     by_id = {r["partialFingerprints"]["primary"]: r for r in results}
     assert by_id["in"]["level"] == "error"
     assert by_id["out"]["level"] == "note"
-    assert by_id["out"]["properties"]["security-severity"] == "0.0"
+    assert "security-severity" not in by_id["out"]["properties"]
     assert by_id["out"]["properties"]["status"] == "outside_diff"

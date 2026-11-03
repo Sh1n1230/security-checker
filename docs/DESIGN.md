@@ -618,13 +618,17 @@ class RepoFacts(BaseModel):
 
 ```yaml
 context:
-  max_tokens_per_task: 8000        # 1 候補あたりの入力上限
+  max_tokens_per_task: 8000        # 1 候補あたりの入力上限 (プロンプト全体)
   window_lines: 40
   max_callers: 3
   include_repo_facts: true
 ```
 
-Provider の `max_context_tokens` と突き合わせ、小さい方を採用する。
+Provider の `max_context_tokens − max_output_tokens` と突き合わせ、小さい方を採用する
+(全 Reviewer に同じ依頼を送るので、Reviewer のうち最も小さい値を使う)。
+コード本文に使えるのは、そこから本文以外(system・Finding の欄・facts・Notes・Schema。約 1,500 トークン)を
+除いた残りである。行数を減らしても収まらない場合(minify されたファイルなど)は該当行を文字数で切り、
+それでも収まらなければ本文を送らず、Notes に理由を書く。
 予算超過時の切り詰め順序は **related → callers → file_tree → window 縮小** の順(primary は最後まで守る)。
 切り詰めた場合は `truncated: true` を立て、プロンプトにも「文脈が省略されている」旨を明記して
 LLM が過信しないようにする。
@@ -715,6 +719,7 @@ class Capabilities(BaseModel):
     supports_system_role: bool = True
     supports_temperature: bool = True
     supports_seed: bool = False
+    output_limit_param: str = "max_tokens"     # openai_chat の出力上限のキー (max_completion_tokens)
 
 class CompletionRequest(BaseModel):
     system: str
@@ -913,7 +918,9 @@ P3(No Automatic Modification)はこのツールの根幹なので、
 **対象が何であるかによらず**次を一律に強制する。
 
 1. **リポジトリの外で起動する。** cwd は毎回作り直す空の一時ディレクトリ。
-   コマンドにリポジトリのパスを渡さない。コードはプロンプトとして stdin から渡す。
+   コマンドにリポジトリのパスを渡さない。`PWD` など、リポジトリのパスを指す環境変数も子に渡さない
+   (資格情報を含むその他の環境は、既存のログインを使うために引き継ぐ)。
+   コードはプロンプトとして stdin から渡す。
 2. **書き込み能力を無効化した状態で起動する。** 同梱プリセットは
    非対話 + ツール無効(または読み取り専用サンドボックス)の指定を**必ず**含み、
    `requires_readonly_flags: true` を申告する(§9.7)。
@@ -926,9 +933,9 @@ P3(No Automatic Modification)はこのツールの根幹なので、
    作るわけにはいかない。
 4. **実行後に一時ディレクトリの差分を検査する。** ファイルが作られていたら
    「Reviewer が書き込みを試みた」として **warning を出し、trace に記録する。**
-   これは P3 が守られていることの実測でもある。
-5. **プロセスグループごと kill する。** タイムアウト時に子プロセスが残らないよう
-   `start_new_session=True` + `killpg`。
+   検知できるのは一時ディレクトリの中だけで、絶対パスでその外に書かれた場合は検知しない。
+5. **プロセスグループごと kill する。** タイムアウトでも正常終了でも子プロセスが残らないよう
+   `start_new_session=True` + `killpg`。親が先に終了していても、グループに残った孫まで止める。
 
 #### 制約(正直に書く)
 
@@ -1579,8 +1586,7 @@ Security タブで履歴管理できる。マッピングは次のとおり。
 | `ruleId` | `{scanner}/{rule_id}` |
 | `level` | critical/high → `error`、medium → `warning`、low/info → `note` |
 | `message.text` | LLM の summary + reasoning 抜粋 |
-| `partialFingerprints.primary` | Candidate の安定 ID(§6.1) |
-| `properties.security-severity` | CVSS 相当の数値(GitHub の重大度表示に使われる) |
+| `partialFingerprints.primary` | Candidate の安定 ID(§6.1)。GitHub はこのキーを読まず、`primaryLocationLineHash` で alert を追跡する(ADR 0009) |
 | `properties.status` / `agreement` / `reviewers` | v2 独自情報 |
 | `tool.driver.name` | 常に `security-checker`(スキャナ名ではない。§18.4.4 の理由による) |
 | `invocations[].executionSuccessful` | scanner が 1 つでも failed なら `false`(§18.4.2) |
@@ -1617,14 +1623,16 @@ Security タブで履歴管理できる。マッピングは次のとおり。
 
 したがって:
 
-| status | SARIF `level` | `security-severity` | Ruleset の既定設定での挙動 |
-|---|---|---|---|
-| `confirmed` | severity に応じて `error` / `warning` / `note` | CVSS 相当 | high 以上でマージをブロック |
-| `likely` | 同上(1 段下げる) | CVSS − 1.0 | 同上 |
-| `review_required` | **常に `note`** | **常に 0.0** | ブロックしない。Security タブには残る |
-| `false_positive` | 出力しない | — | — |
+| status | SARIF `level` | Ruleset の既定設定での挙動 |
+|---|---|---|
+| `confirmed` | severity に応じて `error` / `warning` / `note` | high 以上でマージをブロック |
+| `likely` | 同上(1 段下げる) | 同上 |
+| `review_required` | **常に `note`** | ブロックしない。Security タブには残る |
+| `false_positive` | 出力しない | — |
 
-Ruleset 側は `alerts_threshold: errors`(既定)を使う。`note` は閾値に掛からない。
+Ruleset 側は Alerts の閾値に `errors`(既定)を使い、Security alerts の閾値は `None` にする。
+`note` は閾値に掛からない。`security-severity` は付けない。GitHub が読むのは rule のものだけで、
+rule に置くと `review_required` までその重大度の security alert になり、この原則が破られるため(ADR 0009)。
 
 #### 18.4.2 スキャナが壊れた run を「指摘ゼロ」にしない
 
@@ -1965,7 +1973,7 @@ rate_limit:
 | 対象 | 既定 | 備考 |
 |---|---|---|
 | 1 LLM リクエストのタイムアウト | 120s | reasoning モデルは長いので設定可 |
-| リトライ対象 | 429 / 5xx / timeout / 接続エラー | 400/401/403 はリトライしない |
+| リトライ対象 | 429 / 408 / 5xx / timeout / 接続エラー | その他の 4xx はリトライしない。構造化出力の降格は 400 のときだけ |
 | 最大試行 | 3(初回 + 2 リトライ) | |
 | バックオフ | 指数 + フルジッター、上限 60s | |
 | スキーマ修復リトライ | 1 回(上記とは別枠) | §10.2 |
@@ -2155,10 +2163,11 @@ security-checker eval \
 
 | 指標 | 定義 | 位置づけ |
 |---|---|---|
-| **Recall(検出率)** | TP / (TP + FN) | **主指標**。見逃しを増やしていないか |
+| **Recall(検出率)** | TP / (TP + FN + 保留した陽性) | **主指標**。陽性全体のうち自動で検出した割合 |
+| 判定した中での Recall | TP / (TP + FN) | 参考値。保留が増えると上がるので比較に使わない |
 | Precision | TP / (TP + FP) | 副指標。ノイズの少なさ |
 | F1 | 調和平均 | 総合 |
-| **FP 削減率** | (scanner 単体の FP − LLM 後の FP) / scanner 単体の FP | このツールの価値そのもの |
+| **FP 削減率** | TN / (TN + FP + 保留した陰性) | このツールの価値そのもの。保留した陰性は削減に数えない |
 | **FN 増加数** | scanner が拾ったが LLM が誤って false_positive にした真陽性の件数 | **ゼロに近いことが必須条件** |
 | Severity MAE | 正解 severity との平均絶対誤差(数値化後) | 重大度判定の質 |
 | CWE 一致率 | 正解 CWE と一致した割合 | 分類の質 |
@@ -2168,6 +2177,10 @@ security-checker eval \
 
 **Recall を主指標に置くのが最重要の設計判断。** FP を減らすことは簡単(全部 false_positive と言えばよい)なので、
 FP 削減率だけを見ると容易に自己欺瞞に陥る。**「見逃しを増やさずに FP をどれだけ削れたか」**が唯一意味のある問いである。
+
+同じことは全部 `review_required` と答えても起こせるので、保留を検出にも削減にも数えない。
+`error` と `not_reviewed` は採点から外して別に数え、1 件でもあれば exit 3 にする(`--allow-incomplete` で緩める)。
+`review_required` の割合が上限(`--max-deferred-rate`、既定 0.5)を超えたら exit 1 にする。
 
 `FN 増加数 > 0` の場合、評価レポートはその具体的なケースを必ず列挙する。
 

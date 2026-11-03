@@ -201,8 +201,8 @@ class ProcessProvider:
         return [
             f"{self.name}: Reviewer が隔離ディレクトリに書き込みを行いました "
             f"({', '.join(result.created_paths)})。"
-            "レビュー対象リポジトリは変更されていませんが、"
-            "書き込み能力を無効化するフラグを command に加えることを検討してください"
+            "隔離ディレクトリの外への書き込みは検知できません。"
+            "書き込み能力を無効化するフラグを command に加えてください"
         ]
 
     def _trace_params(self, result: SandboxResult) -> dict[str, Any]:

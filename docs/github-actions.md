@@ -182,12 +182,16 @@ SARIF は次の規約で作られます (§18.3〜18.4)。
 - `level` は**スキャナの severity** で決めます。LLM の判定で決めると、非決定性で alert が
   開いたり閉じたりするためです。LLM の判定は `message` と `properties` に載ります。
 
-| status | level | security-severity |
-|---|---|---|
-| `confirmed` | critical/high → `error`、medium → `warning`、low 以下 → `note` | 9.5 / 8.0 / 5.5 / 2.5 |
-| `likely` | 上の 1 段下 | 上から 1.0 引く |
-| `review_required`・判定なし・diff 外 | `note` | 0.0 |
-| `false_positive`・抑制済み | 出力しない | |
+| status | level |
+|---|---|
+| `confirmed` | critical/high → `error`、medium → `warning`、low 以下 → `note` |
+| `likely` | 上の 1 段下 |
+| `review_required`・判定なし・diff 外 | `note` |
+| `false_positive`・抑制済み | 出力しない |
+
+`security-severity` は付けません ([ADR 0009](adr/0009-gate-on-sarif-level-only.md))。
+Ruleset では Alerts の閾値に `Errors` を選び、Security alerts の閾値は `None` にしてください。
+代わりに Security タブの Critical / High の表示は出ません。
 
 - **スキャナが 1 つでも失敗した run の SARIF はアップロードしません。** 一部の結果が欠けた SARIF を
   上げると、既存の alert が「解決済み」として一括で閉じるためです。

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from security_checker.config.schema import BudgetConfig, ReviewerConfig
-from security_checker.context.budget import estimate_tokens
+from security_checker.context.budget import PROMPT_OVERHEAD_TOKENS, estimate_tokens
 from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import ReviewVerdict, Usage, VerdictStatus
 from security_checker.observability import logging as log
@@ -29,6 +29,8 @@ from security_checker.review import prompts
 from security_checker.review.prompts import PeerOpinion
 from security_checker.review.reviewer import Reviewer, ReviewOutcome, SendCancelledError
 
+#: tpm の見積りでは user プロンプトを実測するので、残りは system の分
+SYSTEM_PROMPT_TOKENS = PROMPT_OVERHEAD_TOKENS
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 60.0
@@ -175,7 +177,7 @@ def build_runtime(
 def _request_tokens(runtime: ReviewerRuntime, task: ReviewTask) -> int:
     """tpm 用の見積り. 入力は実際のプロンプトから、出力は上限で数える."""
     user = prompts.render_user(task, {})
-    return estimate_tokens(user) + 1500 + runtime.reviewer.max_output_tokens
+    return estimate_tokens(user) + SYSTEM_PROMPT_TOKENS + runtime.reviewer.max_output_tokens
 
 
 class ReviewScheduler:

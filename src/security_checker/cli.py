@@ -31,6 +31,7 @@ from security_checker.context.budget import estimate_tokens
 from security_checker.context.redact import redact_known_patterns
 from security_checker.errors import ConfigError, ExitCode, SecurityCheckerError
 from security_checker.eval.dataset import load_dataset
+from security_checker.eval.metrics import DEFAULT_MAX_DEFERRED_RATE
 from security_checker.eval.runner import run_eval, to_markdown
 from security_checker.github.client import (
     DEFAULT_API_URL,
@@ -899,6 +900,22 @@ def eval_command(
         Path | None, typer.Option("--markdown", "-m", help="比較表 (Markdown) の保存先")
     ] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="標準出力を抑制する")] = False,
+    allow_incomplete: Annotated[
+        bool,
+        typer.Option(
+            "--allow-incomplete",
+            help="採点できなかったケース (error / not_reviewed) があっても exit 3 にしない",
+        ),
+    ] = False,
+    max_deferred_rate: Annotated[
+        float,
+        typer.Option(
+            "--max-deferred-rate",
+            min=0.0,
+            max=1.0,
+            help="review_required の割合の上限。超えたら exit 1",
+        ),
+    ] = DEFAULT_MAX_DEFERRED_RATE,
 ) -> None:
     """ラベル付きデータセットでレビュー精度を測る (設計書 §27).
 
@@ -929,11 +946,27 @@ def eval_command(
     if not quiet:
         print(document)
 
-    # 見逃しがあれば、それ自体を失敗として扱う (§27.2 の必須条件)
-    if result.metrics.missed_true_positives:
+    metrics = result.metrics
+    # 採点できなかった run の数字は信用できない。ツールの問題として先に落とす (§27.2)
+    if (metrics.errors or metrics.not_reviewed) and not allow_incomplete:
         _fail(
-            f"真陽性を {result.metrics.missed_true_positives} 件見逃しました: "
-            f"{', '.join(result.metrics.missed_case_ids)}",
+            f"採点できなかったケースがあります (エラー {metrics.errors} / "
+            f"未レビュー {metrics.not_reviewed})。予算や Reviewer の設定を確認してください。"
+            "承知のうえで結果を見るなら --allow-incomplete を付けてください",
+            ExitCode.EXECUTION_ERROR,
+        )
+    # 見逃しがあれば、それ自体を失敗として扱う (§27.2 の必須条件)
+    if metrics.missed_true_positives:
+        _fail(
+            f"真陽性を {metrics.missed_true_positives} 件見逃しました: "
+            f"{', '.join(metrics.missed_case_ids)}",
+            ExitCode.POLICY_VIOLATION,
+        )
+    # 全部保留すれば見逃しは 0 になる。保留で主指標をすり抜けさせない
+    if metrics.review_required_rate > max_deferred_rate:
+        _fail(
+            f"review_required の割合 {metrics.review_required_rate:.0%} が "
+            f"上限 {max_deferred_rate:.0%} を超えました (--max-deferred-rate)",
             ExitCode.POLICY_VIOLATION,
         )
 

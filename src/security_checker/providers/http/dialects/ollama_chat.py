@@ -13,7 +13,11 @@ from typing import Any
 from security_checker.models.verdict import Usage
 from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 from security_checker.providers.errors import ProviderResponseError
-from security_checker.providers.http.dialects.base import DialectOptions, DialectResponse
+from security_checker.providers.http.dialects.base import (
+    DialectOptions,
+    DialectResponse,
+    output_limit,
+)
 
 #: 明示しなかった場合の既定. エンドポイント側の既定 (2048) は短すぎる
 DEFAULT_NUM_CTX = 8192
@@ -57,7 +61,7 @@ class OllamaChatDialect:
         options: dict[str, Any] = {
             # 黙って切り詰められないよう、常に明示する (この方言の存在理由)
             "num_ctx": self.num_ctx,
-            "num_predict": req.max_output_tokens,
+            "num_predict": output_limit(req, capabilities),
         }
         if capabilities.supports_temperature:
             options["temperature"] = req.temperature
@@ -105,13 +109,16 @@ class OllamaChatDialect:
             model_reported=model_reported if isinstance(model_reported, str) else None,
         )
 
-    def health_payload(self, model: str) -> dict[str, Any]:
+    def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]:
         return {
             "model": model,
             "messages": [{"role": "user", "content": "ping"}],
             "stream": False,
             "options": {"num_ctx": self.num_ctx, "num_predict": 1},
         }
+
+    def is_auth_error(self, status: int, body: str) -> bool:
+        return False
 
     def explain_error(self, status: int, body: str) -> str | None:
         """モデル未取得を、実行できるコマンドの案内に変える (§9.4)."""

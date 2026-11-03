@@ -4,13 +4,16 @@
 
   - `tool.driver.name` は常に `security-checker`。Ruleset はこの名前をキーにするため、
     変わると**気づかないうちにゲートが外れる** (§18.4.4)。内訳は ruleId の接頭辞で表す。
-  - `level` と `security-severity` は**スキャナ由来の severity** で決める (NEXT-STEPS D3)。
+  - `level` は**スキャナ由来の severity** で決める (NEXT-STEPS D3)。
     LLM の判定で決めると、非決定性で alert が開閉を繰り返す。LLM の判定は
     `message` と `properties` に載せる。
-  - `review_required` は `note` / 0.0 に固定する。
+  - `security-severity` は付けない (ADR 0009)。GitHub が読むのは rule のものだけで、
+    rule に置くと `review_required` までその重大度の security alert になる。
+    ゲートは `level` と Alerts の閾値で掛ける。
+  - `review_required` は `note` に固定する。
     CI を落とさない約束を Ruleset 側で破らない (§18.4.1)。
   - `false_positive` と抑制済みの Finding は出さない。
-  - diff モードで変更に関係しなかった候補は `note` / 0.0 で残す。
+  - diff モードで変更に関係しなかった候補は `note` で残す。
     出さなければ既存 alert が閉じ、元の level で出せば既定ブランチの判定と食い違う。
   - スキャナが 1 つでも失敗したら `executionSuccessful: false` にする (§18.4.2)。
     そのような SARIF はアップロードしてはならない (`is_uploadable` で判定できる)。
@@ -21,6 +24,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from security_checker.context.redact import redact_known_patterns
 from security_checker.models.candidate import Candidate
@@ -33,7 +37,8 @@ SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 #: Ruleset のキーになる名前. 変更禁止 (§18.4.4)
 TOOL_NAME = "security-checker"
 INFORMATION_URI = "https://github.com/Sh1n1230/security-checker"
-#: 同じ候補を追跡するための指紋のキー. Candidate の安定 ID (§6.1) を入れる
+#: Candidate の安定 ID (§6.1) を入れる指紋のキー. GitHub はこのキーを読まず、upload-sarif が
+#: 計算する primaryLocationLineHash で alert を追跡する (ADR 0009)。他の SARIF の読み手向けに残す
 FINGERPRINT_KEY = "primary"
 
 MAX_MESSAGE_CHARS = 1000
@@ -49,16 +54,6 @@ _LEVEL_BY_SEVERITY: dict[Severity, str] = {
     Severity.NONE: "note",
 }
 
-# GitHub は security-severity を 9.0 以上 critical / 7.0 以上 high / 4.0 以上 medium /
-# 0.1 以上 low として表示する。各帯の中央付近に置き、likely で 1.0 下げても帯を 1 つしか跨がない。
-_SECURITY_SEVERITY: dict[Severity, float] = {
-    Severity.CRITICAL: 9.5,
-    Severity.HIGH: 8.0,
-    Severity.MEDIUM: 5.5,
-    Severity.LOW: 2.5,
-    Severity.INFO: 0.0,
-    Severity.NONE: 0.0,
-}
 
 #: Code Scanning に出さない状態
 _EXCLUDED = (FindingStatus.FALSE_POSITIVE,)
@@ -98,7 +93,6 @@ def render_sarif(report: Report) -> dict[str, Any]:
         result = _base_result(
             candidate,
             level="note",
-            security_severity=0.0,
             text=f"[outside diff] {candidate.message or candidate.title}",
         )
         if result is not None:
@@ -181,9 +175,23 @@ def _rule(candidate: Candidate) -> dict[str, Any]:
         "shortDescription": {"text": _truncate(candidate.title or candidate.rule_id, 200)},
         "properties": {"tags": tags},
     }
-    if candidate.references:
-        rule["helpUri"] = candidate.references[0]
+    # helpUri は絶対 URI でなければならない。独自ルールの references には文章も書ける
+    help_uri = next((ref for ref in candidate.references if _is_web_url(ref)), None)
+    if help_uri is not None:
+        rule["helpUri"] = help_uri
     return rule
+
+
+def _is_web_url(value: str) -> bool:
+    return value.startswith(("http://", "https://")) and " " not in value
+
+
+def artifact_uri(path: str) -> str:
+    """パスを uri-reference に符号化する. 区切りの / だけを残す.
+
+    `#` や `%` をそのまま入れると別のファイルを指し、空白や `[` `]` はスキーマ違反になる。
+    """
+    return "/".join(quote(segment, safe="") for segment in path.replace("\\", "/").split("/"))
 
 
 def _location(candidate: Candidate) -> dict[str, Any] | None:
@@ -192,7 +200,10 @@ def _location(candidate: Candidate) -> dict[str, Any] | None:
         end = max(candidate.location.end_line, start)
         return {
             "physicalLocation": {
-                "artifactLocation": {"uri": candidate.location.path, "uriBaseId": "%SRCROOT%"},
+                "artifactLocation": {
+                    "uri": artifact_uri(candidate.location.path),
+                    "uriBaseId": "%SRCROOT%",
+                },
                 "region": {"startLine": start, "endLine": end},
             }
         }
@@ -200,16 +211,17 @@ def _location(candidate: Candidate) -> dict[str, Any] | None:
         # 依存起因はマニフェストの先頭に置く (Code Scanning は位置の無い結果を受け付けない)
         return {
             "physicalLocation": {
-                "artifactLocation": {"uri": candidate.package.manifest, "uriBaseId": "%SRCROOT%"},
+                "artifactLocation": {
+                    "uri": artifact_uri(candidate.package.manifest),
+                    "uriBaseId": "%SRCROOT%",
+                },
                 "region": {"startLine": 1},
             }
         }
     return None
 
 
-def _base_result(
-    candidate: Candidate, *, level: str, security_severity: float, text: str
-) -> dict[str, Any] | None:
+def _base_result(candidate: Candidate, *, level: str, text: str) -> dict[str, Any] | None:
     location = _location(candidate)
     if location is None:
         return None
@@ -221,7 +233,6 @@ def _base_result(
         "locations": [location],
         "partialFingerprints": {FINGERPRINT_KEY: candidate.id},
         "properties": {
-            "security-severity": f"{security_severity:.1f}",
             "scanner": candidate.scanner,
             "category": candidate.category.value,
             "severity_reported": _scanner_severity(candidate).value,
@@ -235,7 +246,6 @@ def _candidate_result(candidate: Candidate) -> dict[str, Any] | None:
     return _base_result(
         candidate,
         level=_LEVEL_BY_SEVERITY[severity],
-        security_severity=_SECURITY_SEVERITY[severity],
         text=candidate.message or candidate.title,
     )
 
@@ -244,18 +254,14 @@ def _finding_result(finding: Finding) -> dict[str, Any] | None:
     candidate = finding.candidate
     severity = _scanner_severity(candidate)
     level = _LEVEL_BY_SEVERITY[severity]
-    security_severity = _SECURITY_SEVERITY[severity]
     if finding.status is FindingStatus.LIKELY:
         level = _downgrade(level)
-        security_severity = max(security_severity - 1.0, 0.0)
     elif finding.status in _NON_BLOCKING:
         level = "note"
-        security_severity = 0.0
 
     result = _base_result(
         candidate,
         level=level,
-        security_severity=security_severity,
         text=_finding_message(finding),
     )
     if result is None:
@@ -297,10 +303,7 @@ def _finding_message(finding: Finding) -> str:
     parts = [_STATUS_PREFIX.get(finding.status, f"[{finding.status.value}]")]
     summary = finding.summary.strip()
     parts.append(summary or finding.candidate.message or finding.candidate.title)
-    reasoning = next(
-        (v.reasoning.strip() for v in finding.verdicts if v.reasoning.strip()),
-        "",
-    )
+    reasoning = finding.supporting_reasoning
     if reasoning and reasoning not in summary:
         parts.append("\n\n" + reasoning)
     return " ".join(parts[:2]) + "".join(parts[2:])
