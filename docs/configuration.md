@@ -108,7 +108,8 @@
 | キー | 既定 | 説明 |
 |---|---|---|
 | `budget.max_candidates` | `200` | レビューに回す候補の上限 (超えた分は `not_reviewed`) |
-| `budget.max_usd` / `max_total_tokens` | `1.0` / `2,000,000` | 超えたら新規呼び出しを止め、部分結果を出す |
+| `budget.max_usd` / `max_total_tokens` | `1.0` / `2,000,000` | 超える見込みになったら新規の呼び出しを止め、部分結果を出す。送信の直前に、使用量・送信中の分・次の呼び出しの見積り (出力は上限で数える) の合計で判定する |
+| `budget.deadline_s` | `1800` | レビューの実行時間の上限 (秒)。Judge の段も含む。超えたら新規の呼び出しを止め、部分結果を出す。送信中の呼び出しは待つので、`reviewers[].timeout_s` の分だけ超えることがある |
 | `budget.on_exceed` | `stop_and_report` | `warn_and_continue` にすると止めない |
 | `concurrency.scanners` / `reviews_per_provider` | `4` / `4` | |
 | `context.window_lines` / `max_tokens_per_task` | `40` / `8000` | LLM に渡す文脈 |

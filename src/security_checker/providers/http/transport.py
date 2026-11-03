@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Literal
 
 import httpx
@@ -189,4 +191,12 @@ def _retry_after(response: httpx.Response) -> float | None:
     try:
         return float(raw)
     except ValueError:
+        pass
+    # HTTP-date 形式 (RFC 9110 §10.2.3)
+    try:
+        when = parsedate_to_datetime(raw)
+    except ValueError:
         return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (when - datetime.now(UTC)).total_seconds())
