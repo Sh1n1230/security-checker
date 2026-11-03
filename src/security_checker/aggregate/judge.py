@@ -23,6 +23,7 @@ import string
 from collections.abc import Sequence
 from typing import Any
 
+from security_checker.aggregate.base import DECISIVE_CONFIDENCE
 from security_checker.config.schema import AggregationConfig, PolicyConfig
 from security_checker.models.enums import FindingStatus, Severity
 from security_checker.models.finding import AggregationDetail, Finding
@@ -30,8 +31,6 @@ from security_checker.models.verdict import ReviewVerdict, VerdictStatus
 from security_checker.review.prompts import PeerOpinion
 
 STRATEGY = "judge"
-#: これ以上の確信度なら confirmed / false_positive と言い切る
-DECISIVE_CONFIDENCE = 0.8
 
 
 def anonymize(candidate_id: str, verdicts: Sequence[ReviewVerdict]) -> list[PeerOpinion]:

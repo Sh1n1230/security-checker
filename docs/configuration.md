@@ -84,7 +84,7 @@
 | キー | 既定 | 説明 |
 |---|---|---|
 | `strategy` | `consensus` | `consensus` / `weighted` / `judge` |
-| `consensus.min_votes` / `min_ratio` / `severity` | `2` / `0.5` / `median` | |
+| `consensus.min_votes` / `min_ratio` / `severity` | `2` / `0.5` / `median` | 票は常に過半数が必要です。`min_ratio` は 0.5 より上げるときに使い、0.5 未満は効かないので警告します |
 | `weighted.threshold` | `0.6` | |
 | `judge.reviewer` | | Judge 役の Reviewer 名 (一次レビューには参加しない) |
 | `judge.fallback` | `consensus` | Judge が失敗したとき / Judge に回さない候補の戦略 |
@@ -99,7 +99,7 @@
 | `fail_on` | `high` | この重大度以上で exit 1。`none` で判定しない |
 | `fail_on_status` | `[confirmed, likely]` | 失敗させる status |
 | `min_confidence` | `0.5` | これ未満の confirmed / likely は `review_required` に落とす |
-| `strict` | `true` | スキャナの失敗・判定不能を exit 3 にする |
+| `strict` | `true` | スキャナの失敗、判定不能、Reviewer の無効化、予算や上限によるレビューの停止、未レビューの候補を exit 3 にする |
 | `baseline` | | baseline ファイル (設定ファイルの場所からの相対パス) |
 | `min_score` | | スコアの下限 (補助指標) |
 
@@ -108,7 +108,8 @@
 | キー | 既定 | 説明 |
 |---|---|---|
 | `budget.max_candidates` | `200` | レビューに回す候補の上限 (超えた分は `not_reviewed`) |
-| `budget.max_usd` / `max_total_tokens` | `1.0` / `2,000,000` | 超えたら新規呼び出しを止め、部分結果を出す |
+| `budget.max_usd` / `max_total_tokens` | `1.0` / `2,000,000` | 超える見込みになったら新規の呼び出しを止め、部分結果を出す。送信の直前に、使用量・送信中の分・次の呼び出しの見積り (出力は上限で数える) の合計で判定する |
+| `budget.deadline_s` | `1800` | レビューの実行時間の上限 (秒)。Judge の段も含む。超えたら新規の呼び出しを止め、部分結果を出す。送信中の呼び出しは待つので、`reviewers[].timeout_s` の分だけ超えることがある |
 | `budget.on_exceed` | `stop_and_report` | `warn_and_continue` にすると止めない |
 | `concurrency.scanners` / `reviews_per_provider` | `4` / `4` | |
 | `context.window_lines` / `max_tokens_per_task` | `40` / `8000` | LLM に渡す文脈 |
@@ -150,14 +151,19 @@ docs/**
 /build/
 # ルール。scanner/rule_id でも rule_id だけでもよい
 rule:semgrep/python.lang.security.audit.eval-detected
-# ルールをパスで限定する
+# ルールをパスで限定する。依存の候補 (osv / trivy) は manifest のパスで照合する
 rule:generic-api-key tests/**
+rule:GHSA-xxxx-xxxx-xxxx uv.lock
 ```
 
-**コード内の注釈** — 候補の行かその直前の行に書く。**理由の記述を必須**とし、理由が無いと警告します。
+**コード内の注釈** — **理由の記述を必須**とし、理由が無いと警告します。行末に書くとその行にだけ効き、
+注釈だけの行に書くと次の行に効きます。行末の注釈は次の行には効きません。
 
 ```python
 subprocess.run(cmd, shell=True)  # security-checker: ignore[python.lang.security.audit.subprocess-shell-true] reason=cmd は固定文字列のみ
+
+# security-checker: ignore[python.lang.security.audit.subprocess-shell-true] reason=cmd は固定文字列のみ
+subprocess.run(cmd, shell=True)
 ```
 
 信用できない検査対象 (`SECURITY_CHECKER_UNTRUSTED_TARGET=1`) では、検査対象の中の ignore ファイルと

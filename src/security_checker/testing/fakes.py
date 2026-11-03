@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Sequence
 from typing import Any, ClassVar, Literal
@@ -139,3 +140,17 @@ def verdict_payload(**overrides: Any) -> dict[str, Any]:
     }
     payload.update(overrides)
     return payload
+
+
+class SlowProvider(ScriptedProvider):
+    """実際の HTTP と同じく I/O で待つ Provider.
+
+    ScriptedProvider は await しないので、各タスクが次のタスクの起動前に最後まで走る。
+    予算や無効化が「順番待ちの呼び出し」を止めるかは、これを使わないと確かめられない。
+    """
+
+    delay_s = 0.01
+
+    async def complete(self, request: CompletionRequest) -> CompletionResponse:
+        await asyncio.sleep(self.delay_s)
+        return await super().complete(request)

@@ -170,7 +170,7 @@ def test_weighted_mean_severity_uses_the_weights():
 
 
 def test_detail_keeps_the_calculation():
-    outcome = WeightedAggregator({"a": 2.0}).aggregate(CANDIDATE, [verdict("a")], CFG)
+    outcome = WeightedAggregator({"a": 2.0}).aggregate(CANDIDATE, [verdict("a"), verdict("b")], CFG)
     assert outcome.detail["strategy"] == "weighted"
     assert "score" in outcome.detail
     assert "weights" in outcome.detail
