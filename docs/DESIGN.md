@@ -618,13 +618,17 @@ class RepoFacts(BaseModel):
 
 ```yaml
 context:
-  max_tokens_per_task: 8000        # 1 候補あたりの入力上限
+  max_tokens_per_task: 8000        # 1 候補あたりの入力上限 (プロンプト全体)
   window_lines: 40
   max_callers: 3
   include_repo_facts: true
 ```
 
-Provider の `max_context_tokens` と突き合わせ、小さい方を採用する。
+Provider の `max_context_tokens − max_output_tokens` と突き合わせ、小さい方を採用する
+(全 Reviewer に同じ依頼を送るので、Reviewer のうち最も小さい値を使う)。
+コード本文に使えるのは、そこから本文以外(system・Finding の欄・facts・Notes・Schema。約 1,500 トークン)を
+除いた残りである。行数を減らしても収まらない場合(minify されたファイルなど)は該当行を文字数で切り、
+それでも収まらなければ本文を送らず、Notes に理由を書く。
 予算超過時の切り詰め順序は **related → callers → file_tree → window 縮小** の順(primary は最後まで守る)。
 切り詰めた場合は `truncated: true` を立て、プロンプトにも「文脈が省略されている」旨を明記して
 LLM が過信しないようにする。

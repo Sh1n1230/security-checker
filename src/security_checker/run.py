@@ -337,6 +337,16 @@ class ReviewerSetup:
     warnings: list[str] = field(default_factory=list)
 
 
+def smallest_input_limit(setup: ReviewerSetup) -> int | None:
+    """Reviewer のうち最も小さい入力の上限 (§8.3). 全 Reviewer に同じ依頼を送るため."""
+    limits = [
+        runtime.reviewer.provider.capabilities.max_context_tokens
+        - runtime.reviewer.max_output_tokens
+        for runtime in setup.runtimes
+    ]
+    return min(limits, default=None)
+
+
 def build_reviewers(
     config: Config,
     *,
@@ -380,12 +390,21 @@ def build_tasks(
     candidates: list[Candidate],
     root: Path,
     config: Config,
+    setup: ReviewerSetup | None = None,
 ) -> tuple[list[ReviewTask], list[Candidate]]:
-    """候補を ReviewTask にする. budget.max_candidates を超えた分は未レビューとして返す."""
+    """候補を ReviewTask にする. budget.max_candidates を超えた分は未レビューとして返す.
+
+    `setup` があれば、Reviewer の入力の上限も予算に反映する (§8.3)。
+    """
     limit = config.budget.max_candidates
     selected = candidates[:limit]
     overflow = candidates[limit:]
-    builder = ContextBuilder(root, config.context, collect_repo_facts(root))
+    builder = ContextBuilder(
+        root,
+        config.context,
+        collect_repo_facts(root),
+        max_input_tokens=smallest_input_limit(setup) if setup is not None else None,
+    )
     return [builder.build(candidate) for candidate in selected], overflow
 
 
@@ -433,7 +452,7 @@ async def run_review(
         ReportWarning(level="warn", source="reviewer", message=message)
         for message in setup.warnings
     )
-    tasks, overflow = build_tasks(candidates, root, config)
+    tasks, overflow = build_tasks(candidates, root, config, setup)
     if overflow:
         warnings.append(
             ReportWarning(

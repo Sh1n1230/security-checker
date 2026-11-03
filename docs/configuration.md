@@ -111,7 +111,7 @@
 | `budget.max_usd` / `max_total_tokens` | `1.0` / `2,000,000` | 超えたら新規呼び出しを止め、部分結果を出す |
 | `budget.on_exceed` | `stop_and_report` | `warn_and_continue` にすると止めない |
 | `concurrency.scanners` / `reviews_per_provider` | `4` / `4` | |
-| `context.window_lines` / `max_tokens_per_task` | `40` / `8000` | LLM に渡す文脈 |
+| `context.window_lines` / `max_tokens_per_task` | `40` / `8000` | LLM に渡す文脈。`max_tokens_per_task` はプロンプト全体の上限で、本文以外に約 1,500 トークン使います。Reviewer の `max_context_tokens − max_output_tokens` のほうが小さければ、そちらに合わせます |
 | `context.max_callers` | `3` | **未実装**。呼び出し元のコードはまだ文脈に含めない (既定値と `0` 以外を書くと警告) |
 
 ### output / github / logging
