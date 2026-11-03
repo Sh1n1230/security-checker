@@ -156,3 +156,9 @@ def test_fields_that_match_the_transport_are_not_reported():
         }
     )
     assert unimplemented_warnings(config, {}) == []
+
+
+def test_min_ratio_below_a_majority_is_reported():
+    config = Config.model_validate({"aggregation": {"consensus": {"min_ratio": 0.3}}})
+    assert any("min_ratio" in warning for warning in unimplemented_warnings(config))
+    assert not any("min_ratio" in warning for warning in unimplemented_warnings(Config()))
