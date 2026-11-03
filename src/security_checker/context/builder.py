@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from security_checker.config.schema import ContextConfig
 from security_checker.context.budget import estimate_tokens
-from security_checker.context.redact import mask_secret, redact_text
+from security_checker.context.redact import mask_secret, redact_known_patterns, redact_text
 from security_checker.context.slicer import line_window, shrink
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category
@@ -46,6 +47,10 @@ class ContextBuilder:
                 notes.append("対象ファイルを読み込めなかったため、コード本文は提示されていません。")
         elif candidate.package is not None:
             notes.append("依存パッケージに対する指摘のため、コード本文はありません。")
+
+        if primary is not None:
+            # 文脈窓には、検出された行以外の値も入りうる。カテゴリによらず伏せる (§19.2)
+            primary = primary.model_copy(update={"text": mask_sensitive_values(primary.text)})
 
         if primary is not None and candidate.category is Category.SECRET:
             primary = self._redact_slice(primary, candidate)
@@ -84,6 +89,7 @@ class ContextBuilder:
         secrets = _secret_hints(candidate)
         text = redact_text(slice_.text, secrets) if secrets else slice_.text
         text = _mask_long_tokens_on_line(text, candidate)
+        text = _mask_detected_lines(text, slice_.start_line, candidate)
         return slice_.model_copy(update={"text": text})
 
     def _fit_budget(self, slice_: CodeSlice, candidate: Candidate) -> tuple[CodeSlice, bool]:
@@ -127,6 +133,66 @@ def _mask_long_tokens_on_line(text: str, candidate: Candidate) -> str:
     for line in text.splitlines():
         masked_lines.append(_mask_quoted(line))
     return "\n".join(masked_lines)
+
+
+def _mask_detected_lines(text: str, first_line: int, candidate: Candidate) -> str:
+    """検出された行の、値らしい長いトークンを引用符の有無によらず伏せる.
+
+    スキャナが値を返しても我々は保持しないため、検出行の範囲だけを保守的に潰す。
+    `.env` の `KEY=value` のような引用符の無い値もここで伏せる。
+    """
+    if candidate.location is None:
+        return text
+    start = max(1, candidate.location.start_line)
+    end = max(start, candidate.location.end_line)
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if start <= first_line + index <= end:
+            lines[index] = _DETECTED_LINE_TOKEN_RE.sub(lambda m: mask_secret(m.group(0)), line)
+    return "\n".join(lines)
+
+
+def mask_sensitive_values(text: str) -> str:
+    """どの候補の文脈にも適用するマスキング (§19.2).
+
+    秘密鍵の本文・既知形式のキー・JWT・名前から秘密と分かる代入の値を伏せる。
+    形式は判断材料になるため、prefix は残す。
+    """
+    masked = _PEM_BODY_RE.sub(_mask_pem_body, text)
+    masked = redact_known_patterns(masked)
+    masked = _JWT_RE.sub(lambda m: mask_secret(m.group(0)), masked)
+    return _SENSITIVE_ASSIGNMENT_RE.sub(
+        lambda m: m.group("key") + m.group("quote") + mask_secret(m.group("value")), masked
+    )
+
+
+def _mask_pem_body(match: re.Match[str]) -> str:
+    body = "\n".join(
+        "*" * min(len(line), 20) if line.strip() else line for line in match.group(2).split("\n")
+    )
+    return match.group(1) + body + match.group(3)
+
+
+_PEM_BODY_RE = re.compile(
+    r"(-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----)"
+    r"(.*?)"
+    r"(-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----)",
+    re.DOTALL,
+)
+_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
+# 名前から秘密と分かる代入 (`API_KEY=...` / `password: ...` / `"token": "..."`)。
+# 値は記号を含まないトークンに限り、関数呼び出しや属性参照 (`os.environ[...]`) は伏せない。
+_SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"(?P<key>[A-Za-z0-9_.-]*"
+    r"(?:secret|token|passw(?:or)?d|passwd|pwd|api[_-]?key|access[_-]?key|private[_-]?key"
+    r"|client[_-]?secret|credential)"
+    r"[A-Za-z0-9_.-]*[\"']?\s*[:=]\s*)"
+    r"(?P<quote>[\"']?)(?P<value>[A-Za-z0-9+/=_~-]{8,})(?=[\s\"',;#}\]]|$)",
+    re.IGNORECASE,
+)
+# 検出行で伏せるトークン。数字を含む 16 文字以上に限り、`SERVICE_CREDENTIALS` のような
+# 変数名は残す (何の値かは判断材料になる)。
+_DETECTED_LINE_TOKEN_RE = re.compile(r"(?=[A-Za-z0-9+/_.~:@-]*[0-9])[A-Za-z0-9+/_.~:@-]{16,}={0,2}")
 
 
 def _mask_quoted(line: str) -> str:
