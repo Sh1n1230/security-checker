@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from security_checker.config.schema import ReviewerConfig
 from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 from security_checker.providers.errors import (
     ProviderError,
@@ -168,3 +169,29 @@ async def test_health_check_rejects_an_empty_command():
 async def test_launch_failure_is_a_provider_error():
     with pytest.raises(ProviderError, match="起動できません"):
         await provider(PermissionError("denied")).complete(request())
+
+
+@pytest.mark.parametrize(
+    ("block", "expected"),
+    [
+        ({"transport": "process", "command": ["a"]}, 300),
+        ({"transport": "process", "preset": "claude"}, 300),
+        ({"transport": "process", "command": ["a"], "timeout_s": 42}, 42),
+        (
+            {"transport": "http", "dialect": "openai_chat", "base_url": "http://x", "model": "m"},
+            120,
+        ),
+    ],
+)
+def test_timeout_default_depends_on_the_transport(block, expected):
+    assert ReviewerConfig(name="x", **block).timeout_s == expected
+
+
+async def test_write_warning_does_not_claim_the_repository_is_untouched():
+    script = "import pathlib;pathlib.Path('w.txt').write_text('x');print('{}')"
+    provider = ProcessProvider(
+        name="r", command=[sys.executable, "-c", script], capabilities=Capabilities()
+    )
+    response = await provider.complete(CompletionRequest(system="", user="x", timeout_s=30))
+    assert "変更されていません" not in " ".join(response.warnings)
+    assert "外への書き込みは検知できません" in " ".join(response.warnings)

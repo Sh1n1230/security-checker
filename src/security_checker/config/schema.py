@@ -120,6 +120,9 @@ class ReviewerCapabilities(StrictModel):
     reasoning: bool | None = None
 
 
+#: transport: process の timeout_s の既定 (§9.7)
+PROCESS_TIMEOUT_S = 300
+
 #: masked_dump で伏せた値の表現
 MASKED = "****"
 
@@ -133,6 +136,7 @@ class ReviewerConfig(StrictModel):
     name: str
     transport: Literal["http", "process"]
     weight: float = Field(default=1.0, ge=0.0)
+    #: 既定は transport で変わる (http 120 / process 300)。_default_timeout を参照
     timeout_s: int = Field(default=120, gt=0)
     concurrency: int = Field(default=1, gt=0)
     rate_limit: RateLimit = RateLimit()
@@ -168,6 +172,14 @@ class ReviewerConfig(StrictModel):
     prompt_via: Literal["stdin", "file"] = "stdin"
     #: stdout の解釈方法. 現状は「最初の JSON オブジェクトを抽出する」のみ
     parse: Literal["json_in_stdout"] = "json_in_stdout"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_timeout(cls, data: Any) -> Any:
+        """process の応答は数十秒〜数分かかるので、既定のタイムアウトを長くする (§9.7)."""
+        if isinstance(data, dict) and data.get("transport") == "process":
+            return {"timeout_s": PROCESS_TIMEOUT_S, **data}
+        return data
 
     @model_validator(mode="after")
     def _validate_transport(self) -> ReviewerConfig:
