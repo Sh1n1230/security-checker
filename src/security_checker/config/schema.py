@@ -118,6 +118,7 @@ class ReviewerCapabilities(StrictModel):
     supports_temperature: bool | None = None
     supports_seed: bool | None = None
     reasoning: bool | None = None
+    output_limit_param: Literal["max_tokens", "max_completion_tokens"] | None = None
 
 
 #: masked_dump で伏せた値の表現

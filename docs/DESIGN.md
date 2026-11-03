@@ -715,6 +715,7 @@ class Capabilities(BaseModel):
     supports_system_role: bool = True
     supports_temperature: bool = True
     supports_seed: bool = False
+    output_limit_param: str = "max_tokens"     # openai_chat の出力上限のキー (max_completion_tokens)
 
 class CompletionRequest(BaseModel):
     system: str
@@ -1941,7 +1942,7 @@ rate_limit:
 | 対象 | 既定 | 備考 |
 |---|---|---|
 | 1 LLM リクエストのタイムアウト | 120s | reasoning モデルは長いので設定可 |
-| リトライ対象 | 429 / 5xx / timeout / 接続エラー | 400/401/403 はリトライしない |
+| リトライ対象 | 429 / 408 / 5xx / timeout / 接続エラー | その他の 4xx はリトライしない。構造化出力の降格は 400 のときだけ |
 | 最大試行 | 3(初回 + 2 リトライ) | |
 | バックオフ | 指数 + フルジッター、上限 60s | |
 | スキーマ修復リトライ | 1 回(上記とは別枠) | §10.2 |

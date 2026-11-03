@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -17,6 +18,7 @@ from security_checker.providers.errors import (
     ProviderServerError,
     ProviderTimeoutError,
 )
+from security_checker.providers.http.dialects.gemini_generate import GeminiGenerateDialect
 from security_checker.providers.http.dialects.openai_chat import OpenAIChatDialect
 from security_checker.providers.http.transport import HttpProvider
 
@@ -188,3 +190,74 @@ async def test_health_check():
     respx.post(URL).mock(return_value=httpx.Response(500, text="down"))
     assert (await provider.health_check()).ok is False
     await provider.aclose()
+
+
+# --- 降格は 400 のときだけ、成功したときだけ覚える (#145) ---------------------------
+
+
+async def _complete_with(dialect: Any, status: int, body: str) -> tuple[Any, list[dict[str, Any]]]:
+    calls: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content))
+        return httpx.Response(status, text=body)
+
+    provider = HttpProvider(
+        name="r",
+        dialect=dialect,
+        base_url="https://x/v1",
+        model="m",
+        capabilities=Capabilities(structured_output=StructuredMode.JSON_SCHEMA),
+        api_key="k",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    return provider, calls
+
+
+@pytest.mark.parametrize("status", [404, 413, 422])
+async def test_other_4xx_do_not_degrade_structured_output(status: int) -> None:
+    provider, calls = await _complete_with(OpenAIChatDialect(), status, "nope")
+    with pytest.raises(ProviderBadRequestError):
+        await provider.complete(CompletionRequest(system="s", user="u", json_schema={"a": 1}))
+    assert len(calls) == 1
+    assert provider.effective_mode is StructuredMode.JSON_SCHEMA
+
+
+async def test_a_failed_degradation_is_not_remembered() -> None:
+    provider, calls = await _complete_with(OpenAIChatDialect(), 400, "bad request")
+    with pytest.raises(ProviderBadRequestError):
+        await provider.complete(CompletionRequest(system="s", user="u", json_schema={"a": 1}))
+    assert len(calls) == 3  # 3 段すべて試す
+    assert provider.effective_mode is StructuredMode.JSON_SCHEMA
+
+
+async def test_a_successful_degradation_is_remembered() -> None:
+    responses = [
+        httpx.Response(400, text="unsupported response_format"),
+        httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]}),
+    ]
+    provider = HttpProvider(
+        name="r",
+        dialect=OpenAIChatDialect(),
+        base_url="https://x/v1",
+        model="m",
+        capabilities=Capabilities(structured_output=StructuredMode.JSON_SCHEMA),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(lambda _: responses.pop(0))),
+    )
+    response = await provider.complete(CompletionRequest(system="s", user="u", json_schema={}))
+    assert response.degraded_to is StructuredMode.JSON_MODE
+    assert provider.effective_mode is StructuredMode.JSON_MODE
+
+
+async def test_an_api_key_error_returned_as_400_is_an_auth_error() -> None:
+    body = '{"error":{"code":400,"message":"API key not valid. Please pass a valid API key."}}'
+    provider, calls = await _complete_with(GeminiGenerateDialect(), 400, body)
+    with pytest.raises(ProviderAuthError):
+        await provider.complete(CompletionRequest(system="s", user="u", json_schema={"a": 1}))
+    assert len(calls) == 1
+
+
+async def test_408_is_retryable_as_a_timeout() -> None:
+    provider, _ = await _complete_with(OpenAIChatDialect(), 408, "timeout")
+    with pytest.raises(ProviderTimeoutError):
+        await provider.complete(CompletionRequest(system="s", user="u"))
