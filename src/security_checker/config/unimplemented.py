@@ -40,6 +40,13 @@ def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = N
             "LLM に渡す文脈に呼び出し元のコードは含まれません"
         )
 
+    # 過半数に満たない票では likely にしない (§14.1)。0.5 未満を書いても 0.5 と同じ扱いになる
+    if config.aggregation.consensus.min_ratio < 0.5:
+        warnings.append(
+            f"aggregation.consensus.min_ratio ({config.aggregation.consensus.min_ratio}) は "
+            "効きません。票が過半数に満たない候補は常に review_required になります"
+        )
+
     for reviewer in config.reviewers:
         warnings.extend(_transport_mismatch(reviewer))
 

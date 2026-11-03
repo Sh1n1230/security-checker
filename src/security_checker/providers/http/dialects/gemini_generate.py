@@ -15,7 +15,11 @@ from typing import Any
 from security_checker.models.verdict import Usage
 from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 from security_checker.providers.errors import ProviderResponseError
-from security_checker.providers.http.dialects.base import DialectOptions, DialectResponse
+from security_checker.providers.http.dialects.base import (
+    DialectOptions,
+    DialectResponse,
+    output_limit,
+)
 
 #: responseSchema が解釈できるキーワード. これ以外は落とす
 SUPPORTED_KEYWORDS = frozenset(
@@ -61,7 +65,7 @@ class GeminiGenerateDialect:
         capabilities: Capabilities,
         mode: StructuredMode,
     ) -> dict[str, Any]:
-        generation: dict[str, Any] = {"maxOutputTokens": req.max_output_tokens}
+        generation: dict[str, Any] = {"maxOutputTokens": output_limit(req, capabilities)}
         if capabilities.supports_temperature:
             generation["temperature"] = req.temperature
         if capabilities.supports_seed and req.seed is not None:
@@ -107,7 +111,9 @@ class GeminiGenerateDialect:
         if isinstance(raw_usage, dict):
             usage = Usage(
                 input_tokens=_as_int(raw_usage.get("promptTokenCount")),
-                output_tokens=_as_int(raw_usage.get("candidatesTokenCount")),
+                # この形の candidatesTokenCount は思考トークンを含まないが、課金は両者の合計
+                output_tokens=_as_int(raw_usage.get("candidatesTokenCount"))
+                + _as_int(raw_usage.get("thoughtsTokenCount")),
                 reasoning_tokens=_as_int(raw_usage.get("thoughtsTokenCount")),
                 cached_tokens=_as_int(raw_usage.get("cachedContentTokenCount")),
             )
@@ -120,11 +126,15 @@ class GeminiGenerateDialect:
             model_reported=model_reported if isinstance(model_reported, str) else None,
         )
 
-    def health_payload(self, model: str) -> dict[str, Any]:
+    def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]:
         return {
             "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
             "generationConfig": {"maxOutputTokens": 1},
         }
+
+    def is_auth_error(self, status: int, body: str) -> bool:
+        # この形は鍵の不備を 401 ではなく 400 で返す
+        return status == 400 and "api key" in body.lower()
 
     def explain_error(self, status: int, body: str) -> str | None:
         lowered = body.lower()

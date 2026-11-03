@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, Severity
 from security_checker.models.task import CodeContext, CodeSlice, RepoFacts, ReviewTask, TokenBudget
-from security_checker.models.verdict import VerdictStatus
+from security_checker.models.verdict import ReviewJudgement, VerdictStatus
 from security_checker.observability.cost import ModelPrice
+from security_checker.providers.base import Capabilities, StructuredMode
 from security_checker.review.reviewer import Reviewer
+from security_checker.review.structured import drop_hallucinated_evidence
 from security_checker.testing import ScriptedProvider, verdict_payload
 
 
@@ -143,3 +147,79 @@ async def test_error_outcome_is_recorded_not_swallowed():
     assert outcome.verdict.status is VerdictStatus.PROVIDER_ERROR
     assert outcome.verdict.vulnerable is False
     assert "401" in outcome.verdict.reasoning
+
+
+# --- トレースには実際に送った値を残す (#152) --------------------------------------
+
+
+@pytest.mark.parametrize("supports_seed", [True, False])
+@pytest.mark.parametrize("supports_temperature", [True, False])
+async def test_trace_records_what_was_actually_sent(supports_seed, supports_temperature):
+    provider = ScriptedProvider(
+        [verdict_payload()],
+        capabilities=Capabilities(
+            structured_output=StructuredMode.JSON_SCHEMA,
+            supports_seed=supports_seed,
+            supports_temperature=supports_temperature,
+        ),
+    )
+    outcome = await Reviewer("r1", provider, seed=42).review(make_task())
+    params = outcome.trace["params"]
+    assert params["seed"] == provider.requests[0].seed
+    assert params["seed"] == (42 if supports_seed else None)
+    assert params["seed_configured"] == 42
+    assert params["temperature"] == (0.0 if supports_temperature else None)
+
+
+# --- evidence の検証 (#151) ----------------------------------------------------------
+
+
+def _judgement(*evidence: tuple[str, int, int]) -> ReviewJudgement:
+    return ReviewJudgement.model_validate(
+        {
+            "vulnerable": True,
+            "severity": "high",
+            "confidence": 0.9,
+            "false_positive_probability": 0.1,
+            "reasoning": "r",
+            "evidence": [
+                {"path": path, "start_line": start, "end_line": end, "note": "n"}
+                for path, start, end in evidence
+            ],
+        }
+    )
+
+
+def _task_with_primary() -> ReviewTask:
+    primary = CodeSlice(path="app.py", start_line=10, end_line=20, text="x", label="primary")
+    return make_task().model_copy(update={"code_context": CodeContext(primary=primary)})
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        ("lib/myapp.py", 12, 12),
+        ("/etc/app.py", 15, 15),
+        ("app.py", 20, 9999),
+        ("app.py", 18, 3),
+        ("app.py", 5, 12),
+    ],
+)
+def test_evidence_outside_what_was_shown_is_dropped(item):
+    kept, warnings = drop_hallucinated_evidence(_judgement(item), _task_with_primary())
+    assert kept.evidence == []
+    assert warnings
+
+
+@pytest.mark.parametrize("path", ["app.py", "./app.py"])
+def test_evidence_inside_what_was_shown_is_kept(path):
+    judgement = _judgement((path, 10, 20))
+    kept, warnings = drop_hallucinated_evidence(judgement, _task_with_primary())
+    assert kept is judgement
+    assert warnings == []
+
+
+def test_evidence_for_a_candidate_without_code_is_dropped():
+    kept, warnings = drop_hallucinated_evidence(_judgement(("uv.lock", 1, 1)), make_task())
+    assert kept.evidence == []
+    assert warnings

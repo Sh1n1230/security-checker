@@ -83,8 +83,9 @@ async def test_scheduler_stops_a_reviewer_at_its_daily_limit(tmp_path):
     ]
     result = await ReviewScheduler([rt], budget=BudgetConfig()).run(tasks)
     assert len(provider.requests) == 2
-    statuses = sorted(v[0].status.value for v in result.verdicts.values())
-    assert statuses.count(VerdictStatus.SKIPPED.value) == 1
+    # 上限に達したあとの候補には判定が付かず、not_reviewed として残る
+    assert len(result.verdicts) == 2
+    assert all(v[0].status is VerdictStatus.OK for v in result.verdicts.values())
     assert "rpd 2" in result.disabled_reviewers["free"]
     # 開始時点で足りないことを警告する
     assert any("足りません" in w for w in result.warnings)

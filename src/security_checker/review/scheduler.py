@@ -27,7 +27,7 @@ from security_checker.providers.errors import (
 )
 from security_checker.review import prompts
 from security_checker.review.prompts import PeerOpinion
-from security_checker.review.reviewer import Reviewer, ReviewOutcome
+from security_checker.review.reviewer import Reviewer, ReviewOutcome, SendCancelledError
 
 #: tpm の見積りでは user プロンプトを実測するので、残りは system の分
 SYSTEM_PROMPT_TOKENS = PROMPT_OVERHEAD_TOKENS
@@ -36,6 +36,11 @@ BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 60.0
 CIRCUIT_BREAKER_FAILURES = 5
 DEFAULT_DEADLINE_S = 1800.0
+#: rate_limit.rpm を書いていない Reviewer の初期値. 429 を受けるまでは絞らない
+UNTHROTTLED_RPM = 100_000
+#: 429 がこの回数続いたら実効 rpm を下げ (§22.2)、成功がこの回数続いたら戻し始める
+THROTTLE_AFTER_RATE_LIMITS = 2
+RECOVER_AFTER_SUCCESSES = 5
 
 
 class RateLimiter:
@@ -43,10 +48,11 @@ class RateLimiter:
 
     def __init__(self, rpm: int) -> None:
         self.rpm = rpm
+        self.base_rpm = rpm
         self._events: deque[float] = deque()
         self._lock = asyncio.Lock()
 
-    async def acquire(self) -> None:
+    async def acquire(self, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep) -> None:
         while True:
             async with self._lock:
                 now = time.monotonic()
@@ -55,8 +61,22 @@ class RateLimiter:
                 if len(self._events) < self.rpm:
                     self._events.append(now)
                     return
-                wait_for = 60.0 - (now - self._events[0])
-            await asyncio.sleep(max(0.05, wait_for))
+                oldest = self._events[0]
+                wait_for = 60.0 - (now - oldest)
+            await sleep(max(0.05, wait_for))
+            async with self._lock:
+                # 待った分の枠は空いたものとして扱う
+                if self._events and self._events[0] == oldest:
+                    self._events.popleft()
+
+    def throttle(self) -> int:
+        """実効 rpm を半分に下げる (下限 1). 絞っていなければ直近の実績を起点にする."""
+        recent = len(self._events) or 1
+        self.rpm = max(1, min(self.rpm, recent) // 2)
+        return self.rpm
+
+    def recover(self) -> None:
+        self.rpm = min(self.base_rpm, self.rpm * 2)
 
 
 class TokenLimiter:
@@ -107,6 +127,8 @@ class ReviewerRuntime:
     disabled_reason: str | None = None
     token_limiter: TokenLimiter | None = None
     daily: DailyQuota | None = None
+    consecutive_rate_limits: int = 0
+    consecutive_successes: int = 0
 
     @property
     def name(self) -> str:
@@ -140,7 +162,7 @@ def build_runtime(
     return ReviewerRuntime(
         reviewer=reviewer,
         semaphore=asyncio.Semaphore(max(1, concurrency)),
-        limiter=RateLimiter(limits.rpm) if limits.rpm else None,
+        limiter=RateLimiter(limits.rpm or UNTHROTTLED_RPM),
         token_limiter=TokenLimiter(limits.tpm) if limits.tpm else None,
         daily=DailyQuota(
             store=quota_store or QuotaStore(),
@@ -177,6 +199,10 @@ class ReviewScheduler:
         self._result = ScheduleResult()
         self._lock = asyncio.Lock()
         self._started = time.monotonic()
+        #: 送信中の呼び出しの見積り. 使用量は応答が返るまで増えないので、並列分をここで数える
+        self._reserved_tokens = 0
+        self._reserved_usd = 0.0
+        self._budget_warned = False
         self._opinions: Mapping[str, Sequence[PeerOpinion]] | None = None
 
     async def run(
@@ -236,13 +262,9 @@ class ReviewScheduler:
                 verdicts.append(outcome.verdict)
 
     async def _review_candidate(self, runtime: ReviewerRuntime, task: ReviewTask) -> None:
-        if self._stop.is_set() or runtime.disabled_reason is not None:
-            return
-        if self._deadline_exceeded():
-            await self._stop_run("実行時間の上限に達しました")
-            return
-
         outcome = await self._attempt_with_retries(runtime, task)
+        if outcome is None:
+            return
         verdict = outcome.verdict
         log.event(
             "review.call",
@@ -267,38 +289,110 @@ class ReviewScheduler:
             self._result.calls += 1
         await self._check_budget()
 
+    async def _before_send(self, runtime: ReviewerRuntime, task: ReviewTask) -> tuple[int, float]:
+        """提供元への 1 回の送信の直前に呼ぶ. 止めるなら SendCancelledError を投げる.
+
+        順番待ちの間に予算超過や無効化が起きるので、待ったあとにも判定する (§23)。
+        確保した見積り (トークン, USD) を返す。呼び出し元が応答のあとで解放する。
+        """
+        await self._ensure_may_send(runtime)
+        if runtime.daily is not None and runtime.daily.remaining() <= 0:
+            reason = f"1 日の上限 (rpd {runtime.daily.limit}) に達しました"
+            await self._disable(runtime, reason)
+            raise SendCancelledError(reason)
+        if runtime.limiter is not None:
+            await runtime.limiter.acquire(self._sleep)
+        tokens = _request_tokens(runtime, task)
+        if runtime.token_limiter is not None:
+            await runtime.token_limiter.acquire(tokens)
+        await self._ensure_may_send(runtime)
+        reservation = await self._reserve(runtime, tokens)
+        if runtime.daily is not None:
+            # 送る前に数える. 失敗した呼び出しも提供元の上限には数えられる
+            runtime.daily.store.consume(runtime.daily.key)
+        return reservation
+
+    async def _ensure_may_send(self, runtime: ReviewerRuntime) -> None:
+        if self._deadline_exceeded():
+            await self._stop_run("実行時間の上限に達しました")
+        if self._stop.is_set():
+            raise SendCancelledError(self._result.stopped_reason or "run が停止しました")
+        if runtime.disabled_reason is not None:
+            raise SendCancelledError(runtime.disabled_reason)
+
+    async def _reserve(self, runtime: ReviewerRuntime, tokens: int) -> tuple[int, float]:
+        """使用量 + 送信中の分 + この呼び出しの見積りが上限を超えるなら、送らずに止める.
+
+        何も使っていないときの 1 回は通す。上限が 1 回分の見積りより小さくても、
+        進まないまま止まらないようにするため。見積りは出力の上限で数えるので保守的である。
+        """
+        usage = self._result.usage
+        price = runtime.reviewer.price
+        usd = 0.0
+        if price is not None:
+            output = runtime.reviewer.max_output_tokens
+            usd = price.estimate(Usage(input_tokens=max(0, tokens - output), output_tokens=output))
+        idle = usage.total_tokens == 0 and self._reserved_tokens == 0
+        limit_tokens = self.budget.max_total_tokens
+        if (
+            not idle
+            and limit_tokens is not None
+            and usage.total_tokens + self._reserved_tokens + tokens > limit_tokens
+        ):
+            await self._stop_run(
+                f"トークン上限 {limit_tokens} を超える見込みのため止めました "
+                f"(実績 {usage.total_tokens}、送信中 {self._reserved_tokens}、次の見積り {tokens})"
+            )
+        limit_usd = self.budget.max_usd
+        if (
+            not idle
+            and limit_usd is not None
+            and price is not None
+            and (usage.estimated_usd or 0.0) + self._reserved_usd + usd > limit_usd
+        ):
+            await self._stop_run(f"予算 ${limit_usd} を超える見込みのため止めました")
+        if self._stop.is_set():
+            raise SendCancelledError(self._result.stopped_reason or "run が停止しました")
+        self._reserved_tokens += tokens
+        self._reserved_usd += usd
+        return tokens, usd
+
     async def _attempt_with_retries(
         self, runtime: ReviewerRuntime, task: ReviewTask
-    ) -> ReviewOutcome:
+    ) -> ReviewOutcome | None:
+        """None は 1 回も判定できないまま止められたこと. 候補は not_reviewed か SKIPPED になる."""
         last_error = "不明なエラー"
         for attempt in range(1, MAX_ATTEMPTS + 1):
-            if runtime.daily is not None and runtime.daily.remaining() <= 0:
-                reason = f"1 日の上限 (rpd {runtime.daily.limit}) に達しました"
-                await self._disable(runtime, reason)
-                return runtime.reviewer.error_outcome(
-                    task, VerdictStatus.SKIPPED, reason, attempt=attempt
-                )
-            if runtime.limiter is not None:
-                await runtime.limiter.acquire()
-            if runtime.token_limiter is not None:
-                await runtime.token_limiter.acquire(_request_tokens(runtime, task))
-            if runtime.daily is not None:
-                # 送る前に数える. 失敗した呼び出しも提供元の上限には数えられる
-                runtime.daily.store.consume(runtime.daily.key)
             try:
                 async with runtime.semaphore:
-                    outcome = await runtime.reviewer.review(
-                        task,
-                        opinions=self._opinions.get(task.candidate.id)
-                        if self._opinions is not None
-                        else None,
-                    )
+                    outcome = await self._review_once(runtime, task)
+            except SendCancelledError:
+                return None
             except ProviderAuthError as exc:
                 # 認証失敗は 1 回で当該 Reviewer を無効化する (§23)
                 await self._disable(runtime, str(exc))
                 return runtime.reviewer.error_outcome(
                     task, VerdictStatus.PROVIDER_ERROR, str(exc), attempt=attempt
                 )
+            except ProviderRateLimitError as exc:
+                # rate limit はサーキットブレーカに数えない (§23)。壊れているわけではない
+                last_error = str(exc)
+                await self._on_rate_limit(runtime)
+                wait_limit = self._wait_limit()
+                if exc.retry_after is not None and exc.retry_after > wait_limit:
+                    message = (
+                        f"{last_error} (Retry-After {exc.retry_after:.0f}s は"
+                        f"待てる上限 {wait_limit:.0f}s を超えるため待ちません)"
+                    )
+                    return runtime.reviewer.error_outcome(
+                        task, VerdictStatus.PROVIDER_ERROR, message, attempt=attempt
+                    )
+                if attempt == MAX_ATTEMPTS:
+                    return runtime.reviewer.error_outcome(
+                        task, VerdictStatus.PROVIDER_ERROR, last_error, attempt=attempt
+                    )
+                await self._sleep(min(_backoff_delay(attempt, exc), wait_limit))
+                continue
             except ProviderError as exc:
                 last_error = str(exc)
                 if not exc.retryable or attempt == MAX_ATTEMPTS:
@@ -306,11 +400,13 @@ class ReviewScheduler:
                     return runtime.reviewer.error_outcome(
                         task, VerdictStatus.PROVIDER_ERROR, last_error, attempt=attempt
                     )
-                await self._sleep(_backoff_delay(attempt, exc))
+                await self._sleep(min(_backoff_delay(attempt, exc), self._wait_limit()))
                 continue
 
+            runtime.consecutive_rate_limits = 0
             if outcome.verdict.status is VerdictStatus.OK:
                 runtime.consecutive_failures = 0
+                self._on_success(runtime)
             else:
                 await self._record_failure(runtime, outcome.verdict.reasoning)
             return outcome
@@ -318,6 +414,49 @@ class ReviewScheduler:
         return runtime.reviewer.error_outcome(
             task, VerdictStatus.PROVIDER_ERROR, last_error, attempt=MAX_ATTEMPTS
         )
+
+    async def _review_once(self, runtime: ReviewerRuntime, task: ReviewTask) -> ReviewOutcome:
+        """1 回のレビュー. 見積りの確保は応答が返った時点で解く (実績は呼び出し元が足す)."""
+        reservations: list[tuple[int, float]] = []
+
+        async def before_send() -> None:
+            reservations.append(await self._before_send(runtime, task))
+
+        try:
+            return await runtime.reviewer.review(
+                task,
+                opinions=self._opinions.get(task.candidate.id)
+                if self._opinions is not None
+                else None,
+                before_send=before_send,
+            )
+        finally:
+            for tokens, usd in reservations:
+                self._reserved_tokens -= tokens
+                self._reserved_usd -= usd
+
+    async def _on_rate_limit(self, runtime: ReviewerRuntime) -> None:
+        """429 が続くなら実効 rpm を下げる (§22.2). 無料枠で「とりあえず動く」ことを優先する."""
+        runtime.consecutive_successes = 0
+        runtime.consecutive_rate_limits += 1
+        if runtime.limiter is None or runtime.consecutive_rate_limits < THROTTLE_AFTER_RATE_LIMITS:
+            return
+        rpm = runtime.limiter.throttle()
+        async with self._lock:
+            message = f"{runtime.name}: 429 が続くため実効 rpm を {rpm} に下げました"
+            if message not in self._result.warnings:
+                self._result.warnings.append(message)
+
+    def _on_success(self, runtime: ReviewerRuntime) -> None:
+        runtime.consecutive_successes += 1
+        if runtime.limiter is not None and runtime.consecutive_successes >= RECOVER_AFTER_SUCCESSES:
+            runtime.limiter.recover()
+            runtime.consecutive_successes = 0
+
+    def _wait_limit(self) -> float:
+        """Retry-After やバックオフで待てる上限. 残り時間を超えては待たない (§22.2)."""
+        remaining = self.deadline_s - (time.monotonic() - self._started)
+        return max(0.0, min(BACKOFF_CAP_S, remaining))
 
     async def _record_failure(self, runtime: ReviewerRuntime, message: str) -> None:
         runtime.consecutive_failures += 1
@@ -358,7 +497,9 @@ class ReviewScheduler:
     async def _stop_run(self, reason: str) -> None:
         if self.budget.on_exceed == "warn_and_continue" and "予算" in reason:
             async with self._lock:
-                self._result.warnings.append(f"{reason} (warn_and_continue のため続行します)")
+                if not self._budget_warned:
+                    self._budget_warned = True
+                    self._result.warnings.append(f"{reason} (warn_and_continue のため続行します)")
             return
         if self._stop.is_set():
             return
@@ -372,7 +513,7 @@ class ReviewScheduler:
 
 
 def _backoff_delay(attempt: int, exc: ProviderError) -> float:
-    """指数バックオフ + フルジッター. Retry-After があれば必ず尊重する (§22.2)."""
+    """指数バックオフ + フルジッター. Retry-After があれば上限の範囲で尊重する (§22.2)."""
     if isinstance(exc, ProviderRateLimitError) and exc.retry_after is not None:
         return max(0.0, exc.retry_after)
     ceiling = min(BACKOFF_CAP_S, BACKOFF_BASE_S * (2.0 ** (attempt - 1)))

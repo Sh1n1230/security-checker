@@ -10,9 +10,9 @@ from collections.abc import Mapping
 
 from security_checker.aggregate.agreement import compute_agreement
 from security_checker.aggregate.base import (
-    NUMBER_SEVERITY,
-    SEVERITY_NUMBER,
+    DECISIVE_CONFIDENCE,
     AggregationOutcome,
+    aggregate_severity,
 )
 from security_checker.config.schema import AggregationConfig
 from security_checker.models.candidate import Candidate
@@ -32,9 +32,11 @@ class ConsensusAggregator:
     name = "consensus"
 
     def __init__(self, weights: Mapping[str, float] | None = None) -> None:
-        # 多数決に重みの概念は無い。registry に戦略ごとの分岐を作らないため、
-        # 受け取るだけ受け取って使わない (§13)。
+        # 票の数え方に重みは使わない。使うのは severity: weighted_mean のときだけ (§14.1)
         self.weights = dict(weights or {})
+
+    def weight_of(self, verdict: ReviewVerdict) -> float:
+        return self.weights.get(verdict.reviewer, 1.0)
 
     def aggregate(
         self,
@@ -75,11 +77,12 @@ class ConsensusAggregator:
         ratio = votes / len(valid)
 
         if len(verdicts) == 1:
-            return self._single(valid[0], candidate, ratio)
+            return single_outcome(self.name, valid[0], candidate)
         if len(valid) == 1:
             return partial_outcome(self.name, valid[0], verdicts, candidate)
 
-        if votes >= cfg.consensus.min_votes and ratio >= cfg.consensus.min_ratio:
+        # 半々は「過半数」ではなく判断が割れた状態 (§13.1)。min_ratio が低くても likely にしない
+        if votes >= cfg.consensus.min_votes and ratio >= cfg.consensus.min_ratio and ratio > 0.5:
             mean_confidence = statistics.fmean(v.confidence for v in vulnerable)
             status = (
                 FindingStatus.CONFIRMED
@@ -90,28 +93,42 @@ class ConsensusAggregator:
                 status,
                 valid,
                 candidate,
-                severity=self._severity(vulnerable, cfg),
+                severity=aggregate_severity(vulnerable, cfg.consensus.severity, self.weight_of),
                 confidence=mean_confidence,
                 agreement=agreement,
                 summary=self._summary(vulnerable, votes, len(valid)),
                 extra={"votes": votes, "ratio": ratio, "mean_confidence": mean_confidence},
             )
         if votes == 0:
+            mean_confidence = statistics.fmean(v.confidence for v in valid)
+            if mean_confidence >= DECISIVE_CONFIDENCE and not any(
+                v.needs_more_context for v in valid
+            ):
+                return self._outcome(
+                    FindingStatus.FALSE_POSITIVE,
+                    valid,
+                    candidate,
+                    severity=Severity.NONE,
+                    confidence=mean_confidence,
+                    agreement=agreement,
+                    summary="すべての Reviewer が「脆弱ではない」と判断しました。",
+                    extra={"votes": 0, "ratio": 0.0},
+                )
+            # 自信の無い「脆弱ではない」で候補を消さない
             return self._outcome(
-                FindingStatus.FALSE_POSITIVE,
+                FindingStatus.REVIEW_REQUIRED,
                 valid,
                 candidate,
-                severity=Severity.NONE,
-                confidence=statistics.fmean(v.confidence for v in valid),
+                confidence=mean_confidence,
                 agreement=agreement,
-                summary="すべての Reviewer が「脆弱ではない」と判断しました。",
-                extra={"votes": 0, "ratio": 0.0},
+                summary="「脆弱ではない」という判定の確信度が低いため、人間による確認を推奨します。",
+                extra={"votes": 0, "ratio": 0.0, "mean_confidence": mean_confidence},
             )
         return self._outcome(
             FindingStatus.REVIEW_REQUIRED,
             valid,
             candidate,
-            severity=self._severity(vulnerable, cfg),
+            severity=aggregate_severity(vulnerable, cfg.consensus.severity, self.weight_of),
             confidence=statistics.fmean(v.confidence for v in valid),
             agreement=agreement,
             summary="判断が分かれました。人間による確認を推奨します。",
@@ -119,51 +136,6 @@ class ConsensusAggregator:
         )
 
     # --- 内部 -------------------------------------------------------------
-
-    def _single(
-        self, verdict: ReviewVerdict, candidate: Candidate, ratio: float
-    ) -> AggregationOutcome:
-        """Reviewer が 1 個のときは confidence だけで status を決める (§13.2)."""
-        if not verdict.vulnerable:
-            status = FindingStatus.FALSE_POSITIVE
-        elif verdict.confidence >= SINGLE_CONFIRMED_CONFIDENCE:
-            status = FindingStatus.CONFIRMED
-        elif verdict.confidence >= SINGLE_LIKELY_CONFIDENCE:
-            status = FindingStatus.LIKELY
-        else:
-            status = FindingStatus.REVIEW_REQUIRED
-        summary = (
-            _headline(verdict)
-            if verdict.vulnerable
-            else "Reviewer は「脆弱ではない」と判断しました。"
-        )
-        return AggregationOutcome(
-            status=status,
-            severity=verdict.severity if verdict.vulnerable else Severity.NONE,
-            confidence=verdict.confidence,
-            agreement=Agreement.NOT_APPLICABLE,
-            summary=summary,
-            detail={
-                "strategy": self.name,
-                "mode": "single_reviewer",
-                "votes": 1 if verdict.vulnerable else 0,
-                "ratio": ratio,
-                "reviewers": {verdict.reviewer: _describe(verdict)},
-            },
-        )
-
-    def _severity(self, vulnerable: list[ReviewVerdict], cfg: AggregationConfig) -> Severity:
-        numbers = [SEVERITY_NUMBER[verdict.severity] for verdict in vulnerable]
-        if not numbers:
-            return Severity.NONE
-        mode = cfg.consensus.severity
-        if mode == "max":
-            value = max(numbers)
-        elif mode == "weighted_mean":
-            value = round(statistics.fmean(numbers))
-        else:  # median: 1 モデルの過大評価でノイズが増えるのを防ぐ
-            value = round(statistics.median(numbers))
-        return NUMBER_SEVERITY[int(value)]
 
     def _summary(self, vulnerable: list[ReviewVerdict], votes: int, total: int) -> str:
         head = _headline(vulnerable[0], limit=SUMMARY_HEAD_LIMIT)
@@ -204,6 +176,47 @@ class ConsensusAggregator:
             summary=summary,
             detail=detail,
         )
+
+
+def single_outcome(
+    strategy: str, verdict: ReviewVerdict, candidate: Candidate
+) -> AggregationOutcome:
+    """Reviewer が 1 個のときは confidence だけで status を決める (§13.2).
+
+    どの戦略を選んでも、Reviewer が 1 体なら同じ結果になる。
+    """
+    severity = verdict.severity
+    if not verdict.vulnerable:
+        if verdict.confidence >= DECISIVE_CONFIDENCE and not verdict.needs_more_context:
+            status = FindingStatus.FALSE_POSITIVE
+            severity = Severity.NONE
+            summary = "Reviewer は「脆弱ではない」と判断しました。"
+        else:
+            status = FindingStatus.REVIEW_REQUIRED
+            severity = candidate.severity_reported or Severity.INFO
+            summary = "「脆弱ではない」という判定の確信度が低いため、人間による確認を推奨します。"
+    else:
+        summary = _headline(verdict)
+        if verdict.confidence >= SINGLE_CONFIRMED_CONFIDENCE:
+            status = FindingStatus.CONFIRMED
+        elif verdict.confidence >= SINGLE_LIKELY_CONFIDENCE:
+            status = FindingStatus.LIKELY
+        else:
+            status = FindingStatus.REVIEW_REQUIRED
+    return AggregationOutcome(
+        status=status,
+        severity=severity,
+        confidence=verdict.confidence,
+        agreement=Agreement.NOT_APPLICABLE,
+        summary=summary,
+        detail={
+            "strategy": strategy,
+            "mode": "single_reviewer",
+            "votes": 1 if verdict.vulnerable else 0,
+            "ratio": 1.0 if verdict.vulnerable else 0.0,
+            "reviewers": {verdict.reviewer: _describe(verdict)},
+        },
+    )
 
 
 def partial_outcome(

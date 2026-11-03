@@ -7,7 +7,7 @@ Reviewer は 1 候補について 1 つの ReviewVerdict を返す。
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from security_checker.language import DEFAULT_LANGUAGE
@@ -29,6 +29,17 @@ from security_checker.review.structured import (
     parse_judgement,
     verdict_schema,
 )
+
+#: レビューは再現性を優先する (§11.5)
+REVIEW_TEMPERATURE = 0.0
+
+
+class SendCancelledError(Exception):
+    """送信の直前に止められた (予算超過・無効化・デッドライン). 提供元には何も送っていない."""
+
+
+#: 1 回の送信の直前に呼ぶフック. レート制御と停止の判定はスケジューラが受け持つ (§22)
+BeforeSend = Callable[[], Awaitable[None]]
 
 
 class ReviewOutcome:
@@ -81,12 +92,19 @@ class Reviewer:
         return getattr(self.provider, "model", "unknown")
 
     async def review(
-        self, task: ReviewTask, *, opinions: Sequence[prompts.PeerOpinion] | None = None
+        self,
+        task: ReviewTask,
+        *,
+        opinions: Sequence[prompts.PeerOpinion] | None = None,
+        before_send: BeforeSend | None = None,
     ) -> ReviewOutcome:
         """1 候補をレビューする. スキーマ違反は 1 回だけ修復を試みる (§10.2).
 
         `opinions` を渡すと Judge として振る舞う (§16)。他の Reviewer の匿名化した意見を
         評価して最終判定を出す。出力のスキーマは通常のレビューと同じ。
+
+        `before_send` は修復の再送を含む送信ごとに呼ばれる。rpm・tpm・rpd は提供元への呼び出し
+        1 回ごとに数えられるため。`SendCancelledError` を投げると、そこで送信をやめる。
         """
         schema = verdict_schema()
         if opinions is None:
@@ -98,6 +116,8 @@ class Reviewer:
         started = time.monotonic()
         self._last_prompt = (system, user)
 
+        if before_send is not None:
+            await before_send()
         response = await self._complete(system, user, schema)
         usage = response.usage
         try:
@@ -106,6 +126,18 @@ class Reviewer:
             repair_user = prompts.render_repair(
                 violation.raw_text, str(violation), schema, self.language
             )
+            if before_send is not None:
+                try:
+                    await before_send()
+                except SendCancelledError as cancelled:
+                    # 1 回目の分は使っている。結果を捨てず、使用量つきで残す
+                    return self.error_outcome(
+                        task,
+                        VerdictStatus.SCHEMA_ERROR,
+                        f"スキーマ検証に失敗し、修復を送る前に止めました: {cancelled}",
+                        started,
+                        usage=usage,
+                    )
             repaired = await self._complete(system, repair_user, schema)
             usage = usage.merge(repaired.usage)
             try:
@@ -137,7 +169,7 @@ class Reviewer:
                 json_schema=schema,
                 structured_mode=capabilities.structured_output,
                 max_output_tokens=self.max_output_tokens,
-                temperature=0.0,
+                temperature=REVIEW_TEMPERATURE,
                 seed=self.seed if capabilities.supports_seed else None,
                 timeout_s=self.timeout_s,
             )
@@ -238,11 +270,14 @@ class Reviewer:
         if self.save_prompts:
             prompt["system"] = system
             prompt["user"] = user
+        # 設定値ではなく実際に送った値を残す. 再現の調査を誤らせないため (§24.2)
+        capabilities = self.provider.capabilities
         params: dict[str, Any] = {
             "transport": self.provider.transport,
             "dialect": self.provider.dialect,
-            "temperature": 0.0,
-            "seed": self.seed,
+            "temperature": REVIEW_TEMPERATURE if capabilities.supports_temperature else None,
+            "seed": self.seed if capabilities.supports_seed else None,
+            "seed_configured": self.seed,
             "max_output_tokens": self.max_output_tokens,
             "structured_mode": self.provider.capabilities.structured_output.value,
             "language": self.language,
