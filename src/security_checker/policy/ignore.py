@@ -9,9 +9,12 @@
     # ルールをパスで限定する
     rule:generic-api-key docs/**
 
-コード内注釈 (候補の行か、その直前の行):
+コード内注釈. 行末に書くとその行だけに効き、注釈だけの行に書くと次の行に効く:
 
     subprocess.run(cmd, shell=True)  # security-checker: ignore[rule_id] reason=固定文字列のみ
+
+    # security-checker: ignore[rule_id] reason=固定文字列のみ
+    subprocess.run(cmd, shell=True)
 
 **理由の記述を必須とする。** 理由の無い注釈も抑制はするが、警告を出す。
 抑制は「誰かが判断した」記録であり、判断の根拠が残らない抑制は負債になる。
@@ -34,6 +37,8 @@ _ANNOTATION_RE = re.compile(
 )
 #: 注釈の後ろに付きがちなコメント終端を理由から落とす
 _COMMENT_TAIL_RE = re.compile(r"\s*(?:\*/|-->|#}|%>)\s*$")
+#: 注釈の前に付くコメント記号. これ以外が残れば、その行にはコードがある
+_COMMENT_LEAD_RE = re.compile(r"[\s#/*<!\-;%{]*")
 
 
 @dataclass(frozen=True)
@@ -46,8 +51,8 @@ class RuleIgnore:
             return False
         if not self.paths:
             return True
-        location = candidate.location
-        return location is not None and is_excluded(location.path, list(self.paths))
+        path = _candidate_path(candidate)
+        return path is not None and is_excluded(path, list(self.paths))
 
 
 @dataclass
@@ -57,12 +62,7 @@ class IgnoreFile:
 
     def match(self, candidate: Candidate) -> str | None:
         """一致した行 (理由として残す) を返す."""
-        location = candidate.location
-        path = (
-            location.path
-            if location
-            else (candidate.package.manifest if candidate.package else None)
-        )
+        path = _candidate_path(candidate)
         if path is not None:
             for pattern in self.path_patterns:
                 if is_excluded(path, [pattern]):
@@ -71,6 +71,13 @@ class IgnoreFile:
             if rule.matches(candidate):
                 return "rule:" + rule.rule + ("" if not rule.paths else " " + " ".join(rule.paths))
         return None
+
+
+def _candidate_path(candidate: Candidate) -> str | None:
+    """照合に使うパス. 依存の候補は location を持たないので manifest を使う."""
+    if candidate.location is not None:
+        return candidate.location.path
+    return candidate.package.manifest if candidate.package else None
 
 
 def rule_matches(rule: str, candidate: Candidate) -> bool:
@@ -113,6 +120,12 @@ class Annotation:
     reason: str | None
 
 
+def is_annotation_only(line: str) -> bool:
+    """注釈の前にコードが無い行か. 行末の注釈はその行だけのものとして扱う."""
+    match = _ANNOTATION_RE.search(line)
+    return match is not None and _COMMENT_LEAD_RE.fullmatch(line[: match.start()]) is not None
+
+
 def parse_annotation(line: str) -> Annotation | None:
     match = _ANNOTATION_RE.search(line)
     if match is None:
@@ -125,7 +138,7 @@ def parse_annotation(line: str) -> Annotation | None:
 
 
 class AnnotationReader:
-    """候補の行と直前の行から注釈を探す. 同じファイルは一度だけ読む."""
+    """候補の行と、直前の注釈だけの行から注釈を探す. 同じファイルは一度だけ読む."""
 
     def __init__(self, root: Path) -> None:
         self._root = root.resolve()
@@ -155,7 +168,10 @@ class AnnotationReader:
             return None
         for number in (location.start_line, location.start_line - 1):
             if 1 <= number <= len(lines):
-                annotation = parse_annotation(lines[number - 1])
+                line = lines[number - 1]
+                if number != location.start_line and not is_annotation_only(line):
+                    continue
+                annotation = parse_annotation(line)
                 if annotation is not None and any(
                     rule_matches(rule, candidate) for rule in annotation.rules
                 ):
