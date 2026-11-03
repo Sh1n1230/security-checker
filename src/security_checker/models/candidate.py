@@ -77,6 +77,8 @@ class Candidate(BaseModel):
 
     raw: dict[str, Any] = Field(default_factory=dict)
     redacted: bool = False
+    #: 同じ指摘を報告した他のスキャナ (dedupe で 1 件にまとめた分)
+    also_reported_by: list[str] = Field(default_factory=list)
 
     @property
     def where(self) -> str:
