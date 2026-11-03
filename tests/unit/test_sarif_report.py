@@ -7,7 +7,11 @@ tool 名の固定・level の決め方・review_required を落とさないこ�
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
+
+import jsonschema  # type: ignore[import-untyped]
+import pytest
 
 from security_checker.models.candidate import Location, PackageRef
 from security_checker.models.enums import Category, FindingStatus, ScanStatus, Severity
@@ -51,7 +55,6 @@ def test_scan_mode_maps_scanner_severity_to_level():
         for r in results_of(render_sarif(make_report(candidates)))
     }
     assert results["crit"]["level"] == "error"
-    assert results["crit"]["properties"]["security-severity"] == "9.5"
     assert results["med"]["level"] == "warning"
     assert results["low"]["level"] == "note"
     assert results["none"]["level"] == "note"
@@ -97,7 +100,6 @@ def test_confirmed_uses_scanner_severity_not_llm_severity():
     finding = make_finding(candidate, FindingStatus.CONFIRMED, severity=Severity.CRITICAL)
     result = results_of(render_sarif(make_report([candidate], [finding])))[0]
     assert result["level"] == "warning"
-    assert result["properties"]["security-severity"] == "5.5"
     # LLM の判定は properties に残す
     assert result["properties"]["llm_severity"] == "critical"
     assert result["properties"]["status"] == "confirmed"
@@ -108,16 +110,14 @@ def test_likely_is_one_step_lower():
     finding = make_finding(candidate, FindingStatus.LIKELY)
     result = results_of(render_sarif(make_report([candidate], [finding])))[0]
     assert result["level"] == "warning"
-    assert result["properties"]["security-severity"] == "7.0"
 
 
-def test_review_required_is_note_and_zero():
+def test_review_required_is_note():
     """§18.4.1: review_required は CI を落とさない. Ruleset 側でもその約束を守る."""
     candidate = make_candidate(severity=Severity.CRITICAL)
     finding = make_finding(candidate, FindingStatus.REVIEW_REQUIRED)
     result = results_of(render_sarif(make_report([candidate], [finding])))[0]
     assert result["level"] == "note"
-    assert result["properties"]["security-severity"] == "0.0"
 
 
 def test_unjudged_findings_stay_visible_but_do_not_block():
@@ -222,3 +222,75 @@ def test_write_sarif_produces_valid_json(tmp_path):
         "startLine": 1,
         "endLine": 2,
     }
+
+
+# --- security-severity を付けない (#90, ADR 0009) ---------------------------------------
+
+
+def test_security_severity_is_not_written_anywhere():
+    candidate = make_candidate(severity=Severity.CRITICAL, references=["https://example.com/x"])
+    finding = make_finding(candidate, FindingStatus.CONFIRMED)
+    assert "security-severity" not in json.dumps(render_sarif(make_report([candidate], [finding])))
+
+
+# --- スキーマに沿っていること (#163) -----------------------------------------------------
+
+SCHEMA = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "sarif" / "sarif-schema-2.1.0.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+def schema_errors(sarif: dict[str, Any]) -> list[str]:
+    validator = jsonschema.Draft4Validator(
+        SCHEMA, format_checker=jsonschema.Draft4Validator.FORMAT_CHECKER
+    )
+    return [f"{list(e.absolute_path)}: {e.message}" for e in validator.iter_errors(sarif)]
+
+
+@pytest.mark.parametrize(
+    ("path", "uri"),
+    [
+        ("src/my file.py", "src/my%20file.py"),
+        ("src/日本語.py", "src/%E6%97%A5%E6%9C%AC%E8%AA%9E.py"),
+        ("src/100%.py", "src/100%25.py"),
+        ("pages/[id].tsx", "pages/%5Bid%5D.tsx"),
+        ("src/a#b.py", "src/a%23b.py"),
+        ("src/a?b.py", "src/a%3Fb.py"),
+        ("src/plain.py", "src/plain.py"),
+    ],
+)
+def test_paths_are_encoded_as_uri_references(path, uri):
+    candidate = make_candidate(path=path)
+    sarif = render_sarif(
+        make_report([candidate], [make_finding(candidate, FindingStatus.CONFIRMED)])
+    )
+    assert (
+        results_of(sarif)[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == uri
+    )
+    assert schema_errors(sarif) == []
+
+
+@pytest.mark.parametrize(
+    ("references", "expected"),
+    [
+        (["see OWASP A03"], None),
+        (["see OWASP A03", "https://example.com/a"], "https://example.com/a"),
+        (["ftp://example.com/a"], None),
+    ],
+)
+def test_help_uri_is_only_a_web_url(references, expected):
+    sarif = render_sarif(make_report([make_candidate(references=references)]))
+    assert sarif["runs"][0]["tool"]["driver"]["rules"][0].get("helpUri") == expected
+    assert schema_errors(sarif) == []
+
+
+def test_reviewed_and_failed_reports_match_the_schema():
+    candidate = make_candidate(references=["https://example.com/x"])
+    finding = make_finding(candidate, FindingStatus.LIKELY)
+    failed = ScannerRun(
+        scanner="semgrep", category=Category.SAST, status=ScanStatus.FAILED, reason="exit 2"
+    )
+    assert schema_errors(render_sarif(make_report([candidate], [finding]))) == []
+    assert schema_errors(render_sarif(make_report([candidate], [finding], scanners=[failed]))) == []

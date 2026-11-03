@@ -1559,8 +1559,7 @@ Security タブで履歴管理できる。マッピングは次のとおり。
 | `ruleId` | `{scanner}/{rule_id}` |
 | `level` | critical/high → `error`、medium → `warning`、low/info → `note` |
 | `message.text` | LLM の summary + reasoning 抜粋 |
-| `partialFingerprints.primary` | Candidate の安定 ID(§6.1) |
-| `properties.security-severity` | CVSS 相当の数値(GitHub の重大度表示に使われる) |
+| `partialFingerprints.primary` | Candidate の安定 ID(§6.1)。GitHub はこのキーを読まず、`primaryLocationLineHash` で alert を追跡する(ADR 0009) |
 | `properties.status` / `agreement` / `reviewers` | v2 独自情報 |
 | `tool.driver.name` | 常に `security-checker`(スキャナ名ではない。§18.4.4 の理由による) |
 | `invocations[].executionSuccessful` | scanner が 1 つでも failed なら `false`(§18.4.2) |
@@ -1597,14 +1596,16 @@ Security タブで履歴管理できる。マッピングは次のとおり。
 
 したがって:
 
-| status | SARIF `level` | `security-severity` | Ruleset の既定設定での挙動 |
-|---|---|---|---|
-| `confirmed` | severity に応じて `error` / `warning` / `note` | CVSS 相当 | high 以上でマージをブロック |
-| `likely` | 同上(1 段下げる) | CVSS − 1.0 | 同上 |
-| `review_required` | **常に `note`** | **常に 0.0** | ブロックしない。Security タブには残る |
-| `false_positive` | 出力しない | — | — |
+| status | SARIF `level` | Ruleset の既定設定での挙動 |
+|---|---|---|
+| `confirmed` | severity に応じて `error` / `warning` / `note` | high 以上でマージをブロック |
+| `likely` | 同上(1 段下げる) | 同上 |
+| `review_required` | **常に `note`** | ブロックしない。Security タブには残る |
+| `false_positive` | 出力しない | — |
 
-Ruleset 側は `alerts_threshold: errors`(既定)を使う。`note` は閾値に掛からない。
+Ruleset 側は Alerts の閾値に `errors`(既定)を使い、Security alerts の閾値は `None` にする。
+`note` は閾値に掛からない。`security-severity` は付けない。GitHub が読むのは rule のものだけで、
+rule に置くと `review_required` までその重大度の security alert になり、この原則が破られるため(ADR 0009)。
 
 #### 18.4.2 スキャナが壊れた run を「指摘ゼロ」にしない
 

@@ -216,7 +216,7 @@ def _summary_block(finding: Finding) -> list[str]:
             " → ".join(md.code_span(_truncate(s, 80)) for s in path[:8]),
             "",
         ]
-    reasoning = next((v.reasoning for v in ok if v.reasoning.strip()), "")
+    reasoning = finding.supporting_reasoning
     if reasoning:
         lines += ["**Reason**", _one_line(reasoning, 800), ""]
     remediation = next((v.remediation for v in ok if v.remediation is not None), None)
@@ -303,7 +303,7 @@ def render_inline(finding: Finding) -> str:
         )
     lines = [finding_marker(finding), head, ""]
     lines.append(_one_line(finding.summary or candidate.message, 300))
-    reasoning = next((v.reasoning for v in finding.verdicts if v.reasoning.strip()), "")
+    reasoning = finding.supporting_reasoning
     if reasoning:
         lines += ["", _one_line(reasoning, 600)]
     remediation = next(
