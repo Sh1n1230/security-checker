@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from typer.testing import CliRunner
@@ -25,7 +26,7 @@ from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import build_runtime
 from security_checker.run import ReviewerSetup, run_review
 from security_checker.testing import FakeScanner, ScriptedProvider, verdict_payload
-from tests.factories import make_candidate
+from tests.factories import make_candidate, make_report
 
 runner = CliRunner()
 
@@ -201,6 +202,57 @@ def test_cli_review_estimate_sends_nothing(tmp_path, monkeypatch):
     assert result.exit_code == ExitCode.OK, result.output
     assert "合計" in result.stdout
     assert not marker.exists()
+
+
+def test_cli_review_estimate_warns_when_the_estimate_exceeds_the_budget(tmp_path, monkeypatch):
+    """見積りが予算を超えたときの警告 (cli.py の _estimate, 未達だった分岐).
+
+    外部スキャナは使わず、スキャン結果だけを差し替える。見積り計算そのものは
+    実物を通すので、pricing.yml の価格がそのまま効く。
+    """
+    root = tmp_path / "app"
+    root.mkdir()
+    (root / "src").mkdir()
+    (root / "src" / "app.py").write_text("\n" * 41 + "run(cmd, shell=True)\n", encoding="utf-8")
+
+    (root / "security-checker.yml").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                # 1 回のレビューでも超える予算
+                "budget": {"max_usd": 0.000001},
+                "reviewers": [
+                    {
+                        "name": "priced",
+                        "transport": "http",
+                        "dialect": "openai_chat",
+                        "base_url": "http://x/v1",
+                        "model": "m-priced",
+                        "max_output_tokens": 100,
+                    }
+                ],
+                "scanners": {"semgrep": {"enabled": False}, "gitleaks": {"enabled": False}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (root / "pricing.yml").write_text(
+        json.dumps({"models": {"m-priced": {"input_per_1m": 1.0, "output_per_1m": 2.0}}}),
+        encoding="utf-8",
+    )
+
+    scanned = SimpleNamespace(report=make_report([make_candidate()]))
+
+    async def fake_run_scan(*args, **kwargs):
+        return scanned
+
+    monkeypatch.setattr("security_checker.cli.run_scan", fake_run_scan)
+
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["review", str(root), "--estimate", "--full"])
+
+    assert result.exit_code == ExitCode.OK, result.output
+    assert "見積りが予算を超えています" in result.stdout
 
 
 # --- explain --------------------------------------------------------------------------
