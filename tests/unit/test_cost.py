@@ -51,3 +51,12 @@ def test_broken_price_file_is_config_error(tmp_path):
     path.write_text("models:\n  m:\n    input_per_1m: とても高い\n", encoding="utf-8")
     with pytest.raises(ConfigError):
         load_price_table(tmp_path, explicit=path)
+
+
+def test_negative_price_is_config_error(tmp_path):
+    path = tmp_path / "pricing.yml"
+    path.write_text(
+        "models:\n  m:\n    input_per_1m: -1.0\n    output_per_1m: 2.0\n", encoding="utf-8"
+    )
+    with pytest.raises(ConfigError):
+        load_price_table(tmp_path, explicit=path)
