@@ -203,6 +203,44 @@ def test_cli_review_estimate_sends_nothing(tmp_path, monkeypatch):
     assert not marker.exists()
 
 
+def test_estimate_warns_when_total_exceeds_budget(monkeypatch, capsys, tmp_path):
+    """Cover the budget-exceeded branch of cli._estimate."""
+    from types import SimpleNamespace
+
+    import security_checker.cli as cli_module
+    from security_checker.config.loader import LoadedConfig
+    from security_checker.policy.suppress import SuppressionRules
+
+    config = Config.model_validate(
+        {
+            "reviewers": [
+                {
+                    "name": "priced",
+                    "transport": "http",
+                    "dialect": "openai_chat",
+                    "base_url": "http://x/v1",
+                    "model": "m-priced",
+                    "max_output_tokens": 100,
+                }
+            ],
+            "budget": {"max_usd": 0.0001},
+        }
+    )
+    loaded = LoadedConfig(config=config)
+
+    async def fake_run_scan(*args, **kwargs):
+        return SimpleNamespace(
+            report=SimpleNamespace(candidates=[make_candidate()], suppressed=[], outside_diff=[])
+        )
+
+    monkeypatch.setattr(cli_module, "run_scan", fake_run_scan)
+    monkeypatch.setattr(cli_module, "build_tasks", lambda *args, **kwargs: ([probe_task()], []))
+    monkeypatch.setattr(cli_module, "_suppression", lambda *args, **kwargs: SuppressionRules())
+    table = PriceTable(prices={"m-priced": ModelPrice(input_per_1m=1000.0, output_per_1m=2000.0)})
+    cli_module._estimate(loaded, tmp_path, None, table)
+    assert "予算を超えています" in capsys.readouterr().out
+
+
 # --- explain --------------------------------------------------------------------------
 
 
