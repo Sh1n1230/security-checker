@@ -54,6 +54,7 @@ class ReviewOutcome:
         attempts: int = 1,
         trace: dict[str, Any] | None = None,
     ) -> None:
+        """ReviewOutcome を初期化する."""
         self.verdict = verdict
         self.warnings = warnings or []
         self.raw_text = raw_text
@@ -77,6 +78,7 @@ class Reviewer:
         save_prompts: bool = False,
         language: str = DEFAULT_LANGUAGE,
     ) -> None:
+        """Reviewer を初期化する (設計書 §11)."""
         self.name = name
         self.provider = provider
         self.weight = weight
@@ -89,6 +91,7 @@ class Reviewer:
 
     @property
     def model(self) -> str:
+        """使用中のモデル名を返す。不明な場合は 'unknown'."""
         return getattr(self.provider, "model", "unknown")
 
     async def review(
@@ -98,13 +101,15 @@ class Reviewer:
         opinions: Sequence[prompts.PeerOpinion] | None = None,
         before_send: BeforeSend | None = None,
     ) -> ReviewOutcome:
-        """1 候補をレビューする. スキーマ違反は 1 回だけ修復を試みる (§10.2).
+        """1 候補をレビューする. スキーマ返後は 1 回まで修正を試みる (§10.2).
 
-        `opinions` を渡すと Judge として振る舞う (§16)。他の Reviewer の匿名化した意見を
-        評価して最終判定を出す。出力のスキーマは通常のレビューと同じ。
+        `opinions` があると Judge のように動く (§16)。他の Reviewer の判定結果を
+        知らないまま自分の判定を出す。出力のスキーマは必要なら
+        修正を試みる。
 
-        `before_send` は修復の再送を含む送信ごとに呼ばれる。rpm・tpm・rpd は提供元への呼び出し
-        1 回ごとに数えられるため。`SendCancelledError` を投げると、そこで送信をやめる。
+        `before_send` は送信直前のフックを呼ぶ。レート制御と停止の判定はスケジューラが受け持つ
+        (§22)。http/tp/rpd の提供元には何も送らない。
+        1 回まで修正を試み、スキーマ違反が残ったら `SendCancelledError` を出す。
         """
         schema = verdict_schema()
         if opinions is None:
@@ -130,11 +135,11 @@ class Reviewer:
                 try:
                     await before_send()
                 except SendCancelledError as cancelled:
-                    # 1 回目の分は使っている。結果を捨てず、使用量つきで残す
+                    # 1回目の修正の前に止められた。提供元には何も送っていない。
                     return self.error_outcome(
                         task,
                         VerdictStatus.SCHEMA_ERROR,
-                        f"スキーマ検証に失敗し、修復を送る前に止めました: {cancelled}",
+                        f"スキーマ違反の修正を試みる前に止められた: {cancelled}",
                         started,
                         usage=usage,
                     )
@@ -143,11 +148,11 @@ class Reviewer:
             try:
                 judgement = parse_judgement(repaired.parsed, repaired.text)
             except SchemaViolationError as second:
-                # 修復は 1 回まで。失敗し続けるモデルに予算を吸わせない。
+                # 修正は 1 回まで。失敗したらモデルに予算を消費させない。
                 return self.error_outcome(
                     task,
                     VerdictStatus.SCHEMA_ERROR,
-                    f"スキーマ検証に失敗しました: {second}",
+                    f"スキーマ違反の修正に失敗: {second}",
                     started,
                     usage=usage,
                     attempt=2,
@@ -156,7 +161,7 @@ class Reviewer:
 
         return self._ok_outcome(task, judgement, usage, started, attempt=1, response=response)
 
-    # --- 内部 -------------------------------------------------------------
+    # --- 内部 --- 
 
     async def _complete(
         self, system: str, user: str, schema: dict[str, object]
@@ -187,7 +192,7 @@ class Reviewer:
     ) -> ReviewOutcome:
         checked, warnings = drop_hallucinated_evidence(judgement, task)  # type: ignore[arg-type]
         usage = self._priced(usage)
-        # transport 固有の警告 (process の書込検知など) を落とさずに持ち上げる (§9.7)。
+        # transport が残った警告 (process の場合は別途径) を追加する (§9.7)。
         warnings.extend(response.warnings)
         if response.degraded_to is not None and response.degraded_to != StructuredMode.JSON_SCHEMA:
             warnings.append(
@@ -221,7 +226,7 @@ class Reviewer:
         usage: Usage | None = None,
         attempt: int = 1,
     ) -> ReviewOutcome:
-        """判定不能も「黙って消さない」. レポートに残る Verdict として返す (P9)."""
+        """判定不能または「黒って消した」. スキーマ違反の場合は Verdict を返す (P9)."""
         verdict = ReviewVerdict(
             candidate_id=task.candidate.id,
             reviewer=self.name,
@@ -244,7 +249,7 @@ class Reviewer:
         )
 
     def _priced(self, usage: Usage) -> Usage:
-        """価格表があればコストを載せる. 無ければ cost unknown (§24.3)."""
+        """価格情報から使用量を推定する. 不明なら cost unknown (§24.3)."""
         if self.price is None:
             return usage.model_copy(update={"estimated_usd": None, "cost_known": False})
         return usage.model_copy(
@@ -260,7 +265,7 @@ class Reviewer:
         *,
         error: str | None = None,
     ) -> dict[str, Any]:
-        """1 呼び出し分の監査証跡 (§24.2). 既定はプロンプトのハッシュのみ."""
+        """1 回のトレースを作る (§24.2). プロンプトのハッシュのみ."""
         system, user = getattr(self, "_last_prompt", ("", ""))
         prompt: dict[str, Any] = {
             "system_sha256": sha256_text(system),
@@ -270,7 +275,7 @@ class Reviewer:
         if self.save_prompts:
             prompt["system"] = system
             prompt["user"] = user
-        # 設定値ではなく実際に送った値を残す. 再現の調査を誤らせないため (§24.2)
+        # 設定値ではなく実際に送った値を残す. 再現性のため (§24.2)
         capabilities = self.provider.capabilities
         params: dict[str, Any] = {
             "transport": self.provider.transport,
