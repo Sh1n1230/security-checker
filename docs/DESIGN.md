@@ -956,7 +956,7 @@ P3(No Automatic Modification)はこのツールの根幹なので、
 #### 監査証跡
 
 `process` 呼び出しも §24.2 のトレースに同形式で残す。`params` には argv と取得できたバージョン、
-`response.raw` には stdout 全文、加えて `stderr` と `exit_code` を保存する。
+`response.raw` には stdout 全文を `output.save_prompts: true` の場合に保存する。既定では raw を保存せず SHA-256 と文字数を残す。`stderr` と `exit_code` も保存する。
 
 ### 9.8 導入摩擦の削減 — 既定値を持たずに、環境から生成する
 
@@ -1165,7 +1165,7 @@ Return a single JSON object matching this schema:
 ### 11.5 決定性
 
 `temperature: 0.0`、対応 Provider では `seed` を固定。ただし**完全な再現性は保証しない**と docs に明記する
-(LLM サービス側の非決定性は制御外)。再現性が要る場面のために、トレース(§24)に応答全文を保存する運用を用意する。
+(LLM サービス側の非決定性は制御外)。再現性が要る場面のために、明示的に有効化した場合はトレース(§24)に応答全文を保存できる。
 
 
 ---
@@ -2011,13 +2011,13 @@ rate_limit:
   "params": {"temperature": 0.0, "seed": 42, "max_output_tokens": 2000,
              "structured_mode": "json_schema"},
   "prompt": {"system_sha256": "...", "user_sha256": "...", "input_tokens": 4102},
-  "response": {"raw": "...", "parsed": {...}, "finish_reason": "stop"},
+  "response": {"raw": null, "raw_sha256": "...", "raw_length": 812, "finish_reason": "stop"},
   "usage": {...}, "latency_ms": 2310, "attempt": 1, "degraded_to": null
 }
 ```
 
-- **既定ではプロンプト全文を保存せずハッシュのみ**。コードが平文でディスクに残るのを避けるため。
-- `output.save_prompts: true` で全文保存(デバッグ・評価用)。この場合、出力ディレクトリを
+- **既定ではプロンプトと応答の全文を保存せず、SHA-256 ハッシュと応答の文字数のみ**を残す。コードが平文でディスクに残るのを避けるため。
+- `output.save_prompts: true` でプロンプトと応答の全文を保存(デバッグ・評価用)。この場合、出力ディレクトリを
   `.gitignore` に入れるよう起動時に警告する。
 - `security-checker explain <finding-id>` で、その Finding に至った全呼び出しを再表示できる。
   「なぜこの判定になったか」を後から完全に追跡できることが P4 の到達点。

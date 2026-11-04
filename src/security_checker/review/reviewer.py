@@ -260,7 +260,7 @@ class Reviewer:
         *,
         error: str | None = None,
     ) -> dict[str, Any]:
-        """1 呼び出し分の監査証跡 (§24.2). 既定はプロンプトのハッシュのみ."""
+        """1 呼び出し分の監査証跡 (§24.2). 既定は prompt/response のハッシュのみ."""
         system, user = getattr(self, "_last_prompt", ("", ""))
         prompt: dict[str, Any] = {
             "system_sha256": sha256_text(system),
@@ -282,14 +282,19 @@ class Reviewer:
             "structured_mode": self.provider.capabilities.structured_output.value,
             "language": self.language,
         }
-        response_trace: dict[str, Any] = {
-            "raw": response.text if response is not None else None,
-            "finish_reason": response.finish_reason if response is not None else None,
-            "error": error,
-        }
+        response_trace: dict[str, Any] = {}
         if response is not None:
             params.update(response.trace_params)
             response_trace.update(response.trace_response)
+        response_trace.update(
+            {
+                "raw": response.text if response is not None and self.save_prompts else None,
+                "raw_sha256": sha256_text(response.text) if response is not None else None,
+                "raw_length": len(response.text) if response is not None else None,
+                "finish_reason": response.finish_reason if response is not None else None,
+                "error": error,
+            }
+        )
         return {
             "candidate_id": task.candidate.id,
             "reviewer": self.name,
