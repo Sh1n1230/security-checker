@@ -44,7 +44,7 @@ from security_checker.models.report import (
 from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import Usage, VerdictStatus
 from security_checker.observability import logging as log
-from security_checker.observability.cost import PriceTable
+from security_checker.observability.cost import ModelPrice, PriceTable
 from security_checker.observability.trace import TraceWriter
 from security_checker.policy.engine import PolicyDecision, evaluate
 from security_checker.policy.score import compute_score
@@ -201,15 +201,31 @@ def _suppress(
     return kept, suppressed
 
 
+def _target_label(root: Path) -> str:
+    """レポートに載せる検査対象の名前. 絶対パス (ユーザー名・構成) を残さない (§6.1)."""
+    return root.name or root.anchor or "."
+
+
+def output_relative(path: Path, output_dir: Path) -> str:
+    """出力先からの相対パス. 外にあるもの (指定で出力先を分けた場合) はそのまま."""
+    try:
+        return path.resolve().relative_to(output_dir.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def _scope(
     candidates: list[Candidate], root: Path, diff: DiffScope | None
 ) -> tuple[list[Candidate], list[Candidate], TargetInfo]:
     """diff モードなら変更に関係する候補だけに絞る (§7.4)."""
     if diff is None:
-        return candidates, [], TargetInfo(root=str(root), mode="full")
+        return candidates, [], TargetInfo(root=_target_label(root), mode="full")
     inside, outside = diff.split(candidates)
     target = TargetInfo(
-        root=str(root), mode="diff", changed_files=len(diff.changed_files), base=diff.base
+        root=_target_label(root),
+        mode="diff",
+        changed_files=len(diff.changed_files),
+        base=diff.base,
     )
     return inside, outside, target
 
@@ -297,8 +313,11 @@ async def _execute_scanners(
                 version=result.version,
                 reason=result.reason,
                 stderr_excerpt=result.stderr_excerpt,
-                raw_path=str(result.raw_path) if result.raw_path else None,
+                raw_path=output_relative(result.raw_path, raw_dir.parent)
+                if result.raw_path
+                else None,
                 parse_warnings=result.parse_warnings,
+                unavailable=result.unavailable,
             )
         )
         if result.status is ScanStatus.FAILED:
@@ -401,6 +420,21 @@ def smallest_input_limit(setup: ReviewerSetup) -> int | None:
     return min(limits, default=None)
 
 
+def _reviewer_price(reviewer: ReviewerConfig, table: PriceTable) -> ModelPrice | None:
+    """Reviewer の単価. 価格表の明示を優先する.
+
+    - process transport はトークンを実測できないため、価格表があっても金額を出さない。
+      推測した数字を出すより cost: unknown が正しい (§9.7)。
+    - ollama_chat は手元で動くモデルなので、価格表に無ければ 0 とする (設計書の cost: 0) (#313)。
+    """
+    if reviewer.transport == "process":
+        return None
+    price = table.lookup(reviewer.model or "")
+    if price is None and reviewer.dialect == "ollama_chat":
+        return ModelPrice(input_per_1m=0.0, output_per_1m=0.0)
+    return price
+
+
 def build_reviewers(
     config: Config,
     *,
@@ -413,21 +447,34 @@ def build_reviewers(
     language = resolve_language(config.output.language, environ)
     for reviewer_config in config.reviewers:
         provider = build_provider(reviewer_config, environ=environ, warnings=setup.warnings)
+        output_limit = provider.capabilities.max_output_tokens
+        max_output_tokens = min(reviewer_config.max_output_tokens, output_limit)
+        if max_output_tokens < reviewer_config.max_output_tokens:
+            setup.warnings.append(
+                f"reviewer '{reviewer_config.name}': max_output_tokens "
+                f"({reviewer_config.max_output_tokens}) がモデルの出力上限 ({output_limit}) を"
+                f"超えるため {output_limit} で送ります。上限が違うなら "
+                "capabilities.max_output_tokens を指定してください"
+            )
         reviewer = Reviewer(
             reviewer_config.name,
             provider,
             weight=reviewer_config.weight,
-            max_output_tokens=reviewer_config.max_output_tokens,
+            max_output_tokens=max_output_tokens,
             timeout_s=float(reviewer_config.timeout_s),
             seed=reviewer_config.seed,
-            # process transport はトークンを実測できないため、価格表があっても
-            # 金額を出さない。推測した数字を出すより cost: unknown が正しい (§9.7)。
-            price=None
-            if reviewer_config.transport == "process"
-            else table.lookup(reviewer_config.model or ""),
+            price=_reviewer_price(reviewer_config, table),
             save_prompts=config.output.save_prompts,
             language=language,
         )
+        if config.budget.max_usd is not None and reviewer.price is None:
+            # 金額の分からない呼び出しは予算に数えられない. 黙って上限の外に置かない (#311)
+            setup.warnings.append(
+                f"reviewer '{reviewer_config.name}': 価格が分からないため、この Reviewer の支出は "
+                f"budget.max_usd (${config.budget.max_usd}) で止まりません。"
+                "pricing.yml に model の単価を書くか、"
+                "budget.max_total_tokens で上限を掛けてください"
+            )
         setup.runtimes.append(
             build_runtime(
                 reviewer,
@@ -456,7 +503,7 @@ def build_tasks(
     builder = ContextBuilder(
         root,
         config.context,
-        collect_repo_facts(root),
+        collect_repo_facts(root, config.target.exclude),
         max_input_tokens=smallest_input_limit(setup) if setup is not None else None,
     )
     return [builder.build(candidate) for candidate in selected], overflow
@@ -590,7 +637,7 @@ async def run_review(
         finding_counts=count_by_status(findings),
         usage=schedule.usage,
         stopped_reason=schedule.stopped_reason,
-        trace_dir=str(trace.root),
+        trace_dir=output_relative(trace.root, output_dir),
     )
     decision = evaluate(report, config.policy)
     _log_finish(report, decision)

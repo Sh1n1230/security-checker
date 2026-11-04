@@ -19,6 +19,8 @@
   新しい名前は末尾に足します。手元で共有の Reviewer を止めるには `{name: team, enabled: false}` と書きます。
   他のリストは、ほかの層と同じく丸ごと置き換えます。
 - 環境変数は `SECURITY_CHECKER__POLICY__FAIL_ON=critical` の形 (`__` で階層を区切る)。
+  値は YAML として読みます (`true` は真偽値、`5` は数値)。ただし**文字列の項目には文字列のまま**渡すので、
+  `SECURITY_CHECKER__OUTPUT__LANGUAGE=no` は `no` (ノルウェー語) になり、数字だけのユーザー名も壊れません。
 - どの層で値が決まったかは `security-checker config show --explain` で見られます。
 - 未知のキーはエラーになります。打ち間違いを黙って無視しません。
 - **受け付けるが効かない設定は無い**ようにしています。方言に合わない項目
@@ -49,7 +51,7 @@
 | キー | 既定 | 説明 |
 |---|---|---|
 | `mode` | `auto` | `auto` (PR の文脈なら差分のみ) / `full` / `diff`。CLI の `--base` / `--full` で上書き |
-| `exclude` | vendor・node_modules など | 除外する glob。gitignore と同じ解釈 (`tests` はどの階層の tests にも一致、先頭か途中に `/` があればルート起点、一致したディレクトリの配下も除外)。全スキャナと `.security-checker-ignore` で共通。CLI の `--exclude` は**置き換え** (追加ではない) |
+| `exclude` | vendor・node_modules など | 除外する glob。gitignore と同じ解釈 (`tests` はどの階層の tests にも一致、先頭か途中に `/` があればルート起点、一致したディレクトリの配下も除外)。全スキャナと `.security-checker-ignore` で共通。設定ファイルに書いても CLI の `--exclude` でも既定の一覧を**置き換え** (追加ではない) ます。既定に足したいときは既定の項目も書き写してください。`**/.git/**` と `**/.security-checker/**` だけは常に除外します |
 
 ### scanners
 
@@ -102,7 +104,7 @@
 | `fail_on` | `high` | この重大度以上で exit 1。`none` で判定しない |
 | `fail_on_status` | `[confirmed, likely]` | 失敗させる status |
 | `min_confidence` | `0.5` | これ未満の confirmed / likely は `review_required` に落とす |
-| `strict` | `true` | スキャナの失敗、判定不能、Reviewer の無効化、予算や上限によるレビューの停止、未レビューの候補を exit 3 にする |
+| `strict` | `true` | スキャナの失敗、判定不能、Reviewer の無効化、予算や上限によるレビューの停止、未レビューの候補を exit 3 にする ([exit-codes.md](exit-codes.md)) |
 | `baseline` | | baseline ファイル (設定ファイルの場所からの相対パス) |
 | `min_score` | | スコアの下限 (補助指標) |
 
@@ -125,7 +127,7 @@
 | `output.dir` | `.security-checker/` | |
 | `output.formats` | `[terminal, json, markdown]` | `sarif` を足すと `report.sarif`。CLI の `-f` で置き換え |
 | `output.language` | `auto` | LLM に書かせる本文の言語 |
-| `output.save_prompts` | `false` | プロンプト全文をトレースに保存する (警告が出る) |
+| `output.save_prompts` | `false` | プロンプトと LLM の応答の全文をトレースに保存する (警告が出る)。既定はハッシュと長さだけ |
 | `github.comment` / `comment_mode` | `true` / `sticky` | `security-checker comment` の挙動 |
 | `github.inline_comments` / `inline_min_status` / `max_inline_comments` | `true` / `likely` / `20` | |
 | `github.comment_on_clean` | `false` | 指摘ゼロで既存コメントが無いときも投稿するか |
@@ -162,8 +164,12 @@ rule:generic-api-key tests/**
 rule:GHSA-xxxx-xxxx-xxxx uv.lock
 ```
 
+`#` で始まる行と、空白 (スペースかタブ) の後の `#` から行末まではコメントです。パターンに `#` を
+含めたいときは `\#` と書きます。
+
 **コード内の注釈** — **理由の記述を必須**とし、理由が無いと警告します。行末に書くとその行にだけ効き、
 注釈だけの行に書くと次の行に効きます。行末の注釈は次の行には効きません。
+全ルールを外すなら `ignore[*]` と明示します。空の `ignore[]` は何も抑制せず、警告を出します。
 
 ```python
 subprocess.run(cmd, shell=True)  # security-checker: ignore[python.lang.security.audit.subprocess-shell-true] reason=cmd は固定文字列のみ

@@ -37,6 +37,13 @@ validate trivy "${TRIVY_VERSION:-}"
 validate osv-scanner "${OSV_SCANNER_VERSION:-}"
 validate semgrep "${SEMGREP_VERSION:-}"
 
+if [[ "$(uname -s)" != Linux ]]; then
+  # 取得するのは Linux 用のバイナリだけ. 別の OS では分かりにくい形で落ちるので取得を始める前に止める
+  echo "::error::scripts/install-scanners.sh は Linux 専用です (現在: $(uname -s))。" \
+    "macOS / Windows では各スキャナを手元のパッケージマネージャで入れてください" >&2
+  exit 2
+fi
+
 case "$(uname -m)" in
   x86_64 | amd64) arch=amd64 ;;
   aarch64 | arm64) arch=arm64 ;;
