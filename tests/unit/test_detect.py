@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
+from unittest.mock import patch
 
 from security_checker.providers.detect import (
     command_version,
@@ -26,6 +28,26 @@ def test_command_version_reads_the_version_of_an_existing_binary():
     status = command_version(sys.executable)
     assert status.available is True
     assert status.version is not None
+
+
+def test_command_version_handles_subprocess_failure():
+    """Version check that raises SubprocessError returns available=True with a failure reason.
+
+    Covers the exception handler in command_version (previously untested lines).
+    """
+    with (
+        patch("security_checker.providers.detect.shutil.which", return_value="/fake/bin/cmd"),
+        patch(
+            "security_checker.providers.detect.subprocess.run",
+            side_effect=subprocess.SubprocessError("simulated failure"),
+        ),
+    ):
+        status = command_version("cmd")
+
+    assert status.available is True
+    assert status.version is None
+    assert status.reason is not None
+    assert "バージョン取得に失敗しました" in status.reason
 
 
 def test_process_detection_is_driven_by_preset_data():
