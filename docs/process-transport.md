@@ -182,13 +182,17 @@ reviewers:
     "cwd": "isolated-temp-dir"
   },
   "response": {
-    "raw": "<stdout 全文>",
+    "raw": null,
+    "raw_sha256": "<stdout の SHA-256>",
+    "raw_length": 2048,
     "stderr": "<stderr の抜粋>",
     "exit_code": 0,
     "created_paths": []
   }
 }
 ```
+
+`output.save_prompts: true` の場合は `raw` に stdout 全文を保存する。既定では応答本文を保存しない。
 
 `created_paths` は**一時 cwd への書き込みの実測値**です。絶対パスで cwd の外に書かれた場合は
 検知しません。リポジトリを守る主な防御は、コマンド側のツール無効化のフラグです。

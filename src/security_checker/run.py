@@ -527,7 +527,7 @@ async def run_review(
                 level="warn",
                 source="output",
                 message=(
-                    "save_prompts が有効です。プロンプト全文が "
+                    "save_prompts が有効です。プロンプトと応答の全文が "
                     f"{output_dir} に保存されます。.gitignore への追加を確認してください"
                 ),
             )

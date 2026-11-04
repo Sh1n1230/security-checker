@@ -33,6 +33,19 @@ REVIEWER_SCRIPT = (
     "print('```')"
 )
 
+# Keep the echoed response content out of argv so this exercises response tracing only.
+TRACE_RESPONSE_SCRIPT = (
+    "import json,sys;"
+    "prompt=sys.stdin.read();"
+    "payload=json.loads(sys.argv[1]);"
+    "payload['reasoning']=prompt.split('message: ',1)[1].splitlines()[0];"
+    "sys.stderr.write('reviewed %d chars' % len(prompt));"
+    "print('判定結果です:');"
+    "print('```json');"
+    "print(json.dumps(payload, ensure_ascii=False));"
+    "print('```')"
+)
+
 #: レビュー対象を書き換えようとする Reviewer。P3 が守られることを実測する。
 WRITER_SCRIPT = (
     "import json,pathlib,sys;"
@@ -46,14 +59,14 @@ def reviewer_command(script: str, **verdict_overrides: Any) -> list[str]:
     return [sys.executable, "-c", script, json.dumps(verdict_payload(**verdict_overrides))]
 
 
-def candidate() -> Candidate:
+def candidate(*, message_suffix: str = "") -> Candidate:
     return Candidate(
         id="sast-1",
         scanner="semgrep",
         category=Category.SAST,
         rule_id="rules.command-injection",
         title="command-injection",
-        message="shell=True にユーザー入力が渡ります",
+        message=f"shell=True にユーザー入力が渡ります{message_suffix}",
         location=Location(path="app.py", start_line=5, end_line=5),
         severity_reported=Severity.HIGH,
         cwe=["CWE-78"],
@@ -70,11 +83,11 @@ def workspace(tmp_path: Path) -> Path:
     return root
 
 
-def make_config(tmp_path: Path, command: list[str]) -> Config:
+def make_config(tmp_path: Path, command: list[str], *, save_prompts: bool = False) -> Config:
     return Config.model_validate(
         {
             "scanners": {"semgrep": {"enabled": False}, "gitleaks": {"enabled": False}},
-            "output": {"dir": str(tmp_path / "out")},
+            "output": {"dir": str(tmp_path / "out"), "save_prompts": save_prompts},
             # API キーの指定が 1 つも無いことが、この試験の要点。
             "reviewers": [
                 {
@@ -155,11 +168,15 @@ async def test_a_writing_reviewer_is_detected_and_the_repository_is_untouched(tm
 async def test_trace_records_argv_stderr_and_exit_code(tmp_path):
     """§9.7 の監査証跡. http と同じ形式で残る."""
     root = workspace(tmp_path)
+    response_marker = "SENSITIVE_PROCESS_RESPONSE_SENTINEL"
     outcome = await run_review(
-        make_config(tmp_path, reviewer_command(REVIEWER_SCRIPT)),
+        make_config(
+            tmp_path,
+            reviewer_command(TRACE_RESPONSE_SCRIPT),
+        ),
         root,
         base_dir=tmp_path,
-        scanners=[FakeScanner("semgrep", candidates=[candidate()])],
+        scanners=[FakeScanner("semgrep", candidates=[candidate(message_suffix=response_marker)])],
     )
 
     trace_dir = Path(outcome.report.trace_dir or "")
@@ -169,7 +186,32 @@ async def test_trace_records_argv_stderr_and_exit_code(tmp_path):
     assert call["params"]["cwd"] == "isolated-temp-dir"
     assert call["response"]["exit_code"] == 0
     assert "reviewed" in call["response"]["stderr"]
+    assert call["response"]["raw"] is None
+    assert call["response"]["raw_sha256"]
+    assert call["response"]["raw_length"] > 0
+    assert response_marker not in (trace_dir / "calls" / "0000.json").read_text(encoding="utf-8")
+
+
+async def test_save_prompts_includes_process_stdout_in_trace(tmp_path):
+    response_marker = "EXPLICITLY_SAVED_PROCESS_RESPONSE_SENTINEL"
+    root = workspace(tmp_path)
+    outcome = await run_review(
+        make_config(
+            tmp_path,
+            reviewer_command(TRACE_RESPONSE_SCRIPT),
+            save_prompts=True,
+        ),
+        root,
+        base_dir=tmp_path,
+        scanners=[FakeScanner("semgrep", candidates=[candidate(message_suffix=response_marker)])],
+    )
+
+    trace_dir = Path(outcome.report.trace_dir or "")
+    call = json.loads((trace_dir / "calls" / "0000.json").read_text(encoding="utf-8"))
     assert call["response"]["raw"]
+    assert response_marker in call["response"]["raw"]
+    assert call["response"]["raw_sha256"]
+    assert call["response"]["raw_length"] == len(call["response"]["raw"])
 
 
 async def test_a_failing_command_becomes_an_error_finding(tmp_path):

@@ -11,7 +11,13 @@ from security_checker.models.enums import Category, Severity
 from security_checker.models.task import CodeContext, CodeSlice, RepoFacts, ReviewTask, TokenBudget
 from security_checker.models.verdict import ReviewJudgement, VerdictStatus
 from security_checker.observability.cost import ModelPrice
-from security_checker.providers.base import Capabilities, StructuredMode
+from security_checker.observability.trace import TraceWriter, sha256_text
+from security_checker.providers.base import (
+    Capabilities,
+    CompletionRequest,
+    CompletionResponse,
+    StructuredMode,
+)
 from security_checker.review.reviewer import Reviewer
 from security_checker.review.structured import drop_hallucinated_evidence
 from security_checker.testing import ScriptedProvider, verdict_payload
@@ -109,25 +115,67 @@ async def test_cost_is_computed_with_price():
     assert outcome.verdict.usage.estimated_usd == (100 * 10.0 + 50 * 30.0) / 1_000_000
 
 
-async def test_trace_records_hashes_not_prompts_by_default():
-    """既定ではプロンプト全文を保存しない (§24.2)."""
-    provider = ScriptedProvider([verdict_payload()])
+async def test_trace_records_hashes_not_raw_prompt_or_response_by_default(tmp_path):
+    """既定では prompt/response の全文を保存しない (§24.2)."""
+    response_marker = "SENSITIVE_RESPONSE_CODE_SENTINEL"
+    provider = ScriptedProvider([verdict_payload(reasoning=response_marker)])
     outcome = await Reviewer("r1", provider).review(make_task())
 
     prompt = outcome.trace["prompt"]
     assert "system_sha256" in prompt
     assert "system" not in prompt
+    response = outcome.trace["response"]
+    assert response["raw"] is None
+    assert response["raw_sha256"] == sha256_text(outcome.raw_text)
+    assert response["raw_length"] == len(outcome.raw_text)
+    assert outcome.verdict.reasoning == response_marker
     assert outcome.trace["status"] == "ok"
 
+    path = TraceWriter(tmp_path, "RUN1").write_call(outcome.trace)
+    assert path is not None
+    assert response_marker not in path.read_text(encoding="utf-8")
 
-async def test_trace_can_include_prompts():
-    provider = ScriptedProvider([verdict_payload()])
+
+async def test_trace_can_include_raw_prompts_and_response_when_enabled():
+    response_marker = "EXPLICITLY_SAVED_RESPONSE_SENTINEL"
+    provider = ScriptedProvider([verdict_payload(reasoning=response_marker)])
     reviewer = Reviewer("r1", provider, save_prompts=True)
     outcome = await reviewer.review(make_task())
     assert (
         "<<<UNTRUSTED_CODE>>>"
         in outcome.trace["prompt"]["system"] + outcome.trace["prompt"]["user"]
     )
+    assert outcome.trace["response"]["raw"] == outcome.raw_text
+    assert outcome.trace["response"]["raw_sha256"] == sha256_text(outcome.raw_text)
+    assert outcome.trace["response"]["raw_length"] == len(outcome.raw_text)
+    assert response_marker in outcome.trace["response"]["raw"]
+
+
+async def test_provider_trace_metadata_cannot_override_response_privacy_fields():
+    response_marker = "SENSITIVE_RESPONSE_CODE_SENTINEL"
+
+    class ConflictingTraceProvider(ScriptedProvider):
+        async def complete(self, req: CompletionRequest) -> CompletionResponse:
+            response = await super().complete(req)
+            return response.model_copy(
+                update={
+                    "trace_response": {
+                        "raw": "PROVIDER_OVERRIDE_SENTINEL",
+                        "raw_sha256": "provider-override",
+                        "raw_length": 0,
+                        "stderr": "provider metadata",
+                    }
+                }
+            )
+
+    provider = ConflictingTraceProvider([verdict_payload(reasoning=response_marker)])
+    outcome = await Reviewer("r1", provider).review(make_task())
+
+    response = outcome.trace["response"]
+    assert response["raw"] is None
+    assert response["raw_sha256"] == sha256_text(outcome.raw_text)
+    assert response["raw_length"] == len(outcome.raw_text)
+    assert response["stderr"] == "provider metadata"
 
 
 async def test_out_of_range_evidence_is_dropped():
