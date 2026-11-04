@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from security_checker.errors import ConfigError
 from security_checker.models.verdict import Usage
@@ -23,8 +23,8 @@ class ModelPrice(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    input_per_1m: float = 0.0
-    output_per_1m: float = 0.0
+    input_per_1m: float = Field(default=0.0, ge=0.0)
+    output_per_1m: float = Field(default=0.0, ge=0.0)
 
     def estimate(self, usage: Usage) -> float:
         return (
