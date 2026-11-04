@@ -68,6 +68,8 @@ def load_price_table(config_dir: Path | None = None, explicit: Path | None = Non
             raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError) as exc:
             raise ConfigError(f"{path} を読み込めません: {exc}") from exc
+        if not isinstance(raw, dict):
+            raise ConfigError(f"{path} のトップレベルはマッピングである必要があります")
         entries = raw.get("models", raw)
         if not isinstance(entries, dict):
             raise ConfigError(f"{path}: models はマッピングである必要があります")
