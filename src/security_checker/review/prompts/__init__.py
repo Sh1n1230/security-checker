@@ -16,7 +16,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from security_checker.language import DEFAULT_LANGUAGE, output_language_instruction
-from security_checker.models.task import ReviewTask
+from security_checker.models.task import RepoFacts, ReviewTask
 
 PROMPT_DIR = Path(__file__).parent
 PROMPT_VERSION = "v2"
@@ -52,18 +52,18 @@ def render_user(task: ReviewTask, schema: dict[str, object]) -> str:
             candidate=task.candidate,
             finding=_finding_fields(task),
             primary=primary,
-            primary_path=_one_line(primary.path) if primary is not None else "",
+            primary_path=_safe_prompt_text(primary.path) if primary is not None else "",
             primary_text=_sanitize(primary.numbered()) if primary is not None else "",
             callers=[
                 {
-                    "path": caller.path,
+                    "path": _safe_prompt_text(caller.path),
                     "start_line": caller.start_line,
                     "end_line": caller.end_line,
                     "text": _sanitize(caller.numbered()),
                 }
                 for caller in task.code_context.callers
             ],
-            facts=task.repo_facts,
+            facts=_repo_fact_fields(task.repo_facts),
             notes=task.notes,
             schema=json.dumps(schema, ensure_ascii=False, indent=2),
         )
@@ -90,8 +90,36 @@ def _finding_fields(task: ReviewTask) -> dict[str, str]:
     }
 
 
+def _repo_fact_fields(facts: RepoFacts) -> dict[str, list[str] | bool | None]:
+    return {
+        "languages": [_safe_prompt_text(value) for value in facts.languages],
+        "frameworks": [_safe_prompt_text(value) for value in facts.frameworks],
+        "entrypoints": [_safe_prompt_text(value) for value in facts.entrypoints],
+        "has_auth_layer": facts.has_auth_layer,
+        "deployment_hints": [_safe_prompt_text(value) for value in facts.deployment_hints],
+    }
+
+
 def _one_line(text: str) -> str:
     return " ".join(_sanitize(text).split())
+
+
+def _safe_prompt_text(text: str) -> str:
+    """Escape prompt delimiters and render control characters visibly in untrusted fields."""
+    escaped: list[str] = []
+    for char in _sanitize(text):
+        if char == "\n":
+            escaped.append(r"\n")
+        elif char == "\r":
+            escaped.append(r"\r")
+        elif char == "\t":
+            escaped.append(r"\t")
+        elif not char.isprintable():
+            codepoint = ord(char)
+            escaped.append(f"\\u{codepoint:04x}" if codepoint <= 0xFFFF else f"\\U{codepoint:08x}")
+        else:
+            escaped.append(char)
+    return "".join(escaped)
 
 
 _DELIMITERS = (
