@@ -37,6 +37,7 @@ logger.propagate = False
 
 
 def set_run_id(run_id: str | None) -> None:
+    """現在の実行の run_id を設定する. すべてのログ行に付与される."""
     _run_id.set(run_id)
 
 
@@ -83,6 +84,7 @@ def configure(
 
 
 def disable() -> None:
+    """構造化ログを無効にする. configure() で追加したハンドラを取り除く."""
     for handler in list(logger.handlers):
         if handler.get_name() == "security-checker":
             logger.removeHandler(handler)
