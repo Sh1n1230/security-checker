@@ -46,6 +46,13 @@ def test_missing_price_file_yields_empty_table(tmp_path):
     assert load_price_table(tmp_path, explicit=tmp_path / "nope.yml").prices == {}
 
 
+def test_top_level_list_is_config_error(tmp_path):
+    path = tmp_path / "pricing.yml"
+    path.write_text("- my-model\n- other-model\n", encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_price_table(tmp_path, explicit=path)
+
+
 def test_broken_price_file_is_config_error(tmp_path):
     path = tmp_path / "pricing.yml"
     path.write_text("models:\n  m:\n    input_per_1m: とても高い\n", encoding="utf-8")
