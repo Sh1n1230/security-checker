@@ -56,14 +56,14 @@ def test_parse_unified_diff_collects_added_ranges():
     added, changed = parse_unified_diff(DIFF)
     assert added["src/app.py"] == ((11, 13), (43, 43))
     assert added["requirements.txt"] == ((1, 1),)
-    # 純粋な削除ハンクは追加行を持たない
+    # 削除されたファイルは追加行の範囲を持たない
     assert "removed.yml" not in added
     assert changed == {"src/app.py", "requirements.txt", "removed.yml"}
 
 
 def test_parse_unified_diff_ignores_header_like_lines_inside_hunks():
-    # SQL / Lua のコメント (`-- `) の削除や `++ ` で始まる行の追加は、
-    # ハンクの本文でも `--- ` / `+++ ` になる。ファイルヘッダと取り違えない
+    # SQL / Lua のコメント (`-- `) や行頭の `++ ` で始まる行の追加は、
+    # ハンクの本文でも `--- ` / `+++ ` に見える。ファイルヘッダと取り違えない
     diff = """\
 diff --git a/db/schema.sql b/db/schema.sql
 --- a/db/schema.sql
@@ -97,7 +97,7 @@ def test_code_candidates_must_overlap_added_lines(scope):
     assert scope.touches(make_candidate(line=43))
     assert not scope.touches(make_candidate(line=20))
     assert not scope.touches(make_candidate(path="other.py", line=12))
-    # 複数行にまたがる候補は、どこか 1 行でも重なれば残す
+    # 複数行にまたがる候補は、その範囲が追加行と重なれば 1 行でもヒットする
     spanning = make_candidate(location=Location(path="src/app.py", start_line=5, end_line=11))
     assert scope.touches(spanning)
 
@@ -151,7 +151,7 @@ def test_commentable_lines(scope):
     assert not scope.is_commentable("src/app.py", 14)
 
 
-# --- 基準の決定 ----------------------------------------------------------------
+# --- ベースの解決 -------------------------------------------------------------
 
 
 def test_full_mode_never_diffs():
@@ -170,7 +170,7 @@ def test_explicit_diff_without_base_is_a_config_error():
     assert info.value.exit_code is ExitCode.CONFIG_ERROR
 
 
-# --- 実際の git リポジトリで ------------------------------------------------------
+# --- 実際の git を使う ---------------------------------------------------------
 
 
 def git(root: Path, *args: str) -> None:
@@ -242,3 +242,18 @@ def test_outside_diff_candidates_stay_in_sarif_as_notes():
     assert by_id["out"]["level"] == "note"
     assert "security-severity" not in by_id["out"]["properties"]
     assert by_id["out"]["properties"]["status"] == "outside_diff"
+
+
+def test_parse_unified_diff_strips_quoted_paths():
+    """_strip_prefix should remove surrounding quotes from non-ASCII or special paths."""
+    diff = """\
+diff --git "a/path with space.py" "b/path with space.py"
+--- "a/path with space.py"
++++ "b/path with space.py"
+@@ -1 +1 @@
+-old
++new
+"""
+    added, changed = parse_unified_diff(diff)
+    assert "path with space.py" in changed
+    assert "path with space.py" in added
