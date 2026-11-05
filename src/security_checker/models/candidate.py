@@ -50,6 +50,7 @@ class PackageRef(BaseModel):
     manifest: str | None = None
 
     def as_key(self) -> str:
+        """パッケージを ecosystem:name@version 形式で表す (版が未指定なら *)."""
         return f"{self.ecosystem}:{self.name}@{self.version or '*'}"
 
 
@@ -114,9 +115,11 @@ class IdFactory:
     """同一 (scanner, rule_id, path, snippet) の重複に出現順の連番を振る (設計書 §6.1)."""
 
     def __init__(self) -> None:
+        """出現順を追跡するための空のカウンターを初期化する."""
         self._seen: dict[tuple[str, str, str, str], int] = {}
 
     def make(self, scanner: str, rule_id: str, path: str, fingerprint_source: str) -> str:
+        """正規化した候補に安定 ID を割り当て、重複には出現順の連番を付ける."""
         key = (scanner, rule_id, path, normalize_snippet(fingerprint_source))
         occurrence = self._seen.get(key, 0)
         self._seen[key] = occurrence + 1
