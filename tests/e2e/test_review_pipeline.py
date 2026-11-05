@@ -222,7 +222,41 @@ async def test_score_counts_only_confirmed_and_likely(workspace, tmp_path):
     assert outcome.report.score.value == 100
 
 
-async def test_missing_reviewers_is_config_error(workspace, tmp_path):
-    config = make_config(tmp_path, reviewers=[])
+@pytest.mark.parametrize("absolute_output", [False, True])
+async def test_missing_reviewers_is_config_error(workspace, tmp_path, absolute_output):
+    output_dir = tmp_path / "nested" / "out"
+    configured_dir = str(output_dir) if absolute_output else "nested/out"
+    config = make_config(tmp_path, reviewers=[], output={"dir": configured_dir})
     with pytest.raises(ConfigError, match="reviewers"):
         await run_review(config, workspace, base_dir=tmp_path, scanners=[])
+
+    assert not output_dir.parent.exists()
+
+
+async def test_missing_reviewers_preserves_existing_output(workspace, tmp_path):
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    sentinel = output_dir / "previous-report.json"
+    sentinel.write_text("previous run", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="reviewers"):
+        await run_review(
+            make_config(tmp_path, reviewers=[]), workspace, base_dir=tmp_path, scanners=[]
+        )
+
+    assert list(output_dir.iterdir()) == [sentinel]
+    assert sentinel.read_text(encoding="utf-8") == "previous run"
+
+
+async def test_explicit_reviewer_setup_allows_empty_reviewers(workspace, tmp_path):
+    outcome = await run_review(
+        make_config(tmp_path, reviewers=[]),
+        workspace,
+        base_dir=tmp_path,
+        scanners=[FakeScanner("semgrep", candidates=[sast_candidate()])],
+        reviewer_setup=setup_with([verdict_payload()]),
+    )
+
+    assert (outcome.output_dir / "raw").is_dir()
+    assert outcome.report.coverage.candidates_reviewed == 1
+    assert outcome.report.reviewers[0].calls == 1
