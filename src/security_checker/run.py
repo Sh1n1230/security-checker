@@ -482,13 +482,13 @@ async def run_review(
     log.set_run_id(identifier)
     output_dir = resolve_output_dir(config, base_dir or Path.cwd())
     raw_dir = output_dir / "raw"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-
     if not config.reviewers and reviewer_setup is None:
         raise ConfigError(
             "reviewers が設定されていません。security-checker.yml に reviewer を定義するか、"
             "LLM を使わない `security-checker scan` を実行してください"
         )
+
+    raw_dir.mkdir(parents=True, exist_ok=True)
 
     results, runs, warnings = await _execute_scanners(
         config,
