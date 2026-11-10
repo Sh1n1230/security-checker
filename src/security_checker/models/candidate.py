@@ -30,6 +30,14 @@ class Location(BaseModel):
     end_line: int = Field(ge=0)
     snippet: str | None = None
 
+    @property
+    def is_file_level(self) -> bool:
+        """行を持たない、ファイル全体への指摘か (`start_line` が 0).
+
+        スキャナが行を返さなかった場合と、ファイルの存在そのものが指摘の場合 (repo-hygiene) がある。
+        """
+        return self.start_line < 1
+
     @field_validator("path")
     @classmethod
     def _reject_absolute(cls, value: str) -> str:
@@ -87,6 +95,8 @@ class Candidate(BaseModel):
     def where(self) -> str:
         """人間向けの位置表記."""
         if self.location is not None:
+            if self.location.is_file_level:
+                return self.location.path
             return f"{self.location.path}:{self.location.start_line}"
         if self.package is not None:
             return self.package.as_key()

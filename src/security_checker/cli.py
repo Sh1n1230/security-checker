@@ -892,13 +892,16 @@ def baseline_update(
         # 壊れた run を baseline にすると、失敗したスキャナの既存の検出が「新規」扱いになる
         failed = ", ".join(r.scanner for r in outcome.report.scanners if r.status.value == "failed")
         _fail(f"スキャナが失敗したため baseline を更新しません: {failed}", ExitCode.EXECUTION_ERROR)
-    skipped = [r for r in outcome.report.scanners if r.status.value == "skipped"]
-    if skipped:
+    unavailable = [
+        r for r in outcome.report.scanners if r.status.value == "skipped" and r.unavailable
+    ]
+    if unavailable:
         # 未導入のスキャナの既存の検出は、導入した日にすべて「新規」になる。
-        # 0 件の baseline を黙って書かない
-        detail = ", ".join(f"{r.scanner} ({r.reason or 'skipped'})" for r in skipped)
+        # 0 件の baseline を黙って書かない。対象が無いだけの skip (マニフェストが無い・
+        # git 管理外) は、導入しても検出が増えないので止めない
+        detail = ", ".join(f"{r.scanner} ({r.reason or 'skipped'})" for r in unavailable)
         _fail(
-            f"スキップされたスキャナがあるため baseline を更新しません: {detail}。"
+            f"未導入のスキャナがあるため baseline を更新しません: {detail}。"
             "導入するか、使わないなら scanners.<name>.enabled: false にしてください",
             ExitCode.EXECUTION_ERROR,
         )

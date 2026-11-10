@@ -56,6 +56,9 @@ class DiffScope:
         if candidate.category in (Category.SAST, Category.SECRET):
             if location is None:
                 return False
+            if location.is_file_level:
+                # 行を持たない指摘は、そのファイルが変更に含まれるかで判断する
+                return location.path in self.changed_files
             return self.overlaps(
                 location.path, location.start_line, max(location.end_line, location.start_line)
             )

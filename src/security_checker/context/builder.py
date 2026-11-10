@@ -56,7 +56,10 @@ class ContextBuilder:
         primary: CodeSlice | None = None
         truncated = False
 
-        if candidate.location is not None:
+        if candidate.location is not None and candidate.location.is_file_level:
+            # 行が分からないのに先頭から読むと、指摘と無関係な本文 (資格情報ファイルなら値) を送る
+            notes.append("ファイル全体に対する指摘のため、コード本文は提示されていません。")
+        elif candidate.location is not None:
             primary = line_window(
                 self.root, candidate.location, window_lines=self.config.window_lines
             )
