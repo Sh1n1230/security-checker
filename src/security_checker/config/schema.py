@@ -88,6 +88,19 @@ class GitleaksConfig(ScannerConfig):
     timeout_s: int = Field(default=300, gt=0)
 
 
+class RepoHygieneConfig(ScannerConfig):
+    #: git ls-files を呼ぶだけなので短い
+    timeout_s: int = Field(default=60, gt=0)
+
+    @field_validator("extra_args")
+    @classmethod
+    def _no_extra_args(cls, value: list[str]) -> list[str]:
+        """外部ツールを呼ばないので渡す先が無い. 黙って無視せず拒む."""
+        if value:
+            raise ValueError("scanners.repo_hygiene は extra_args を受け付けません")
+        return value
+
+
 class OsvConfig(ScannerConfig):
     timeout_s: int = Field(default=300, gt=0)
 
@@ -99,6 +112,8 @@ class TrivyConfig(ScannerConfig):
 class ScannersConfig(StrictModel):
     semgrep: SemgrepConfig = SemgrepConfig()
     gitleaks: GitleaksConfig = GitleaksConfig()
+    # git だけで動く内蔵チェック。git 管理外なら skipped になるだけなので既定で有効
+    repo_hygiene: RepoHygieneConfig = RepoHygieneConfig()
     # 依存の既知脆弱性は件数が多く機械的に見つかる。未導入なら skipped になるだけなので既定で有効
     osv: OsvConfig = OsvConfig()
     # 誤設定の検査はノイズが多く、既定にする根拠が弱い。opt-in
@@ -370,6 +385,7 @@ class Config(StrictModel):
         return {
             "semgrep": self.scanners.semgrep,
             "gitleaks": self.scanners.gitleaks,
+            "repo-hygiene": self.scanners.repo_hygiene,
             "osv": self.scanners.osv,
             "trivy": self.scanners.trivy,
         }

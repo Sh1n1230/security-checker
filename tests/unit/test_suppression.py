@@ -246,7 +246,7 @@ runner = CliRunner()
 def no_scanners(tmp_path: Path, extra: str = "") -> None:
     (tmp_path / "security-checker.yml").write_text(
         "version: 1\nscanners:\n  semgrep: { enabled: false }\n  gitleaks: { enabled: false }\n"
-        "  osv: { enabled: false }\n" + extra,
+        "  osv: { enabled: false }\n  repo_hygiene: { enabled: false }\n" + extra,
         encoding="utf-8",
     )
 
@@ -276,12 +276,23 @@ def test_cli_baseline_update_refuses_a_run_with_skipped_scanners(tmp_path, monke
     """未導入のスキャナを含む run を記録すると、導入した日に既存の検出が「新規」になる (#213)."""
     no_scanners(tmp_path)
     monkeypatch.chdir(tmp_path)
-    skipped = FakeScanner("osv", status=ScanStatus.SKIPPED, reason="未導入")
+    skipped = FakeScanner("osv", status=ScanStatus.SKIPPED, reason="未導入", unavailable=True)
     monkeypatch.setattr("security_checker.run.build_scanners", lambda config: ([skipped], []))
     result = runner.invoke(app, ["baseline", "update", str(tmp_path), "-o", "b.json"])
     assert result.exit_code == ExitCode.EXECUTION_ERROR
     assert "osv (未導入)" in result.output
     assert not (tmp_path / "b.json").exists()
+
+
+def test_cli_baseline_update_accepts_a_scanner_with_nothing_to_scan(tmp_path, monkeypatch):
+    """対象が無いだけの skip (マニフェストが無い・git 管理外) は、導入しても検出が増えない."""
+    no_scanners(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    skipped = FakeScanner("osv", status=ScanStatus.SKIPPED, reason="対象がありません")
+    monkeypatch.setattr("security_checker.run.build_scanners", lambda config: ([skipped], []))
+    result = runner.invoke(app, ["baseline", "update", str(tmp_path), "-o", "b.json"])
+    assert result.exit_code == ExitCode.OK, result.output
+    assert (tmp_path / "b.json").exists()
 
 
 def test_cli_baseline_update_formats_a_broken_ignore_file(tmp_path, monkeypatch):

@@ -59,6 +59,7 @@
 |---|---|---|
 | `semgrep.enabled` / `config` | `true` / `[p/default, bundled:llm, bundled:ci-lock]` | SAST。`config` はルールセットかファイル。複数ならリスト (`[p/default, bundled:<名前>]`)。`bundled:<名前>` は security-checker 同梱のルールで、検査対象のツリーからは読まない |
 | `gitleaks.enabled` | `true` | シークレット。検出値はマスクしてから保存・送信する |
+| `repo_hygiene.enabled` | `true` | 資格情報ファイルのコミットと、`.gitignore` に載っているのに追跡されているファイル。git だけで動く。git 管理外なら `skipped` |
 | `osv.enabled` | `true` | 依存の既知脆弱性 (別名をまとめて 1 件にする)。osv-scanner が未導入なら `skipped` |
 | `trivy.enabled` / `scanners` | `false` / `[config]` | `config` (誤設定) / `vuln` (依存)。`secret` は受け付けない |
 | `*.timeout_s` / `extra_args` | | スキャナのプロセス全体の上限 (秒) と追加引数。出力の先や形式を変えるフラグは使えません (警告します) |

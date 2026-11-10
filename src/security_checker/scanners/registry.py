@@ -10,6 +10,7 @@ from security_checker.config.schema import Config, ScannerConfig
 from security_checker.scanners.base import Scanner
 from security_checker.scanners.gitleaks import GitleaksScanner
 from security_checker.scanners.osv import OsvScanner
+from security_checker.scanners.repo_hygiene import RepoHygieneScanner
 from security_checker.scanners.semgrep import SemgrepScanner
 from security_checker.scanners.trivy import TrivyScanner
 
@@ -18,6 +19,7 @@ ENTRY_POINT_GROUP = "security_checker.scanners"
 BUILTIN_SCANNERS: dict[str, Callable[[Any], Scanner]] = {
     "semgrep": SemgrepScanner,
     "gitleaks": GitleaksScanner,
+    "repo-hygiene": RepoHygieneScanner,
     "osv": OsvScanner,
     "trivy": TrivyScanner,
 }

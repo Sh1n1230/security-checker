@@ -21,7 +21,7 @@ CI でゲートを組むときに最初に見る表です。**「脆弱性が見
 | `review` | 違反なし | `fail_on` 以上で `fail_on_status` (既定 confirmed / likely) の Finding、または `min_score` 未満 | 設定エラー・API キーの環境変数が無い・検査対象が無い | strict で次のいずれか: スキャナの失敗 / Reviewer の無効化 (認証失敗など) / 予算・上限によるレビューの停止 / 未レビュー (`not_reviewed`) の候補 / 有効な判定が得られなかった (`error`) 候補 |
 | `review --dry-run` / `--estimate` | 常に 0 (何も送らない) | — | 設定エラー | — |
 | `eval` | 見逃し 0 かつ保留率が上限以下 | 真陽性の見逃しが 1 件以上、または `review_required` の割合が `--max-deferred-rate` 超 | 設定エラー・データセットが壊れている | 採点できなかったケース (error / not_reviewed) がある (`--allow-incomplete` で無視) |
-| `baseline update` | 更新した | — | 設定エラー | スキャナが失敗した (壊れた結果で baseline を上書きしない) |
+| `baseline update` | 更新した | — | 設定エラー | スキャナが失敗した、または有効なのに未導入のスキャナがある (欠けた結果で baseline を上書きしない)。対象が無いだけの `skipped` では止めない |
 | `providers check` | 全 Reviewer が通った | — | 設定エラー・Reviewer が無い | 1 つでも失敗した |
 | `comment` | 投稿した (または投稿不要) | — | `GITHUB_TOKEN` が無い・report.json が無い/読めない・PR の文脈が無い | GitHub API の失敗 |
 | `explain` | 表示した | — | report.json が無い・ID が見つからない | — |

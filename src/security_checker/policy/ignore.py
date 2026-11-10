@@ -172,7 +172,7 @@ class AnnotationReader:
 
     def find(self, candidate: Candidate) -> Annotation | None:
         location = candidate.location
-        if location is None or location.start_line < 1:
+        if location is None or location.is_file_level:
             return None
         lines = self._lines(location.path)
         if lines is None:

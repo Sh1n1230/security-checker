@@ -38,7 +38,9 @@ class FakeScanner:
         reason: str | None = None,
         exit_code: int | None = 0,
         raises: Exception | None = None,
+        unavailable: bool = False,
     ) -> None:
+        """`unavailable` は skipped のうち「入れていない」を表す. 対象が無いだけの skip と分ける."""
         self.name = name
         self.category = category
         self._status = status
@@ -46,6 +48,7 @@ class FakeScanner:
         self._reason = reason
         self._exit_code = exit_code
         self._raises = raises
+        self._unavailable = unavailable
         self.calls = 0
 
     def probe(self) -> ToolStatus:
@@ -62,6 +65,7 @@ class FakeScanner:
             candidates=self._candidates if self._status is ScanStatus.OK else [],
             reason=self._reason,
             exit_code=self._exit_code,
+            unavailable=self._unavailable,
         )
 
 

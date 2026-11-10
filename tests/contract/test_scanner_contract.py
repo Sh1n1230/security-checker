@@ -7,12 +7,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from security_checker.config.schema import GitleaksConfig, OsvConfig, SemgrepConfig, TrivyConfig
+from security_checker.config.schema import (
+    GitleaksConfig,
+    OsvConfig,
+    RepoHygieneConfig,
+    SemgrepConfig,
+    TrivyConfig,
+)
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, ScanStatus
 from security_checker.scanners.base import Scanner
 from security_checker.scanners.gitleaks import GitleaksScanner
 from security_checker.scanners.osv import OsvScanner
+from security_checker.scanners.repo_hygiene import RepoHygieneScanner
 from security_checker.scanners.semgrep import SemgrepScanner
 from security_checker.scanners.trivy import TrivyScanner
 from security_checker.testing import FakeScanner, ScannerContractTests
@@ -56,6 +63,11 @@ class TestSemgrepContract(ScannerContractTests):
 class TestGitleaksContract(ScannerContractTests):
     def make_scanner(self) -> Scanner:
         return GitleaksScanner(GitleaksConfig())
+
+
+class TestRepoHygieneContract(ScannerContractTests):
+    def make_scanner(self) -> Scanner:
+        return RepoHygieneScanner(RepoHygieneConfig())
 
 
 class TestOsvContract(ScannerContractTests):
