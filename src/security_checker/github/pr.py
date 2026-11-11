@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -197,7 +197,12 @@ def _git(root: Path, *args: str) -> str:
             check=False,
         )
     except FileNotFoundError as exc:
+        if not root.is_dir():
+            raise DiffError(f"git を実行するディレクトリがありません: {root}") from exc
         raise DiffError("git が見つかりません。diff モードには git が必要です") from exc
+    except OSError as exc:
+        # Windows は、存在しない cwd を NotADirectoryError で知らせる
+        raise DiffError(f"git を起動できません ({type(exc).__name__}): {root}") from exc
     except subprocess.TimeoutExpired as exc:
         raise DiffError(f"git {args[0]} が {GIT_TIMEOUT_S} 秒以内に終わりませんでした") from exc
     if completed.returncode != 0:
@@ -246,6 +251,84 @@ def _count_lines(path: Path) -> int:
     if b"\0" in data[:8192]:
         return 0
     return data.count(b"\n") + (0 if not data or data.endswith(b"\n") else 1)
+
+
+def repo_prefix(root: Path) -> str | None:
+    """検査対象のリポジトリ内の接頭辞 (例: `services/api/`). git 管理外なら None.
+
+    候補のパスは検査対象からの相対だが、SARIF と PR の files API はルートからの相対で読む。
+    """
+    try:
+        return _git(root, "rev-parse", "--show-prefix").strip()
+    except DiffError:
+        return None
+
+
+def head_commit(root: Path) -> str | None:
+    """検査した作業ツリーの HEAD. git 管理外・コミットがまだ無いなら None."""
+    try:
+        return _git(root, "rev-parse", "--verify", "HEAD^{commit}").strip() or None
+    except DiffError:
+        return None
+
+
+#: 検査した行番号 → PR の head の行番号. 対応が取れなければ None
+LineMapper = Callable[[str, int], int | None]
+
+_DIFF_HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
+
+
+def map_line_to_head(diff_text: str, line: int) -> int | None:
+    """`git diff -U0 <head> <検査したコミット>` の結果で、検査した行番号を head の行番号に直す.
+
+    base 側の変更で増えた行は head に存在しないので None を返す (推測しない)。
+    """
+    offset = 0
+    for match in _DIFF_HUNK_RE.finditer(diff_text):
+        old_count = int(match.group(2)) if match.group(2) is not None else 1
+        new_start = int(match.group(3))
+        new_count = int(match.group(4)) if match.group(4) is not None else 1
+        if line < new_start:
+            break
+        if line < new_start + new_count:
+            return None
+        offset += new_count - old_count
+    return line - offset
+
+
+def head_line_mapper(
+    repo_dir: Path, scanned: str | None, head_sha: str | None
+) -> LineMapper | None:
+    """検査したコミットが PR の head と違うとき (pull_request の merge コミット) の対応表を作る.
+
+    `scanned` はレポートに記録した検査時の HEAD。同じコミットを検査したなら None を返す
+    (git を呼ばない)。記録が無い (git 管理外を検査した・古いレポート) ときも、比べようが
+    ないので None を返す。違うのに `repo_dir` で 2 つのコミットを比較できないときは
+    `DiffError` を投げる (推測した行に付けない)。パスはリポジトリルートからの相対で受け取る。
+    """
+    if head_sha is None or scanned is None or scanned == head_sha:
+        return None
+    toplevel = Path(_git(repo_dir, "rev-parse", "--show-toplevel").strip())
+    for commit in (scanned, head_sha):
+        _git(toplevel, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}")
+    cache: dict[str, str] = {}
+
+    def to_head(path: str, line: int) -> int | None:
+        if path not in cache:
+            cache[path] = _git(
+                toplevel,
+                "diff",
+                "--unified=0",
+                "--no-color",
+                "--no-ext-diff",
+                head_sha,
+                scanned,
+                "--",
+                f":(top,literal){path}",
+            )
+        return map_line_to_head(cache[path], line)
+
+    return to_head
 
 
 Mode = Literal["auto", "full", "diff"]
