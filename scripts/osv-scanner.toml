@@ -1,0 +1,36 @@
+# scripts/semgrep-requirements.txt (CI と Docker イメージに入れる semgrep の固定依存) に対する、
+# 期限つきの抑止。osv-scanner は検査するマニフェストと同じディレクトリのこのファイルを読む。
+#
+# semgrep は mcp==1.29.0 と opentelemetry-api~=1.37.0 を自分で固定しており (1.185.0 でも同じ)、
+# こちらで修正版に上げると `--require-hashes` の解決が成り立たない。
+# このリポジトリが使うのは `semgrep scan` だけで、下の脆弱性が要る経路は通らない:
+#   - mcp: MCP サーバー (`semgrep mcp`) とそのクライアントの HTTP 転送・認証。起動しない
+#   - opentelemetry-api: 外から受け取った tracestate ヘッダの解析。HTTP リクエストを受けない
+#
+# 期限が来たら、semgrep の新しい版が固定を外したか確かめる。外れていれば
+# PINNED_SEMGREP_VERSION を上げて semgrep-requirements.txt を作り直し、この抑止を消す。
+
+[[IgnoredVulns]]
+id = "GHSA-84m7-p3x7-pcfv" # CVE-2026-59951
+ignoreUntil = 2027-02-11
+reason = "mcp: StreamableHTTP サーバーのセッション蓄積。semgrep scan は MCP サーバーを起動しない"
+
+[[IgnoredVulns]]
+id = "GHSA-w4fh-qvv9-3v23" # CVE-2026-116684
+ignoreUntil = 2027-02-11
+reason = "mcp: サーバーの bearer トークン認証。semgrep scan は MCP サーバーを起動しない"
+
+[[IgnoredVulns]]
+id = "GHSA-5h93-6whr-6q8j" # CVE-2026-116685
+ignoreUntil = 2027-02-11
+reason = "mcp: HTTP クライアント転送のリダイレクト追従。semgrep scan は MCP クライアントを使わない"
+
+[[IgnoredVulns]]
+id = "GHSA-rwrf-2pqf-9j8j" # CVE-2026-116686
+ignoreUntil = 2027-02-11
+reason = "mcp: クライアントの $ref URL の取得。semgrep scan は MCP クライアントを使わない"
+
+[[IgnoredVulns]]
+id = "GHSA-xcq7-p3pf-p88h" # CVE-2026-114603
+ignoreUntil = 2027-02-11
+reason = "opentelemetry-api: 受信した tracestate の解析。semgrep scan は HTTP リクエストを受けない"
