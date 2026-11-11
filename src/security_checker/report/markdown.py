@@ -24,6 +24,9 @@ from security_checker.report import sanitize as md
 MAX_FINDINGS_PER_SECTION = 20
 MAX_CANDIDATE_ROWS = 50
 MAX_ATTACK_PATH_STEPS = 8
+#: 未レビューの一覧と warn の上限. report.md は Step Summary (1 ステップ 1 MiB) にそのまま載る
+MAX_LIST_ITEMS = 50
+REDACTED_NOTE = md.REDACTED_NOTE
 
 SEVERITY_MARK = {
     Severity.CRITICAL: "🔴",
@@ -128,7 +131,7 @@ def _summary(report: Report) -> list[str]:
 
     if report.reviewers:
         reviewers = " / ".join(
-            f"`{run.name}` ({run.transport}, {run.calls} 回"
+            f"{md.code_span(run.name)} ({run.transport}, {run.calls} 回"
             + (f", 失敗 {run.verdicts_error}" if run.verdicts_error else "")
             + ")"
             for run in report.reviewers
@@ -146,14 +149,19 @@ def _summary(report: Report) -> list[str]:
 
 
 def _warnings(report: Report) -> list[str]:
-    """警告は畳まずに全部出す. 「壊れているのに緑」を作らないため (§7.2)."""
+    """エラーは畳まずに全部出す. 「壊れているのに緑」を作らないため (§7.2).
+
+    warn は件数が膨らみうる (semgrep の parse 警告など) ので上限で切り、残りの件数を書く。
+    """
     errors = [w for w in report.warnings if w.level == "error"]
     notices = [w for w in report.warnings if w.level == "warn"]
     if not errors and not notices:
         return []
     lines = ["## 警告", ""]
     lines += [f"- ❌ **{w.source}**: {_flatten(w.message)}" for w in errors]
-    lines += [f"- ⚠️ {w.source}: {_flatten(w.message)}" for w in notices]
+    lines += [f"- ⚠️ {w.source}: {_flatten(w.message)}" for w in notices[:MAX_LIST_ITEMS]]
+    if len(notices) > MAX_LIST_ITEMS:
+        lines.append(f"- _ほか {len(notices) - MAX_LIST_ITEMS} 件の警告は `report.json` を参照_")
     lines.append("")
     return lines
 
@@ -173,8 +181,11 @@ def _findings(report: Report) -> list[str]:
                 "",
             ]
             lines += [
-                f"- {md.code_span(f.candidate.where)} {_flatten(f.candidate.title)}" for f in group
+                f"- {md.code_span(f.candidate.where)} {_flatten(f.candidate.title)}"
+                for f in group[:MAX_LIST_ITEMS]
             ]
+            if len(group) > MAX_LIST_ITEMS:
+                lines.append(f"- _ほか {len(group) - MAX_LIST_ITEMS} 件は `report.json` を参照_")
             lines.append("")
             continue
         for finding in group[:MAX_FINDINGS_PER_SECTION]:
@@ -205,7 +216,10 @@ def _finding_block(finding: Finding) -> list[str]:
     if finding.cwe:
         meta.insert(0, "**CWE** " + ", ".join(finding.cwe[:3]))
     lines += [" ・ ".join(meta), ""]
-    lines += [f"検出元: `{candidate.scanner}` / `{candidate.rule_id}`", ""]
+    lines += [f"検出元: {md.code_span(candidate.scanner)} / {md.code_span(candidate.rule_id)}", ""]
+
+    if candidate.redacted:
+        lines += [f"> {REDACTED_NOTE}", ""]
 
     summary = finding.summary or candidate.message
     if summary:
@@ -216,7 +230,7 @@ def _finding_block(finding: Finding) -> list[str]:
         lines += ["| Reviewer | 判定 | 確信度 |", "|---|---|---|"]
         for verdict in ok_verdicts:
             judgement = f"{verdict.severity.value}" if verdict.vulnerable else "脆弱ではない"
-            lines.append(f"| `{verdict.reviewer}` | {judgement} | {verdict.confidence:.0%} |")
+            lines.append(f"| {_cell(verdict.reviewer)} | {judgement} | {verdict.confidence:.0%} |")
         lines.append("")
 
     for verdict in ok_verdicts:
@@ -238,12 +252,14 @@ def _finding_block(finding: Finding) -> list[str]:
     if details:
         lines += ["<details><summary>各 Reviewer の判断理由</summary>", ""]
         for verdict in details:
-            lines += [f"**`{verdict.reviewer}`** — {md.text(verdict.reasoning.strip())}", ""]
+            reviewer = md.code_span(verdict.reviewer)
+            lines += [f"**{reviewer}** — {md.text(verdict.reasoning.strip())}", ""]
         lines += ["</details>", ""]
 
     failed = [v for v in finding.verdicts if v.status.value != "ok"]
     for verdict in failed:
-        lines += [f"> ⚠️ `{verdict.reviewer}` は判定できませんでした: {verdict.status.value}", ""]
+        reviewer = md.code_span(verdict.reviewer)
+        lines += [f"> ⚠️ {reviewer} は判定できませんでした: {verdict.status.value}", ""]
     return lines
 
 
@@ -260,9 +276,12 @@ def _candidates(report: Report) -> list[str]:
     for candidate in report.candidates[:MAX_CANDIDATE_ROWS]:
         severity = candidate.severity_reported or Severity.INFO
         lines.append(
-            f"| {SEVERITY_MARK[severity]} {severity.value} | `{candidate.scanner}` | "
-            f"{_flatten(candidate.title)} | {md.code_span(candidate.where)} |"
+            f"| {SEVERITY_MARK[severity]} {severity.value} | {_cell(candidate.scanner)} | "
+            f"{_flatten(candidate.title)}{' 🔒' if candidate.redacted else ''} | "
+            f"{md.code_span(candidate.where)} |"
         )
+    if any(c.redacted for c in report.candidates[:MAX_CANDIDATE_ROWS]):
+        lines += ["", f"_{REDACTED_NOTE[2:]} (🔒 の候補)_"]
     if len(report.candidates) > MAX_CANDIDATE_ROWS:
         remaining = len(report.candidates) - MAX_CANDIDATE_ROWS
         lines += ["", f"_ほか {remaining} 件は `report.json` を参照_"]
@@ -282,6 +301,11 @@ def _footer(report: Report) -> list[str]:
     if report.trace_dir:
         lines += ["", f"監査証跡: `{report.trace_dir}`"]
     return lines
+
+
+def _cell(value: str) -> str:
+    """表のセルに置くコードスパン. 名前のバッククォートや | で表を壊させない (#266)."""
+    return md.code_span(value).replace("|", "\\|")
 
 
 def _flatten(text: str) -> str:

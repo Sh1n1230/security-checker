@@ -31,6 +31,8 @@ class ScannerRun(BaseModel):
     stderr_excerpt: str | None = None
     raw_path: str | None = None
     parse_warnings: list[str] = Field(default_factory=list)
+    #: skipped のうち、有効にしたのに入っていない・起動できないもの
+    unavailable: bool = False
 
 
 class SuppressedCandidate(BaseModel):
@@ -108,6 +110,9 @@ class TargetInfo(BaseModel):
     #: リポジトリルートから検査対象までの接頭辞 (例: `services/api/`)。
     #: Location.path は検査対象からの相対なので、SARIF と inline コメントでだけ前に付ける
     repo_prefix: str = ""
+    #: 検査した作業ツリーの HEAD. PR の head と違うとき (merge コミットを検査した場合) に
+    #: inline コメントの行を対応づけるのに使う。git 管理外なら None
+    commit: str | None = None
 
     @property
     def label(self) -> str:

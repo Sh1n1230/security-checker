@@ -15,6 +15,7 @@ from security_checker.github.client import GithubClient, PullRequestContext, pos
 from security_checker.github.comment import STALE_SUMMARY, SUMMARY_MARKER, plan_inline
 from security_checker.github.pr import (
     DiffError,
+    head_commit,
     head_line_mapper,
     map_line_to_head,
     repo_prefix,
@@ -58,22 +59,52 @@ def merge_repo(tmp_path: Path) -> tuple[Path, str]:
 
 def test_merge_commit_lines_are_mapped_to_the_head(merge_repo: tuple[Path, str]) -> None:
     root, head = merge_repo
-    to_head = head_line_mapper(root, head)
+    to_head = head_line_mapper(root, head_commit(root), head)
     assert to_head is not None
     assert to_head("app.py", 8) == 3  # os.system(user)
     assert to_head("app.py", 1) is None  # base 側で増えた行は head に無い
 
 
-def test_no_mapping_when_the_head_itself_was_checked_out(merge_repo: tuple[Path, str]) -> None:
+def test_mapping_does_not_depend_on_what_is_checked_out_now(merge_repo: tuple[Path, str]) -> None:
+    """比べるのはレポートに記録したコミットで、コメントする時点の HEAD ではない."""
     root, head = merge_repo
-    git(root, "checkout", "-q", "--detach", head)
-    assert head_line_mapper(root, head) is None
+    scanned = head_commit(root)
+    git(root, "checkout", "-q", "--detach", "main")
+    to_head = head_line_mapper(root, scanned, head)
+    assert to_head is not None
+    assert to_head("app.py", 8) == 3
+
+
+def test_no_mapping_when_the_head_itself_was_scanned(tmp_path: Path) -> None:
+    # 同じコミットなら git を呼ばない。存在しないディレクトリでも例外にならない
+    assert head_line_mapper(tmp_path / "missing", "a" * 40, "a" * 40) is None
+
+
+def test_no_mapping_without_a_recorded_commit(tmp_path: Path) -> None:
+    """git 管理外を検査したレポートと、commit を持たない古いレポート."""
+    assert head_line_mapper(tmp_path / "missing", None, "a" * 40) is None
+    assert head_line_mapper(tmp_path / "missing", "a" * 40, None) is None
 
 
 def test_an_unknown_head_is_an_error_not_a_guess(merge_repo: tuple[Path, str]) -> None:
     root, _ = merge_repo
     with pytest.raises(DiffError):
-        head_line_mapper(root, "0" * 40)
+        head_line_mapper(root, head_commit(root), "0" * 40)
+
+
+def test_a_missing_work_tree_is_an_error_not_a_guess(tmp_path: Path) -> None:
+    """検査したコミットを持たない場所でコメントする場合 (Windows は NotADirectoryError)."""
+    with pytest.raises(DiffError):
+        head_line_mapper(tmp_path / "missing", "a" * 40, "b" * 40)
+
+
+def test_head_commit(merge_repo: tuple[Path, str], tmp_path: Path) -> None:
+    root, _ = merge_repo
+    assert head_commit(root) == git(root, "rev-parse", "HEAD")
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    git(empty, "init", "-q")
+    assert head_commit(empty) is None  # コミットがまだ無い
 
 
 def test_plan_uses_head_lines_and_counts_unmapped(merge_repo: tuple[Path, str]) -> None:
@@ -86,7 +117,7 @@ def test_plan_uses_head_lines_and_counts_unmapped(merge_repo: tuple[Path, str]) 
         GithubConfig(),
         {"app.py": [(1, 4)]},
         set(),
-        to_head=head_line_mapper(root, head),
+        to_head=head_line_mapper(root, head_commit(root), head),
     )
     assert [(c.path, c.line) for c in plan.comments] == [("app.py", 3)]
     assert plan.unmapped == 1

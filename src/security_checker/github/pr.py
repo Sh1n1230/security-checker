@@ -25,6 +25,9 @@ from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+_BINARY_RE = re.compile(r"^Binary files .* differ$")
+#: `git` の C 形式のエスケープ (core.quotePath). 8 進はバイト列として UTF-8 で戻す
+_C_ESCAPES = {"a": "\a", "b": "\b", "t": "\t", "n": "\n", "v": "\v", "f": "\f", "r": "\r"}
 GIT_TIMEOUT_S = 60
 
 
@@ -86,10 +89,18 @@ def parse_unified_diff(text: str) -> tuple[dict[str, tuple[tuple[int, int], ...]
     old_path: str | None = None
     # `diff --git` 行の無い素の unified diff も受け付けるよう、先頭はヘッダとして扱う
     in_header = True
+    # `diff --git` 行から取ったパス. `---`/`+++` の無いバイナリの差分で使う
+    header_path: str | None = None
     for line in text.splitlines():
         if line.startswith("diff --git "):
             in_header = True
             current = old_path = None
+            header_path = _header_path(line[len("diff --git ") :])
+            continue
+        if in_header and _BINARY_RE.match(line):
+            # バイナリ (jar・wheel など) は行を持たないが、変更されたことは数える
+            if header_path is not None:
+                changed.add(header_path)
             continue
         if in_header and line.startswith("--- "):
             old_path = _strip_prefix(line[4:])
@@ -114,13 +125,63 @@ def parse_unified_diff(text: str) -> tuple[dict[str, tuple[tuple[int, int], ...]
 
 
 def _strip_prefix(raw: str) -> str | None:
-    path = raw.split("\t", 1)[0]
+    if raw.startswith('"'):
+        # タブ・改行・引用符・バックスラッシュを含むパスは core.quotePath=false でも引用される
+        unquoted = _unquote_c(raw)
+        if unquoted is None:
+            return None
+        path = unquoted[0]
+    else:
+        path = raw.split("\t", 1)[0]
     if path == "/dev/null":
         return None
-    if path.startswith('"') and path.endswith('"'):
-        # 非 ASCII パスは core.quotePath=false で避けているが、念のため引用符を外す
-        path = path[1:-1]
     return path[2:] if path[:2] in ("a/", "b/") else path
+
+
+def _header_path(rest: str) -> str | None:
+    """`diff --git a/<path> b/<path>` の新しい側のパス."""
+    if rest.startswith('"'):
+        first = _unquote_c(rest)
+        if first is None:
+            return None
+        rest = rest[first[1] :].lstrip(" ")
+        return _strip_prefix(rest)
+    # 引用されていない場合、名前の変更が無ければ両側は同じなので半分に割れる
+    if rest.startswith("a/"):
+        half = (len(rest) - 1) // 2
+        old, new = rest[:half], rest[half + 1 :]
+        if new.startswith("b/") and old[2:] == new[2:]:
+            return new[2:]
+    marker = rest.rfind(" b/")
+    if marker == -1:
+        return None
+    return _strip_prefix(rest[marker + 1 :])
+
+
+def _unquote_c(raw: str) -> tuple[str, int] | None:
+    """`"..."` を C 形式のエスケープを戻して読む. (パス, 閉じ引用符の次の位置) を返す."""
+    out = bytearray()
+    index = 1
+    while index < len(raw):
+        char = raw[index]
+        if char == '"':
+            return out.decode("utf-8", errors="replace"), index + 1
+        if char != "\\":
+            out += char.encode("utf-8")
+            index += 1
+            continue
+        escape = raw[index + 1 : index + 2]
+        if escape in _C_ESCAPES:
+            out += _C_ESCAPES[escape].encode()
+            index += 2
+        elif escape[:1].isdigit():
+            digits = raw[index + 1 : index + 4]
+            out.append(int(digits, 8) & 0xFF)
+            index += 4
+        else:  # \" と \\ とそれ以外は文字そのもの
+            out += escape.encode("utf-8")
+            index += 2
+    return None
 
 
 def _git(root: Path, *args: str) -> str:
@@ -136,7 +197,12 @@ def _git(root: Path, *args: str) -> str:
             check=False,
         )
     except FileNotFoundError as exc:
+        if not root.is_dir():
+            raise DiffError(f"git を実行するディレクトリがありません: {root}") from exc
         raise DiffError("git が見つかりません。diff モードには git が必要です") from exc
+    except OSError as exc:
+        # Windows は、存在しない cwd を NotADirectoryError で知らせる
+        raise DiffError(f"git を起動できません ({type(exc).__name__}): {root}") from exc
     except subprocess.TimeoutExpired as exc:
         raise DiffError(f"git {args[0]} が {GIT_TIMEOUT_S} 秒以内に終わりませんでした") from exc
     if completed.returncode != 0:
@@ -165,7 +231,26 @@ def compute_diff(root: Path, base: str) -> DiffScope:
         "--",
     )
     added, changed = parse_unified_diff(text)
+    # 作業ツリーと比べるので、まだ git add していない新規ファイルも「この変更で増えた行」に含める
+    for path in _git(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
+        if not path:
+            continue
+        changed.add(path)
+        lines = _count_lines(root / path)
+        if lines:
+            added[path] = ((1, lines),)
     return DiffScope(base=base, added=added, changed_files=frozenset(changed))
+
+
+def _count_lines(path: Path) -> int:
+    """テキストの行数. 読めないもの・バイナリは 0 (変更ファイルとしてだけ数える)."""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return 0
+    if b"\0" in data[:8192]:
+        return 0
+    return data.count(b"\n") + (0 if not data or data.endswith(b"\n") else 1)
 
 
 def repo_prefix(root: Path) -> str | None:
@@ -179,6 +264,14 @@ def repo_prefix(root: Path) -> str | None:
         return None
 
 
+def head_commit(root: Path) -> str | None:
+    """検査した作業ツリーの HEAD. git 管理外・コミットがまだ無いなら None."""
+    try:
+        return _git(root, "rev-parse", "--verify", "HEAD^{commit}").strip() or None
+    except DiffError:
+        return None
+
+
 #: 検査した行番号 → PR の head の行番号. 対応が取れなければ None
 LineMapper = Callable[[str, int], int | None]
 
@@ -186,7 +279,7 @@ _DIFF_HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.MU
 
 
 def map_line_to_head(diff_text: str, line: int) -> int | None:
-    """`git diff -U0 <head> HEAD` の結果を使い、HEAD の行番号を head の行番号に直す.
+    """`git diff -U0 <head> <検査したコミット>` の結果で、検査した行番号を head の行番号に直す.
 
     base 側の変更で増えた行は head に存在しないので None を返す (推測しない)。
     """
@@ -203,22 +296,21 @@ def map_line_to_head(diff_text: str, line: int) -> int | None:
     return line - offset
 
 
-def head_line_mapper(root: Path, head_sha: str | None) -> LineMapper | None:
-    """HEAD が PR の head と違うとき (pull_request の merge コミット) の行の対応表を作る.
+def head_line_mapper(
+    repo_dir: Path, scanned: str | None, head_sha: str | None
+) -> LineMapper | None:
+    """検査したコミットが PR の head と違うとき (pull_request の merge コミット) の対応表を作る.
 
-    同じコミットを検査したなら None を返す。比較できないときは `DiffError` を投げる。
-    パスはリポジトリルートからの相対で受け取る。
+    `scanned` はレポートに記録した検査時の HEAD。同じコミットを検査したなら None を返す
+    (git を呼ばない)。記録が無い (git 管理外を検査した・古いレポート) ときも、比べようが
+    ないので None を返す。違うのに `repo_dir` で 2 つのコミットを比較できないときは
+    `DiffError` を投げる (推測した行に付けない)。パスはリポジトリルートからの相対で受け取る。
     """
-    if head_sha is None:
+    if head_sha is None or scanned is None or scanned == head_sha:
         return None
-    try:
-        current = _git(root, "rev-parse", "HEAD").strip()
-    except DiffError:
-        return None  # git 管理外. 手元で report.json からコメントする場合など
-    if current == head_sha:
-        return None
-    toplevel = Path(_git(root, "rev-parse", "--show-toplevel").strip())
-    _git(toplevel, "rev-parse", "--verify", f"{head_sha}^{{commit}}")
+    toplevel = Path(_git(repo_dir, "rev-parse", "--show-toplevel").strip())
+    for commit in (scanned, head_sha):
+        _git(toplevel, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}")
     cache: dict[str, str] = {}
 
     def to_head(path: str, line: int) -> int | None:
@@ -230,7 +322,7 @@ def head_line_mapper(root: Path, head_sha: str | None) -> LineMapper | None:
                 "--no-color",
                 "--no-ext-diff",
                 head_sha,
-                "HEAD",
+                scanned,
                 "--",
                 f":(top,literal){path}",
             )

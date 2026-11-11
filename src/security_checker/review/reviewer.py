@@ -61,6 +61,15 @@ class ReviewOutcome:
         self.trace = trace or {}
 
 
+#: 出力上限で打ち切られたことを示す finish_reason (方言ごとの表記)
+_TRUNCATED_REASONS = frozenset({"length", "max_tokens", "max_output_tokens"})
+
+
+def is_truncated(finish_reason: str | None) -> bool:
+    """出力が上限で切れたか. openai の length・anthropic の max_tokens・gemini の MAX_TOKENS."""
+    return finish_reason is not None and finish_reason.lower() in _TRUNCATED_REASONS
+
+
 class Reviewer:
     """1 つの Provider を Security Auditor として使う."""
 
@@ -81,6 +90,8 @@ class Reviewer:
         self.provider = provider
         self.weight = weight
         self.max_output_tokens = max_output_tokens
+        #: 候補 ID → 最後に送った (system, user). トレースに記録する
+        self._prompts: dict[str, tuple[str, str]] = {}
         self.timeout_s = timeout_s
         self.seed = seed
         self.price = price
@@ -114,7 +125,9 @@ class Reviewer:
             system = prompts.render_judge_system(self.language)
             user = prompts.render_judge_user(task, schema, opinions)
         started = time.monotonic()
-        self._last_prompt = (system, user)
+        # 候補ごとに持つ. 同じ Reviewer を並行して呼ぶと、1 つの属性では別の候補の
+        # プロンプトがトレースに残る (#315)
+        self._prompts[task.candidate.id] = (system, user)
 
         if before_send is not None:
             await before_send()
@@ -123,8 +136,19 @@ class Reviewer:
         try:
             judgement = parse_judgement(response.parsed, response.text)
         except SchemaViolationError as violation:
+            if is_truncated(response.finish_reason):
+                # 出力上限で切れた. 同じ上限で修復を送っても同じ理由で切れ、費用だけがかかる
+                return self.error_outcome(
+                    task,
+                    VerdictStatus.SCHEMA_ERROR,
+                    f"出力が max_output_tokens ({self.max_output_tokens}) で途中で切れました"
+                    f" (finish_reason: {response.finish_reason})。"
+                    "reviewers[].max_output_tokens を増やしてください",
+                    started,
+                    usage=usage,
+                )
             repair_user = prompts.render_repair(
-                violation.raw_text, str(violation), schema, self.language
+                violation.raw_text, str(violation), schema, self.language, original_user=user
             )
             if before_send is not None:
                 try:
@@ -138,6 +162,7 @@ class Reviewer:
                         started,
                         usage=usage,
                     )
+            self._prompts[task.candidate.id] = (system, repair_user)
             repaired = await self._complete(system, repair_user, schema)
             usage = usage.merge(repaired.usage)
             try:
@@ -261,7 +286,7 @@ class Reviewer:
         error: str | None = None,
     ) -> dict[str, Any]:
         """1 呼び出し分の監査証跡 (§24.2). 既定はプロンプトのハッシュのみ."""
-        system, user = getattr(self, "_last_prompt", ("", ""))
+        system, user = self._prompts.get(task.candidate.id, ("", ""))
         prompt: dict[str, Any] = {
             "system_sha256": sha256_text(system),
             "user_sha256": sha256_text(user),
@@ -282,8 +307,12 @@ class Reviewer:
             "structured_mode": self.provider.capabilities.structured_output.value,
             "language": self.language,
         }
+        # 応答はコードを引用しうる. 既定では全文を残さず、ハッシュと長さだけにする (#447)
+        raw = response.text if response is not None else None
         response_trace: dict[str, Any] = {
-            "raw": response.text if response is not None else None,
+            "raw": raw if self.save_prompts else None,
+            "raw_sha256": sha256_text(raw) if raw is not None else None,
+            "raw_chars": len(raw) if raw is not None else None,
             "finish_reason": response.finish_reason if response is not None else None,
             "error": error,
         }

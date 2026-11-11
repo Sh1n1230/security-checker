@@ -26,7 +26,7 @@ GitHub Action（`action.yml`）・Docker イメージ・このリポジトリの
 |---|---|---|
 | `ok` | 実行できた (0 件を含む) | |
 | `skipped` | 導入されていない・対象が無い | 警告。スコアは `partial` |
-| `failed` | 異常終了・タイムアウト・出力が壊れている | **エラー**。`strict` なら exit 3。SARIF はアップロードしない |
+| `failed` | 異常終了・タイムアウト・出力が壊れている | **エラー**。`strict` なら exit 3 ([exit-codes.md](exit-codes.md))。SARIF はアップロードしない |
 
 v1 には「スキャナが失敗しても 0 件の成功として扱われ、満点に見える」欠陥がありました。
 v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒頭に出します。
@@ -38,7 +38,10 @@ v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒�
 - `scanners.semgrep.config` は `p/default` のようなルールセットか、ルールファイルのパス。
   複数ならリストで書きます。既定は `[p/default, bundled:llm, bundled:ci-lock]`。
 - `bundled:<名前>` は security-checker が同梱するルールです。解決先は常にパッケージ内で、
-  検査対象のツリーからは読みません。
+  検査対象のツリーからは読みません。同梱ルールの `rule_id` は `bundled.<ルールの id>` です
+  (semgrep がインストール先のパスから付ける接頭辞は外すので、環境が変わっても ID と ignore の指定は変わりません)。
+- semgrep の重大度は `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` と、古い表記の `ERROR` (= high) /
+  `WARNING` (= medium) / `INFO` (= low) を読みます。
 
   | 名前 | 内容 |
   |---|---|
@@ -85,7 +88,7 @@ v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒�
 ## 自作のスキャナを足す
 
 `security_checker.scanners` の entry point に登録すると、内蔵と同じように使えます。
-適合性は公開の契約テストで確かめられます。
+適合性は公開の契約テストで確かめられます (`pip install "security-checker[testing]"` で pytest も入ります)。
 
 ```python
 from security_checker.testing import ScannerContractTests

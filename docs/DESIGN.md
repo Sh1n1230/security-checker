@@ -196,13 +196,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# 公式 SDK は「入っていればバックエンドに使う」だけ。内蔵アダプタはどれも SDK なしで動く
-# (ここに現れるパッケージ名は PyPI 上の実名であり、優遇を意味しない)
-openai    = ["openai>=1.40"]
-google    = ["google-genai"]
-anthropic = ["anthropic"]
-tiktoken  = ["tiktoken"]          # トークン見積りの精度向上
-all       = ["security-checker[openai,google,anthropic,tiktoken]"]
+# LLM の SDK は extras にも置かない (使うコードが無いため。2026-11 に整理)
+tiktoken  = ["tiktoken"]                          # トークン見積りの精度向上
+testing   = ["pytest>=8", "pytest-asyncio>=0.24"] # プラグイン作者向けの契約テスト
+all       = ["security-checker[tiktoken,testing]"]
 ```
 
 **内蔵アダプタ(`http` transport の 4 方言 + `process` transport)はすべて
@@ -214,7 +211,8 @@ SDK をコア依存にすると、3 社分の SDK が相互に依存バージョ
 `pip install` が壊れるという、この種のツールで最も多い故障モードを抱え込むことになる。
 
 つまり **`pip install security-checker` だけで、LLM SDK を 1 つも入れずに全 Provider が使える。**
-公式 SDK は「入っていればそちらをバックエンドに使う」オプション扱いに留める。
+SDK をバックエンドに使う経路は持たない (当初は「入っていれば使う」オプションとしていたが、
+使うコードが無いまま extras だけが残っていたため外した)。
 
 ### ツールチェーン
 
@@ -1878,7 +1876,7 @@ HTML コメントのマーカー `<!-- security-checker:summary:v2 -->` で自�
 <!-- security-checker:summary:v2 -->
 ## 🛡 AI Security Review
 
-**1 confirmed** · 0 likely · **1 review required** · 10 false positive (suppressed)
+**1 confirmed** · 0 likely · **1 review required** · 10 false positive (PR には非表示)
 Reviewers: `alpha`, `beta` · Aggregation: consensus (2 of 2)
 ⚠️ trivy が失敗したため、設定ファイルの検査は行われていません。
 
@@ -1921,7 +1919,9 @@ Reviewers: `alpha`, `beta` · Aggregation: consensus (2 of 2)
 - `inline_min_status` 以上(既定 `likely`)の Finding のみ、該当行にコメントする。
 - **diff に含まれる行にしかコメントできない**ため、範囲外の Finding はサマリのみに出す。
   行番号は PR の head の行番号である。`pull_request` は merge コミットを検査するので、
-  `git diff <head> HEAD` で head の行に直す。base 側の変更と重なって対応の取れない行は推測せず、警告に出す。
+  検査時の HEAD を report.json の `target.commit` に記録し、head と違えば `git diff <head> <target.commit>` で
+  head の行に直す (`comment` を実行する場所に両方のコミットが要る)。同じなら git は呼ばない。
+  base 側の変更と重なって対応の取れない行と、2 つのコミットを比べられない場合は推測せず、警告に出す。
 - `max_inline_comments`(既定 20)で上限を設ける。超過分はサマリにまとめる。
 - 同一 fingerprint に対して既にコメントが存在する場合は**再投稿しない**。
   push のたびに同じ指摘が積み上がるのが、この種のツールが嫌われる最大の理由。
@@ -2064,16 +2064,21 @@ LLM を含むシステムのテストで最大の失敗は「実 API を叩く�
 from security_checker.testing import ProviderContractTests
 
 class TestMyProvider(ProviderContractTests):
-    provider_factory = lambda: MyProvider(base_url="http://mock", model="m")
+    def make_provider(self):
+        return MyProvider(base_url="http://mock", model="m")
+
+    # 任意。偽のエンドポイントを注入できる Provider は、3・4・6 番まで検証できる
+    def make_http_provider(self, handler):
+        return MyProvider(..., client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
 ```
 
-契約テストが検証する項目:
+契約テストが検証する項目(3・4・6 番は `make_http_provider` を実装した場合。実装しなければ skip):
 
 1. `capabilities` が有効な値を返す
 2. 正常応答で `CompletionResponse` を返し、`usage` が埋まる
 3. 401 → `ProviderAuthError`、429 → `ProviderRateLimitError`(+ `retry_after`)、500 → `ProviderServerError`、
    タイムアウト → `ProviderTimeoutError` に正しく正規化される
-4. `json_schema` 指定時に `parsed` が返る(または適切に降格する)
+4. `json_schema` が 400 で拒否されたら 1 段降格して `degraded_to` が入り、それ以外の 4xx では降格しない
 5. `aclose()` で接続が解放される
 6. リトライを Provider 内部で実装していない(スケジューラの責務を侵さない)
 
