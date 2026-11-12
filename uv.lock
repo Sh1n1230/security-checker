@@ -1,12 +1,12 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
     "python_full_version == '3.14.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.14.*' and sys_platform != 'emscripten'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version < '3.14' and sys_platform != 'emscripten') or (python_full_version < '3.12' and sys_platform == 'emscripten')",
+    "python_full_version < '3.12' or (python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten')",
 ]
 
 [[package]]
@@ -29,7 +29,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "1.14.0"
+version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -41,9 +41,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0f/c2/be99fac19b24c22b00d2a63ac1756b203bd3058ff54a14028c43b9f33116/anthropic-1.14.0.tar.gz", hash = "sha256:d9284895864a8457ed87f0accc51fd488ad9743952e597c814e7dc9d78ac8e38", size = 1715378, upload-time = "2026-10-14T17:13:33.508Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/b0/bb46b86bc12e0c176f22363f6fc1fa6484844ba624f868154c3894d1c294/anthropic-2.5.0.tar.gz", hash = "sha256:898848f23c473aca52b4d1b496c22e5f6125246c31e0b2161ef98cb0384131a0", size = 1962741, upload-time = "2026-11-04T20:27:46.038Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/66/c395049fa6bf20b7f244adc8b7466f86a416b11f03528fa325868483de3a/anthropic-1.14.0-py3-none-any.whl", hash = "sha256:abd787048378abfabeebbad917ae0f9eae1eb4dfaa0a754096b5eea02dcf8c12", size = 2043565, upload-time = "2026-10-14T17:13:35.513Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/10/c4e6f015111c702c2d5a386ad57745b83c79c08eae68e541dbb16b5e3965/anthropic-2.5.0-py3-none-any.whl", hash = "sha256:79756a8cafa23a8c0ab636700914d34ee968039eb6e466a8aa748210713f4c00", size = 2445606, upload-time = "2026-11-04T20:27:48.007Z" },
 ]
 
 [[package]]
@@ -698,8 +698,8 @@ name = "httpcore2"
 version = "2.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "h11", marker = "python_full_version < '3.12' or python_full_version >= '3.15' or sys_platform != 'emscripten'" },
-    { name = "truststore", marker = "python_full_version < '3.12' or python_full_version >= '3.15' or sys_platform != 'emscripten'" },
+    { name = "h11" },
+    { name = "truststore" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/be/ad/f4f0e57345f1870f3e8cb624e058d7eca6e5a27d33bcc3311d9b618734cd/httpcore2-2.12.0.tar.gz", hash = "sha256:9293522bba0aa7c4c8e9e3f040c16575bd8868e155a77fa30c7a9085a5eae648", size = 67548, upload-time = "2026-08-18T13:22:08.211Z" }
 wheels = [
