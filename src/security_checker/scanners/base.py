@@ -11,6 +11,7 @@ import asyncio
 import shutil
 import subprocess
 import time
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
@@ -21,6 +22,7 @@ from security_checker.config.schema import ScannerConfig
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category, ScanStatus
 from security_checker.scanners.untrusted import UntrustedOverrides
+from security_checker.context.redact import redact_known_patterns
 
 STDERR_EXCERPT_LIMIT = 2000
 
@@ -164,6 +166,8 @@ def excerpt(data: bytes, limit: int = STDERR_EXCERPT_LIMIT) -> str | None:
     text = data.decode("utf-8", "replace").strip()
     if not text:
         return None
+    text = redact_known_patterns(text)
+    text = re.sub(r"(://[^\s/@:]+):[^\s/@]+@", r"\1<redacted>@", text)
     return text if len(text) <= limit else text[:limit] + " …(truncated)"
 
 
