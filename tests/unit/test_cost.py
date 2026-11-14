@@ -23,6 +23,12 @@ def test_known_model_is_priced():
     assert usage.cost_known is True
 
 
+@pytest.mark.parametrize("field", ["input_per_1m", "output_per_1m"])
+def test_negative_model_price_is_rejected(field):
+    with pytest.raises(ValueError):
+        ModelPrice(**{field: -1.0})
+
+
 def test_usage_merge_keeps_unknown_sticky():
     known = Usage(input_tokens=10, estimated_usd=0.5, cost_known=True)
     unknown = Usage(input_tokens=10, cost_known=False)
