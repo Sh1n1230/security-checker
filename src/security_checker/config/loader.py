@@ -10,12 +10,14 @@
 from __future__ import annotations
 
 import os
+import types
+import typing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from security_checker.config.schema import Config
 from security_checker.config.unimplemented import unimplemented_warnings
@@ -103,6 +105,40 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
+def _merge_local_layer(merged: dict[str, Any], local: dict[str, Any]) -> dict[str, Any]:
+    """local 層の合成. reviewers だけは置き換えず、name をキーに足す.
+
+    手元用の Reviewer を足しても、チームの Reviewer は残る。同じ名前は項目ごとに上書きする。
+    """
+    combined = _deep_merge(merged, local)
+    shared, personal = merged.get("reviewers"), local.get("reviewers")
+    if not isinstance(shared, list) or not isinstance(personal, list):
+        return combined
+    reviewers = list(shared)
+    positions = {
+        entry["name"]: index
+        for index, entry in enumerate(reviewers)
+        if isinstance(entry, dict) and "name" in entry
+    }
+    for entry in personal:
+        index = positions.get(entry.get("name")) if isinstance(entry, dict) else None
+        if index is None:
+            reviewers.append(entry)
+        else:
+            reviewers[index] = _deep_merge(reviewers[index], entry)
+    combined["reviewers"] = reviewers
+    return combined
+
+
+def _drop_disabled_reviewers(merged: dict[str, Any]) -> dict[str, Any]:
+    """`enabled: false` の Reviewer を外す. 残りの検証は、外した後の構成に対して行う."""
+    reviewers = merged.get("reviewers")
+    if not isinstance(reviewers, list):
+        return merged
+    kept = [e for e in reviewers if not (isinstance(e, dict) and e.get("enabled") is False)]
+    return {**merged, "reviewers": kept}
+
+
 def _flatten(data: dict[str, Any], prefix: str = "") -> dict[str, Any]:
     flat: dict[str, Any] = {}
     for key, value in data.items():
@@ -124,10 +160,7 @@ def env_overrides(environ: dict[str, str] | None = None) -> dict[str, Any]:
         parts = [part.lower() for part in raw_key[len(ENV_PREFIX) :].split("__") if part]
         if not parts:
             continue
-        try:
-            value = yaml.safe_load(raw_value)
-        except yaml.YAMLError:
-            value = raw_value
+        value = _env_value(parts, raw_value)
         cursor = overrides
         for part in parts[:-1]:
             nested = cursor.setdefault(part, {})
@@ -137,6 +170,51 @@ def env_overrides(environ: dict[str, str] | None = None) -> dict[str, Any]:
             cursor = nested
         cursor[parts[-1]] = value
     return overrides
+
+
+def _env_value(parts: list[str], raw: str) -> Any:
+    """環境変数の値を解釈する. 文字列の項目には文字列のまま渡す.
+
+    YAML として読むと `no` が false に、`12345` が int になり、言語コードや
+    ユーザー名を壊す。スキーマが文字列を期待する項目では YAML として読まない。
+    """
+    if _expects_str(parts):
+        return raw
+    try:
+        return yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return raw
+
+
+def _expects_str(parts: list[str]) -> bool:
+    """`Config` のフィールドを辿り、行き着いた先が str (または str | None) か."""
+    model: Any = Config
+    annotation: Any = None
+    for part in parts:
+        fields = getattr(model, "model_fields", None)
+        if not fields or part not in fields:
+            return False
+        annotation = fields[part].annotation
+        model = _model_in(annotation)
+    return _is_str(annotation)
+
+
+def _model_in(annotation: Any) -> Any:
+    """`X | None` の中の BaseModel を取り出す (無ければ None)."""
+    candidates = typing.get_args(annotation) or (annotation,)
+    for candidate in candidates:
+        if isinstance(candidate, type) and issubclass(candidate, BaseModel):
+            return candidate
+    return None
+
+
+def _is_str(annotation: Any) -> bool:
+    if annotation is str:
+        return True
+    args = [a for a in typing.get_args(annotation) if a is not type(None)]
+    origin = typing.get_origin(annotation)
+    is_union = origin is typing.Union or isinstance(annotation, types.UnionType)
+    return is_union and bool(args) and all(a is str for a in args)
 
 
 def _reject_plaintext_keys(data: dict[str, Any]) -> None:
@@ -185,7 +263,8 @@ def load_config(
 
     if preset is not None:
         preset_path = PRESET_DIR / f"{preset}.yml"
-        if not preset_path.is_file():
+        # 名前は同梱の一覧と照合する. `../x` で presets の外の YAML を読ませない
+        if preset not in available_presets() or not preset_path.is_file():
             raise ConfigError(
                 f"preset '{preset}' は存在しません。利用可能: {', '.join(available_presets())}"
             )
@@ -217,12 +296,16 @@ def load_config(
     for name, data in layers:
         if not data:
             continue
-        merged = _deep_merge(merged, data)
+        merged = (
+            _merge_local_layer(merged, data)
+            if name.startswith("local:")
+            else _deep_merge(merged, data)
+        )
         for key in _flatten(data):
             origins[key] = name
 
     try:
-        config = Config.model_validate(merged)
+        config = Config.model_validate(_drop_disabled_reviewers(merged))
     except ValidationError as exc:
         raise ConfigError(_format_validation_error(exc)) from exc
 

@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
-from security_checker.config.loader import available_presets, env_overrides, load_config
+from security_checker.config.loader import (
+    PRESET_DIR,
+    LoadedConfig,
+    available_presets,
+    env_overrides,
+    load_config,
+)
 from security_checker.config.schema import Config
 from security_checker.errors import ConfigError
 from security_checker.models.enums import Severity
@@ -209,3 +216,109 @@ def test_local_config_also_rejects_plaintext_keys(tmp_path):
 def test_no_local_config_leaves_the_field_empty(tmp_path):
     write_config(tmp_path, "version: 1\n")
     assert load_config(tmp_path, environ={}).local_config_path is None
+
+
+# --- local 層の reviewers は置き換えず、name で合成する (#173) ---------------------------
+
+_SHARED = """
+version: 1
+reviewers:
+  - {name: team,   transport: http, dialect: openai_chat, base_url: http://x/v1, model: m}
+  - {name: judge1, transport: http, dialect: openai_chat, base_url: http://x/v1, model: m}
+aggregation:
+  strategy: judge
+  judge: {reviewer: judge1}
+"""
+
+
+def _load_with_local(tmp_path: Path, local: str) -> LoadedConfig:
+    (tmp_path / "security-checker.yml").write_text(_SHARED, encoding="utf-8")
+    (tmp_path / "security-checker.local.yml").write_text(local, encoding="utf-8")
+    return load_config(tmp_path, environ={})
+
+
+def test_local_reviewers_are_added_to_the_shared_ones(tmp_path):
+    loaded = _load_with_local(
+        tmp_path, "version: 1\nreviewers:\n  - {name: mine, transport: process, command: [a]}\n"
+    )
+    assert [r.name for r in loaded.config.reviewers] == ["team", "judge1", "mine"]
+
+
+def test_local_reviewer_with_the_same_name_overrides_only_what_it_writes(tmp_path):
+    loaded = _load_with_local(tmp_path, "version: 1\nreviewers:\n  - {name: team, model: other}\n")
+    team = loaded.config.reviewers[0]
+    assert team.model == "other"
+    assert team.base_url == "http://x/v1"
+    assert len(loaded.config.reviewers) == 2
+
+
+def test_local_can_disable_a_shared_reviewer(tmp_path):
+    loaded = _load_with_local(
+        tmp_path, "version: 1\nreviewers:\n  - {name: team, enabled: false}\n"
+    )
+    assert [r.name for r in loaded.config.reviewers] == ["judge1"]
+
+
+def test_disabling_the_judge_is_reported_as_a_config_error(tmp_path):
+    with pytest.raises(ConfigError, match="judge1"):
+        _load_with_local(tmp_path, "version: 1\nreviewers:\n  - {name: judge1, enabled: false}\n")
+
+
+def test_other_layers_still_replace_the_list(tmp_path):
+    (tmp_path / "security-checker.yml").write_text(
+        "version: 1\nreviewers:\n  - {name: a, transport: process, command: [x]}\n",
+        encoding="utf-8",
+    )
+    loaded = load_config(
+        tmp_path,
+        environ={},
+        cli_overrides={"reviewers": [{"name": "b", "transport": "process", "command": ["y"]}]},
+    )
+    assert [r.name for r in loaded.config.reviewers] == ["b"]
+
+
+# --- 文字列の項目を YAML で壊さない (#204) ------------------------------------------
+
+
+def test_env_values_for_string_fields_stay_strings(tmp_path):
+    loaded = load_config(
+        tmp_path,
+        environ={
+            "SECURITY_CHECKER__OUTPUT__LANGUAGE": "no",
+            "SECURITY_CHECKER__GITHUB__COMMENT_AUTHOR": "12345",
+            "SECURITY_CHECKER__POLICY__STRICT": "false",
+            "SECURITY_CHECKER__BUDGET__MAX_USD": "2.5",
+        },
+    )
+    assert loaded.config.output.language == "no"
+    assert loaded.config.github.comment_author == "12345"
+    assert loaded.config.policy.strict is False
+    assert loaded.config.budget.max_usd == 2.5
+
+
+# --- 常に除外するもの (#203) ---------------------------------------------------------
+
+
+def test_custom_exclude_still_skips_git_and_the_output_directory(tmp_path):
+    (tmp_path / "security-checker.yml").write_text(
+        "version: 1\ntarget:\n  exclude: ['docs/**']\n", encoding="utf-8"
+    )
+    exclude = load_config(tmp_path, environ={}).config.target.exclude
+    assert exclude[0] == "docs/**"
+    assert "**/.git/**" in exclude
+    assert "**/.security-checker/**" in exclude
+    assert "**/node_modules/**" not in exclude  # 既定は置き換える
+
+
+# --- preset の名前で presets の外を読ませない (#211) ---------------------------------
+
+
+def test_a_preset_name_cannot_escape_the_presets_directory(tmp_path):
+    (tmp_path / "evil.yml").write_text("version: 1\n", encoding="utf-8")
+    try:
+        relative = os.path.relpath(tmp_path / "evil", PRESET_DIR)
+    except ValueError:  # Windows で一時ディレクトリが別のドライブにある
+        pytest.skip("presets と一時ディレクトリが別のドライブにある")
+    assert (PRESET_DIR / f"{relative}.yml").is_file()  # 照合しなければ読めてしまう経路
+    with pytest.raises(ConfigError, match="存在しません"):
+        load_config(tmp_path, preset=str(relative), environ={})

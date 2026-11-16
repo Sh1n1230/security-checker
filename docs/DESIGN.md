@@ -196,13 +196,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# 公式 SDK は「入っていればバックエンドに使う」だけ。内蔵アダプタはどれも SDK なしで動く
-# (ここに現れるパッケージ名は PyPI 上の実名であり、優遇を意味しない)
-openai    = ["openai>=1.40"]
-google    = ["google-genai"]
-anthropic = ["anthropic"]
-tiktoken  = ["tiktoken"]          # トークン見積りの精度向上
-all       = ["security-checker[openai,google,anthropic,tiktoken]"]
+# LLM の SDK は extras にも置かない (使うコードが無いため。2026-11 に整理)
+tiktoken  = ["tiktoken"]                          # トークン見積りの精度向上
+testing   = ["pytest>=8", "pytest-asyncio>=0.24"] # プラグイン作者向けの契約テスト
+all       = ["security-checker[tiktoken,testing]"]
 ```
 
 **内蔵アダプタ(`http` transport の 4 方言 + `process` transport)はすべて
@@ -214,7 +211,8 @@ SDK をコア依存にすると、3 社分の SDK が相互に依存バージョ
 `pip install` が壊れるという、この種のツールで最も多い故障モードを抱え込むことになる。
 
 つまり **`pip install security-checker` だけで、LLM SDK を 1 つも入れずに全 Provider が使える。**
-公式 SDK は「入っていればそちらをバックエンドに使う」オプション扱いに留める。
+SDK をバックエンドに使う経路は持たない (当初は「入っていれば使う」オプションとしていたが、
+使うコードが無いまま extras だけが残っていたため外した)。
 
 ### ツールチェーン
 
@@ -397,7 +395,7 @@ class Candidate(BaseModel, frozen=True):
     redacted: bool = False        # 値マスキングを適用したか
 
 class Location(BaseModel, frozen=True):
-    path: str                     # リポジトリルートからの相対パス(絶対パス禁止)
+    path: str                     # 検査対象からの相対パス(絶対パス禁止)。ルートからのパスは出力時に組み立てる
     start_line: int
     end_line: int
     snippet: str | None           # マスキング後
@@ -1196,7 +1194,7 @@ scanners:
   semgrep:
     enabled: true
     config: p/default           # semgrep のルールセット
-    timeout_s: 600
+    timeout_s: 600              # スキャナのプロセス全体の上限
     extra_args: []
   gitleaks:  { enabled: true }
   osv:       { enabled: true }
@@ -1342,7 +1340,7 @@ class AggregationOutcome(BaseModel):
 | `confirmed` | 有効な Reviewer の大多数が「脆弱」かつ高信頼で一致 | 報告・CI 失敗対象 |
 | `likely` | 過半数が「脆弱」だが信頼度または一致度が中程度 | 報告・CI 失敗対象(既定) |
 | `review_required` | **判断が割れた**。または信頼度が閾値未満 | 報告する。CI は既定で落とさない |
-| `false_positive` | 大多数が「脆弱でない」と判断 | 既定では非表示(`--show-all` で表示) |
+| `false_positive` | 大多数が「脆弱でない」と判断 | `report.json` の `findings` には残る。ターミナルと Markdown では件数のみ |
 | `inconclusive` | 全 Reviewer が `unknown` / 文脈不足を訴えた | 報告。人間の確認を促す |
 | `error` | 有効な Verdict が 1 つも得られなかった | 報告。`--strict` で exit 3 |
 
@@ -1497,7 +1495,8 @@ exit code は **Actions の status check**に、Finding の重大度は **Code S
 
 - `baseline`: 既存 Finding の `candidate.id` を記録した JSON。一致するものは `suppressed` として
   レポートに残しつつ CI を落とさない。`security-checker baseline update` で生成。
-  既存リポジトリへの段階的導入を可能にする。
+  既存リポジトリへの段階的導入を可能にする。秘密の候補は、値のソルト付き要約も記録して照合する
+  (同じ場所で値を差し替えた秘密を抑制しない。ADR 0008)。
 - `.security-checker-ignore`: gitignore 記法のパス除外 + `rule_id` 単位の除外。
 - コード内注釈: `# security-checker: ignore[rule_id] reason=...`。
   **理由の記述を必須**とし、理由なしの抑制は警告を出す。
@@ -1758,7 +1757,7 @@ LLM レビューは本質的に「自分のコードを外部サービスに送�
 2. コード部分を明確なデリミタで囲み、デリミタ文字列がコード内に出現したらエスケープする。
 3. LLM の出力は JSON Schema で拘束されるため、**出力の形は攻撃者に制御できない**。
    最悪でも「vulnerable: false」を誘導される程度で、任意の副作用は起きない(Reviewer に副作用がないため = P3)。
-4. `false_positive` 判定でも Candidate は必ずレポートに残る(`--show-all`)ため、完全な隠蔽はできない。
+4. `false_positive` 判定でも Candidate は必ず `report.json` に残る(ターミナルと Markdown では件数のみ)ため、完全な隠蔽はできない。
 5. 将来的な検討: 明らかな指示文パターンを検出したら、それ自体を `prompt_injection` カテゴリの
    Finding として報告する。
 
@@ -1877,7 +1876,7 @@ HTML コメントのマーカー `<!-- security-checker:summary:v2 -->` で自�
 <!-- security-checker:summary:v2 -->
 ## 🛡 AI Security Review
 
-**1 confirmed** · 0 likely · **1 review required** · 10 false positive (suppressed)
+**1 confirmed** · 0 likely · **1 review required** · 10 false positive (PR には非表示)
 Reviewers: `alpha`, `beta` · Aggregation: consensus (2 of 2)
 ⚠️ trivy が失敗したため、設定ファイルの検査は行われていません。
 
@@ -1919,6 +1918,10 @@ Reviewers: `alpha`, `beta` · Aggregation: consensus (2 of 2)
 
 - `inline_min_status` 以上(既定 `likely`)の Finding のみ、該当行にコメントする。
 - **diff に含まれる行にしかコメントできない**ため、範囲外の Finding はサマリのみに出す。
+  行番号は PR の head の行番号である。`pull_request` は merge コミットを検査するので、
+  検査時の HEAD を report.json の `target.commit` に記録し、head と違えば `git diff <head> <target.commit>` で
+  head の行に直す (`comment` を実行する場所に両方のコミットが要る)。同じなら git は呼ばない。
+  base 側の変更と重なって対応の取れない行と、2 つのコミットを比べられない場合は推測せず、警告に出す。
 - `max_inline_comments`(既定 20)で上限を設ける。超過分はサマリにまとめる。
 - 同一 fingerprint に対して既にコメントが存在する場合は**再投稿しない**。
   push のたびに同じ指摘が積み上がるのが、この種のツールが嫌われる最大の理由。
@@ -1963,7 +1966,7 @@ rate_limit:
 
 ### 22.3 無料枠向けプリセット
 
-`--slow` で `rpm: 5, concurrency: 1, max_candidates: 50` に落とす。
+`frugal` プリセット(`--preset frugal`)で候補数と文脈を絞り、レートは各 Reviewer の `rate_limit`(`rpm` / `rpd`)で宣言する。
 無料枠相当のレート(rpm 5 程度)で完走できることを、モックを用いた CI テストで検証する。
 
 ---
@@ -2061,16 +2064,21 @@ LLM を含むシステムのテストで最大の失敗は「実 API を叩く�
 from security_checker.testing import ProviderContractTests
 
 class TestMyProvider(ProviderContractTests):
-    provider_factory = lambda: MyProvider(base_url="http://mock", model="m")
+    def make_provider(self):
+        return MyProvider(base_url="http://mock", model="m")
+
+    # 任意。偽のエンドポイントを注入できる Provider は、3・4・6 番まで検証できる
+    def make_http_provider(self, handler):
+        return MyProvider(..., client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
 ```
 
-契約テストが検証する項目:
+契約テストが検証する項目(3・4・6 番は `make_http_provider` を実装した場合。実装しなければ skip):
 
 1. `capabilities` が有効な値を返す
 2. 正常応答で `CompletionResponse` を返し、`usage` が埋まる
 3. 401 → `ProviderAuthError`、429 → `ProviderRateLimitError`(+ `retry_after`)、500 → `ProviderServerError`、
    タイムアウト → `ProviderTimeoutError` に正しく正規化される
-4. `json_schema` 指定時に `parsed` が返る(または適切に降格する)
+4. `json_schema` が 400 で拒否されたら 1 段降格して `degraded_to` が入り、それ以外の 4xx では降格しない
 5. `aclose()` で接続が解放される
 6. リトライを Provider 内部で実装していない(スケジューラの責務を侵さない)
 
@@ -2253,6 +2261,8 @@ v3.0  Dynamic verification   隔離サンドボックス内での PoC 検証。�
 | `security_checker.scanners` | `Scanner` |
 | `security_checker.aggregators` | `Aggregator` |
 | `security_checker.reporters` | `Reporter` |
+
+Scanner のプラグインは、入れただけでは動かない。`scanners.plugins` に書いたものだけを読み込んで実行する。
 
 ### 29.2 LLM を足す 3 つのルート
 
@@ -2586,7 +2596,7 @@ transport が 1 つしかない期間が長いと、その 1 つの都合がコ�
 | R3 | Context 不足による過大/過小評価 | `needs_more_context` を計測し、頻出するなら v2.1 の context expansion を前倒しする |
 | R4 | プロンプトインジェクション | §19.4 の多層防御。ただし**完全な防御はできない**と docs に明記する |
 | R5 | コードを外部 API に送ることへの組織的抵抗 | ローカル完結の構成(ローカルエンドポイント / ローカルコマンド)を `init` が検出できるようにする。`--dry-run` で送信内容を可視化 |
-| R6 | 無料枠のレート制限で大規模リポが完走できない | `max_candidates` と `--slow`、baseline による差分運用。「PR 差分レビューが主戦場」と位置づける |
+| R6 | 無料枠のレート制限で大規模リポが完走できない | `max_candidates`、`frugal` プリセットと `rate_limit`、baseline による差分運用。「PR 差分レビューが主戦場」と位置づける |
 | R7 | モデルの非決定性による結果の揺れ | temperature 0 + seed。それでも揺れることを docs に明記し、CI 用途では baseline での運用を推奨 |
 | R8 | PyPI 名 `security-checker` が空いていない可能性 | 公開前に確認。埋まっていれば配布名のみ変更し、CLI 名は維持 |
 | R9 | **同梱プリセットが対象コマンドのバージョン変更で壊れる** | プリセットはデータなので修正は YAML 1 行。`providers check` で実地検証でき、壊れても `command:` 直書きで回避できる。nightly でスモークテスト |

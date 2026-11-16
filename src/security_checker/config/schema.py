@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from security_checker.language import normalize_language
 from security_checker.models.enums import FindingStatus, Severity
 from security_checker.rules import BUNDLED_PREFIX, bundled_semgrep_rule, bundled_semgrep_rules
 
@@ -31,10 +33,28 @@ DEFAULT_EXCLUDES = (
 )
 
 
+#: `target.exclude` を書き換えても必ず外すもの. 自分の出力と git の内部を検査対象にしない
+ALWAYS_EXCLUDES = (
+    "**/.git/**",
+    "**/.security-checker/**",
+)
+
+
 class TargetConfig(StrictModel):
     root: str = "."
     mode: Literal["auto", "full", "diff"] = "auto"
+    #: 設定すると既定の一覧を**置き換える** (ALWAYS_EXCLUDES だけは常に足す)
     exclude: list[str] = Field(default_factory=lambda: list(DEFAULT_EXCLUDES))
+
+    @field_validator("exclude")
+    @classmethod
+    def _keep_always_excludes(cls, value: list[str]) -> list[str]:
+        """前回のレポートや .git/ の中身を検査して、自分の出力を指摘しない."""
+        return [*value, *(pattern for pattern in ALWAYS_EXCLUDES if pattern not in value)]
+
+
+#: `scanners.plugins` では使えない名前
+BUILTIN_SCANNER_NAMES = frozenset({"semgrep", "gitleaks", "osv", "trivy"})
 
 
 class ScannerConfig(StrictModel):
@@ -72,6 +92,19 @@ class GitleaksConfig(ScannerConfig):
     timeout_s: int = Field(default=300, gt=0)
 
 
+class RepoHygieneConfig(ScannerConfig):
+    #: git ls-files を呼ぶだけなので短い
+    timeout_s: int = Field(default=60, gt=0)
+
+    @field_validator("extra_args")
+    @classmethod
+    def _no_extra_args(cls, value: list[str]) -> list[str]:
+        """外部ツールを呼ばないので渡す先が無い. 黙って無視せず拒む."""
+        if value:
+            raise ValueError("scanners.repo_hygiene は extra_args を受け付けません")
+        return value
+
+
 class OsvConfig(ScannerConfig):
     timeout_s: int = Field(default=300, gt=0)
 
@@ -83,10 +116,26 @@ class TrivyConfig(ScannerConfig):
 class ScannersConfig(StrictModel):
     semgrep: SemgrepConfig = SemgrepConfig()
     gitleaks: GitleaksConfig = GitleaksConfig()
+    # git だけで動く内蔵チェック。git 管理外なら skipped になるだけなので既定で有効
+    repo_hygiene: RepoHygieneConfig = RepoHygieneConfig()
     # 依存の既知脆弱性は件数が多く機械的に見つかる。未導入なら skipped になるだけなので既定で有効
     osv: OsvConfig = OsvConfig()
     # 誤設定の検査はノイズが多く、既定にする根拠が弱い。opt-in
     trivy: TrivyConfig = TrivyConfig(enabled=False)
+    #: entry point で登録した自作スキャナ. ここに書いたものだけを動かす (§29.1)
+    plugins: dict[str, ScannerConfig] = Field(default_factory=dict)
+
+    @field_validator("plugins")
+    @classmethod
+    def _plugins_do_not_shadow_builtins(
+        cls, value: dict[str, ScannerConfig]
+    ) -> dict[str, ScannerConfig]:
+        shadowing = sorted(set(value) & BUILTIN_SCANNER_NAMES)
+        if shadowing:
+            raise ValueError(
+                f"scanners.plugins に内蔵スキャナの名前は使えません: {', '.join(shadowing)}"
+            )
+        return value
 
 
 class ContextConfig(StrictModel):
@@ -136,6 +185,8 @@ class ReviewerConfig(StrictModel):
 
     name: str
     transport: Literal["http", "process"]
+    #: false なら読み込み時に外す. 手元で共有の Reviewer を止めるために使う
+    enabled: bool = True
     weight: float = Field(default=1.0, ge=0.0)
     #: 既定は transport で変わる (http 120 / process 300)。_default_timeout を参照
     timeout_s: int = Field(default=120, gt=0)
@@ -277,6 +328,26 @@ class OutputConfig(StrictModel):
     #: 出力形式ごとに訳し直す場所はないため、ここが全形式に効く (設計書 §18)。
     language: str = "auto"
 
+    @field_validator("language")
+    @classmethod
+    def _normalize_language(cls, value: str) -> str:
+        """`AUTO` → `auto`、`en_US` → `en-US`。空は壊れた言語指示になるので拒否する (#220)."""
+        normalized = normalize_language(value)
+        if not normalized:
+            raise ValueError(
+                "output.language が空です。auto か言語タグ (ja・en・zh-Hant など) を書いてください"
+            )
+        if normalized != "auto" and not _LANGUAGE_TAG_RE.fullmatch(normalized):
+            raise ValueError(
+                f"output.language ({value!r}) は言語タグの形 "
+                "(ja・en-US・zh-Hant など) ではありません"
+            )
+        return normalized
+
+
+#: BCP 47 の大まかな形 (主言語 2〜8 文字 + 区切り付きの副タグ). 未知の言語でもこの形なら通す
+_LANGUAGE_TAG_RE = re.compile(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*")
+
 
 class GithubConfig(StrictModel):
     comment: bool = True
@@ -332,8 +403,10 @@ class Config(StrictModel):
         return {
             "semgrep": self.scanners.semgrep,
             "gitleaks": self.scanners.gitleaks,
+            "repo-hygiene": self.scanners.repo_hygiene,
             "osv": self.scanners.osv,
             "trivy": self.scanners.trivy,
+            **self.scanners.plugins,
         }
 
     def masked_dump(self) -> dict[str, Any]:

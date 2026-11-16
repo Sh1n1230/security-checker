@@ -56,7 +56,10 @@ class ContextBuilder:
         primary: CodeSlice | None = None
         truncated = False
 
-        if candidate.location is not None:
+        if candidate.location is not None and candidate.location.is_file_level:
+            # 行が分からないのに先頭から読むと、指摘と無関係な本文 (資格情報ファイルなら値) を送る
+            notes.append("ファイル全体に対する指摘のため、コード本文は提示されていません。")
+        elif candidate.location is not None:
             primary = line_window(
                 self.root, candidate.location, window_lines=self.config.window_lines
             )
@@ -88,6 +91,16 @@ class ContextBuilder:
                     "判断に足りなければ needs_more_context に記載してください。"
                 )
 
+        # スキャナの message や fix にも検査対象の文字列が入る。ReviewTask に入る文字列は
+        # すべてここでマスクする (§19.2 の必須通過点)。レポート用の Candidate は変えない
+        candidate = candidate.model_copy(
+            update={
+                "message": mask_sensitive_values(candidate.message),
+                "fix_available": mask_sensitive_values(candidate.fix_available)
+                if candidate.fix_available
+                else None,
+            }
+        )
         context = CodeContext(primary=primary, truncated=truncated)
         estimated = PROMPT_OVERHEAD_TOKENS + (
             estimate_tokens(primary.text) if primary is not None else 0
@@ -200,6 +213,13 @@ def mask_sensitive_values(text: str) -> str:
     masked = _PEM_BODY_RE.sub(_mask_pem_body, text)
     masked = redact_known_patterns(masked)
     masked = _JWT_RE.sub(lambda m: mask_secret(m.group(0)), masked)
+    # 引用符で囲んだ値は記号を含んでも終わりの引用符まで伏せる (`password = "p@ss!w0rd#"`)
+    masked = _SENSITIVE_QUOTED_RE.sub(
+        lambda m: (
+            m.group("key") + m.group("quote") + mask_secret(m.group("value")) + m.group("quote")
+        ),
+        masked,
+    )
     return _SENSITIVE_ASSIGNMENT_RE.sub(
         lambda m: m.group("key") + m.group("quote") + mask_secret(m.group("value")), masked
     )
@@ -227,6 +247,12 @@ _SENSITIVE_ASSIGNMENT_RE = re.compile(
     r"|client[_-]?secret|credential)"
     r"[A-Za-z0-9_.-]*[\"']?\s*[:=]\s*)"
     r"(?P<quote>[\"']?)(?P<value>[A-Za-z0-9+/=_~-]{8,})(?=[\s\"',;#}\]]|$)",
+    re.IGNORECASE,
+)
+_SENSITIVE_QUOTED_RE = re.compile(
+    _SENSITIVE_ASSIGNMENT_RE.pattern.split("(?P<quote>")[0]
+    + r"(?P<quote>[\"'])(?P<value>(?:(?!(?P=quote))[^\s\\])(?:(?!(?P=quote))[^\n\\]){6,}"
+    r"(?:(?!(?P=quote))[^\s\\]))(?P=quote)",
     re.IGNORECASE,
 )
 # 検出行で伏せるトークン。数字を含む 16 文字以上に限り、`SERVICE_CREDENTIALS` のような
