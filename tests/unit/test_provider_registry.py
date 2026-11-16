@@ -9,6 +9,7 @@ import pytest
 from security_checker.config.schema import ReviewerConfig
 from security_checker.errors import ConfigError
 from security_checker.providers.base import StructuredMode
+from security_checker.providers.http.dialects.ollama_chat import DEFAULT_NUM_CTX
 from security_checker.providers.presets.loader import HttpPreset, load_http_presets
 from security_checker.providers.registry import (
     build_http_provider,
@@ -158,3 +159,30 @@ def test_unknown_transport_lists_what_is_available():
     unknown = config.model_copy(update={"transport": "carrier-pigeon"})
     with pytest.raises(ConfigError, match="http, process"):
         build_provider(unknown, environ={})
+
+
+# --- 方言の形から決まる既定 (#232, #666) --------------------------------------------
+
+
+def test_messages_dialect_forces_the_tool_call_by_default():
+    # この形に json_mode は無い. 既定が json_mode だと、ツール呼び出しの強制を一度も使わない
+    provider = build_http_provider(reviewer(dialect="anthropic_messages"), environ={}, presets={})
+    assert provider.capabilities.structured_output is StructuredMode.JSON_SCHEMA
+
+
+def test_ollama_context_window_follows_num_ctx():
+    # 送信時に num_ctx を固定するので、入力をその中に収めさせる (超えると system が切られる)
+    default = build_http_provider(reviewer(dialect="ollama_chat"), environ={}, presets={})
+    assert default.capabilities.max_context_tokens == DEFAULT_NUM_CTX
+    widened = build_http_provider(
+        reviewer(dialect="ollama_chat", num_ctx=32768), environ={}, presets={}
+    )
+    assert widened.capabilities.max_context_tokens == 32768
+
+
+def test_explicit_capabilities_still_beat_the_dialect_defaults():
+    config = reviewer(
+        dialect="anthropic_messages", capabilities={"structured_output": "prompt_only"}
+    )
+    provider = build_http_provider(config, environ={}, presets={})
+    assert provider.capabilities.structured_output is StructuredMode.PROMPT_ONLY

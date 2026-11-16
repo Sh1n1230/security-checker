@@ -141,6 +141,10 @@ class OpenAIChatDialect:
         """この方言は認証エラーを 401 / 403 で返すので、本文では判定しない."""
         return False
 
+    def default_capabilities(self) -> dict[str, object]:
+        """この形に固有の既定は無い (json_mode から始める)."""
+        return {}
+
     def explain_error(self, status: int, body: str) -> str | None:
         """この形はサービスごとに本文が違いすぎるため、推測しない."""
         return None
