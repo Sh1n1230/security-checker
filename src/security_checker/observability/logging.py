@@ -37,6 +37,7 @@ logger.propagate = False
 
 
 def set_run_id(run_id: str | None) -> None:
+    """現在の実行の run_id を設定する. すべてのログ行に付与される."""
     _run_id.set(run_id)
 
 
@@ -59,11 +60,23 @@ class _Formatter(logging.Formatter):
         if self.fmt == "json":
             text = json.dumps(payload, ensure_ascii=False, default=str)
         else:
-            extras = " ".join(f"{key}={value}" for key, value in fields.items())
+            extras = " ".join(f"{key}={_text_value(value)}" for key, value in fields.items())
             text = f"{payload['ts']} {payload['level']:<5} {payload['event']}" + (
                 f" {extras}" if extras else ""
             )
         return redact_known_patterns(text)
+
+
+def _text_value(value: Any) -> str:
+    """text 形式の値. 空白・`=`・引用符・制御文字を含むなら JSON の文字列として引用する.
+
+    そのままだと `reason=rate limit hit` が `reason=rate` と `limit` と `hit` に見え、
+    key=value の区切りが曖昧になる (改行はログ行の偽装にもなる)。
+    """
+    text = value if isinstance(value, str) else str(value)
+    if text == "" or any(c.isspace() or c in '="\\' or not c.isprintable() for c in text):
+        return json.dumps(text, ensure_ascii=False)
+    return text
 
 
 def configure(
@@ -83,6 +96,7 @@ def configure(
 
 
 def disable() -> None:
+    """構造化ログを無効にする. configure() で追加したハンドラを取り除く."""
     for handler in list(logger.handlers):
         if handler.get_name() == "security-checker":
             logger.removeHandler(handler)
