@@ -24,8 +24,20 @@ def test_id_is_stable_across_line_moves():
     assert first == second
 
 
-def test_id_ignores_comments_and_case():
-    assert normalize_snippet("Foo()  # 危険") == normalize_snippet("foo()")
+def test_id_ignores_comments_but_preserves_case():
+    assert normalize_snippet("Foo()  # 危険") == normalize_snippet("Foo()")
+    assert normalize_snippet("Foo()") != normalize_snippet("foo()")
+
+
+def test_finding_ids_do_not_collide_when_only_case_differs():
+    uppercase = candidate_id("semgrep", "rules.x", "src/a.py", "API_KEY = source")
+    lowercase = candidate_id("semgrep", "rules.x", "src/a.py", "api_key = source")
+    assert uppercase != lowercase
+
+    factory = IdFactory()
+    assert factory.make("semgrep", "rules.x", "src/a.py", "API_KEY = source") == uppercase
+    assert factory.make("semgrep", "rules.x", "src/a.py", "api_key = source") == lowercase
+    assert factory.make("semgrep", "rules.x", "src/a.py", "API_KEY = source") == f"{uppercase}-1"
 
 
 def test_string_literals_are_not_stripped_as_comments():

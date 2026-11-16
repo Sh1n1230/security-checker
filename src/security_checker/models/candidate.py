@@ -24,7 +24,7 @@ _MASK = "\x00"
 
 
 def normalize_snippet(text: str) -> str:
-    """安定 ID 用の正規化: 文字列退避 → コメント除去 → 空白圧縮 → 小文字化."""
+    """安定 ID 用の正規化: 文字列退避 → コメント除去 → 空白圧縮 (大文字小文字は保持)."""
     literals: list[str] = []
 
     def stash(m: re.Match[str]) -> str:
@@ -39,7 +39,7 @@ def normalize_snippet(text: str) -> str:
             lambda m: literals[int(m.group(1))],
             without_comments,
         )
-    return _WS_RE.sub(" ", without_comments).strip().lower()
+    return _WS_RE.sub(" ", without_comments).strip()
 
 
 class Location(BaseModel):
