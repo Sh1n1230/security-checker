@@ -105,20 +105,13 @@ def _first_object(text: str) -> dict[str, Any] | None:
     """最初の「釣り合った」波括弧ブロックを探す. 文字列内の括弧は数えない."""
     depth = 0
     start = -1
-    in_string = False
-    escaped = False
-    for index, char in enumerate(text):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
+    index = 0
+    while index < len(text):
+        char = text[index]
         if char == '"':
-            in_string = True
-        elif char == "{":
+            index = _after_string(text, index)
+            continue
+        if char == "{":
             if depth == 0:
                 start = index
             depth += 1
@@ -129,7 +122,21 @@ def _first_object(text: str) -> dict[str, Any] | None:
                 if found is not None:
                     return found
                 start = -1
+        index += 1
     return None
+
+
+def _after_string(text: str, opening: int) -> int:
+    """`opening` の引用符で始まる文字列の、閉じ引用符の次の位置. 閉じていなければ末尾."""
+    index = opening + 1
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+            continue
+        if text[index] == '"':
+            return index + 1
+        index += 1
+    return len(text)
 
 
 class SchemaViolationError(Exception):
