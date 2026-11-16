@@ -14,12 +14,13 @@ from rich.console import Console
 from security_checker.config.schema import Config
 from security_checker.errors import ExitCode
 from security_checker.models.candidate import Candidate, Location
-from security_checker.models.enums import Category, ScanStatus, Severity
-from security_checker.models.report import Report
+from security_checker.models.enums import Category, FindingStatus, ScanStatus, Severity
+from security_checker.models.report import Report, ScannerRun
 from security_checker.policy.engine import PolicyDecision
 from security_checker.report import terminal
 from security_checker.run import run_scan
 from security_checker.testing.fakes import FakeScanner
+from tests.factories import make_candidate, make_finding, make_report, make_verdict
 
 
 def capture(report: Report, decision: PolicyDecision, output_dir: Path) -> str:
@@ -117,7 +118,6 @@ def reviewed_report(**overrides: Any) -> Report:
     from security_checker.models.finding import SuppressionReason
     from security_checker.models.report import ReviewerRun, SuppressedCandidate
     from security_checker.models.verdict import Usage
-    from tests.factories import make_candidate, make_finding, make_report, make_verdict
 
     confirmed = make_candidate("c1", path="a.py")
     split = make_candidate("c2", path="b.py")
@@ -167,7 +167,6 @@ def test_review_required_comes_right_after_confirmed(tmp_path):
 
 def test_many_findings_are_truncated(tmp_path):
     from security_checker.models.enums import FindingStatus
-    from tests.factories import make_candidate, make_finding, make_report
 
     candidates = [
         make_candidate(f"c{i}", path=f"f{i}.py") for i in range(terminal.MAX_FINDING_PANELS + 3)
@@ -179,7 +178,6 @@ def test_many_findings_are_truncated(tmp_path):
 
 def test_only_false_positives_says_nothing_to_report(tmp_path):
     from security_checker.models.enums import FindingStatus
-    from tests.factories import make_candidate, make_finding, make_report
 
     c = make_candidate()
     output = capture(
@@ -205,10 +203,24 @@ def test_unknown_cost_and_many_warnings(tmp_path):
 
 def test_diff_mode_label(tmp_path):
     from security_checker.models.report import TargetInfo
-    from tests.factories import make_report
 
     report = make_report(
         [], target=TargetInfo(root="/r", mode="diff", changed_files=3, base="origin/main")
     )
     output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]), tmp_path)
     assert "diff mode vs origin/main, 3 files" in output
+
+
+def test_scanners_are_separated_and_redacted_findings_are_marked(tmp_path, candidate):
+    masked = candidate.model_copy(update={"redacted": True})
+    report = make_report(
+        [masked],
+        [make_finding(masked, FindingStatus.CONFIRMED)],
+        scanners=[
+            ScannerRun(scanner="semgrep", category=Category.SAST, status=ScanStatus.OK),
+            ScannerRun(scanner="gitleaks", category=Category.SECRET, status=ScanStatus.OK),
+        ],
+    )
+    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]), tmp_path)
+    assert "semgrep ✓ 0  gitleaks ✓ 0" in output
+    assert "値はマスクして保存・送信" in output

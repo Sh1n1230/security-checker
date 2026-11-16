@@ -50,3 +50,31 @@ async def test_recorded_cassette_is_masked(tmp_path):
 def test_recording_requires_a_real_provider(tmp_path):
     with pytest.raises(ValueError):
         CassetteProvider(tmp_path / "c.json", record=True)
+
+
+def test_cassette_of_another_version_is_refused(tmp_path):
+    path = tmp_path / "old.json"
+    path.write_text('{"version": -1, "entries": {}}', encoding="utf-8")
+    with pytest.raises(ValueError, match="カセットの版が違います"):
+        CassetteProvider(path)
+
+
+async def test_replay_is_healthy_without_a_provider_and_close_is_a_no_op(tmp_path):
+    provider = CassetteProvider(tmp_path / "c.json")
+    health = await provider.health_check()
+    assert (health.ok, health.detail) == (True, "cassette")
+    await provider.aclose()
+
+
+async def test_recording_delegates_health_and_close_to_the_real_provider(tmp_path):
+    inner = ScriptedProvider([])
+    provider = CassetteProvider(tmp_path / "c.json", inner=inner, record=True)
+    assert (await provider.health_check()).ok is True
+    await provider.aclose()
+    assert inner.closed is True
+
+
+async def test_scripted_provider_fails_loudly_when_the_script_runs_out():
+    provider = ScriptedProvider([])
+    with pytest.raises(AssertionError, match="応答が尽きました"):
+        await provider.complete(CompletionRequest(system="s", user="u", json_schema={}))

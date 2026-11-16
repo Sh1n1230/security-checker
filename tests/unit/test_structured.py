@@ -142,3 +142,13 @@ def test_schema_sent_to_the_llm_has_no_internal_descriptions():
 
     text = json.dumps(verdict_schema(), ensure_ascii=False)
     assert '"description"' not in text
+
+
+def test_braces_and_escaped_quotes_inside_strings_do_not_end_the_object():
+    text = 'Here is my answer: {"reasoning": "the \\"}\\" is quoted", "vulnerable": true} Thanks.'
+    assert extract_json(text) == {"reasoning": 'the "}" is quoted', "vulnerable": True}
+
+
+def test_an_unparsable_object_is_skipped_and_the_next_one_is_used():
+    text = 'Example: {not json} Answer: {"vulnerable": false}'
+    assert extract_json(text) == {"vulnerable": False}

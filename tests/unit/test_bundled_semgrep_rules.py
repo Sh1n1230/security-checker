@@ -47,3 +47,8 @@ def test_bundled_rules_pass_semgrep_test():
         env={**os.environ, "SEMGREP_ENABLE_VERSION_CHECK": "0"},
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_no_rules_are_listed_when_the_bundled_directory_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(rules, "SEMGREP_DIR", tmp_path / "missing")
+    assert rules.bundled_semgrep_rules() == []

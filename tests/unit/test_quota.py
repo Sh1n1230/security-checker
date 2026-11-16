@@ -10,7 +10,13 @@ from typing import Any
 
 from security_checker.config.schema import BudgetConfig, RateLimit, ReviewerConfig
 from security_checker.models.verdict import VerdictStatus
-from security_checker.observability.quota import QuotaStore, quota_key
+from security_checker.observability import quota
+from security_checker.observability.quota import (
+    QUOTA_FILENAME,
+    QuotaStore,
+    default_quota_path,
+    quota_key,
+)
 from security_checker.providers.check import probe_task
 from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import (
@@ -116,3 +122,35 @@ async def test_token_limiter_waits_for_the_window(monkeypatch):
     assert slept and round(sum(slept)) == 60
     # 1 回で上限を超える依頼も、窓が空いていれば通す (永久に待たない)
     await asyncio.wait_for(TokenLimiter(tpm=10).acquire(500), timeout=1)
+
+
+# --- 書けない・ロックできない環境でも実行を止めない -------------------------------
+
+
+def test_default_quota_path_follows_xdg_cache_home(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    assert default_quota_path() == tmp_path / "security-checker" / QUOTA_FILENAME
+    monkeypatch.delenv("XDG_CACHE_HOME")
+    assert default_quota_path().parent.name == "security-checker"
+    assert default_quota_path().parent.parent.name == ".cache"
+
+
+def test_unwritable_quota_directory_is_reported_but_still_counts(tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("", encoding="utf-8")
+    store = QuotaStore(blocker / "nested" / "quota.json")  # 親がファイルなので作れない
+    assert store.consume("r:m") == 1
+    joined = "\n".join(store.errors)
+    assert "書けません" in joined
+    assert "ロック" in joined
+
+
+def test_lock_failure_is_reported_but_does_not_stop_the_run(tmp_path, monkeypatch):
+    def refuse(fd: int) -> None:
+        raise OSError("locks are not supported here")
+
+    monkeypatch.setattr(quota, "_lock", refuse)
+    store = quota.QuotaStore(tmp_path / "quota.json")
+    assert store.consume("r:m") == 1
+    assert any("ロック" in error and "取れません" in error for error in store.errors)
+    assert quota.QuotaStore(tmp_path / "quota.json").used("r:m") == 1
