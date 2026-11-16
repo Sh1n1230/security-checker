@@ -140,14 +140,16 @@ docs: describe process transport limitations
 ## Provider / Scanner / Aggregator / Reporter を足す
 
 上記で表現できない形（新しい API 方言など）だけ、コードが要ります。
-内蔵も外部プラグインも同じ entry point 経由で登録されるため、プラグインが二級市民になることはありません。
+プラグインは entry point に登録し、**設定で名前を書いたものだけ**が読み込まれます (入れただけでは動きません)。
+内蔵もプラグインも同じ Protocol を満たし、同じ契約テスト (`security_checker.testing`) を通します。
 
-| entry point group | Protocol |
-|---|---|
-| `security_checker.providers` | `LLMProvider` |
-| `security_checker.scanners` | `Scanner` |
-| `security_checker.aggregators` | `Aggregator` |
-| `security_checker.reporters` | `Reporter` |
+| entry point group | Protocol | 設定での有効化 |
+|---|---|---|
+| `security_checker.providers` | `LLMProvider` | `reviewers[].transport: plugin` + `plugin: <名前>` |
+| `security_checker.scanners` | `Scanner` | `scanners.plugins.<名前>` |
+| `security_checker.aggregators` | `Aggregator` | `aggregation.strategy: <名前>` |
+
+出力形式 (Reporter) のプラグインはまだありません (#270)。
 
 ---
 

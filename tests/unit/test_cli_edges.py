@@ -117,19 +117,15 @@ def test_comment_with_a_broken_report_is_a_config_error(tmp_path, monkeypatch):
     assert "レポートを読めません" in result.output
 
 
-def test_providers_list_says_none_and_shows_plugin_warnings(monkeypatch):
+def test_providers_list_says_none_when_nothing_is_registered(monkeypatch):
     empty = ProviderCatalog(
-        dialects=["openai_chat"],
-        http_presets={},
-        process_presets={},
-        plugins=[],
-        warnings=["provider プラグイン 'x' の読み込みに失敗しました"],
+        dialects=["openai_chat"], http_presets={}, process_presets={}, plugins=[]
     )
     monkeypatch.setattr(cli, "catalog", lambda: empty)
     result = runner.invoke(app, ["providers", "list"])
     assert result.exit_code == ExitCode.OK
     assert result.output.count("(なし)") == 3
-    assert "プラグイン 'x' の読み込みに失敗しました" in result.output
+    assert "transport: plugin" in result.output
 
 
 # --- run の補助 -------------------------------------------------------------------
