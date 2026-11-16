@@ -95,7 +95,6 @@ def test_headers_env_without_the_variable_is_config_error():
         build_http_provider(config, environ={}, presets={})
 
 
-
 @pytest.mark.parametrize(
     "base_url",
     [
