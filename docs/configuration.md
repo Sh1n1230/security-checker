@@ -79,7 +79,8 @@
 | `headers` / `headers_env` | http 用の追加ヘッダ。秘密を含むヘッダは `headers_env` に**環境変数名**を書く (`X-Api-Key: MY_ENV`)。`headers` の値は `config show` とトレースでは伏せる |
 | `command` / `preset` / `prompt_via` | process 用 |
 | `weight` | `weighted` 集約での重み |
-| `timeout_s` / `concurrency` / `max_output_tokens` / `seed` | 呼び出しの制御 |
+| `timeout_s` / `max_output_tokens` / `seed` | 呼び出しの制御 |
+| `concurrency` | この Reviewer に同時に送る数。省略時は http が `concurrency.reviews_per_provider`、process が `1` |
 | `rate_limit.rpm` / `tpm` / `rpd` | 毎分のリクエスト数・トークン数、1 日のリクエスト数 |
 | `capabilities.*` | 構造化出力の方式などの明示指定 (自動判定より優先) |
 
@@ -119,7 +120,7 @@
 | `budget.max_usd` / `max_total_tokens` | `1.0` / `2,000,000` | 超える見込みになったら新規の呼び出しを止め、部分結果を出す。送信の直前に、使用量・送信中の分・次の呼び出しの見積り (出力は上限で数える) の合計で判定する |
 | `budget.deadline_s` | `1800` | レビューの実行時間の上限 (秒)。Judge の段も含む。超えたら新規の呼び出しを止め、部分結果を出す。送信中の呼び出しは待つので、`reviewers[].timeout_s` の分だけ超えることがある |
 | `budget.on_exceed` | `stop_and_report` | `warn_and_continue` にすると止めない |
-| `concurrency.scanners` / `reviews_per_provider` | `4` / `4` | |
+| `concurrency.scanners` / `reviews_per_provider` | `4` / `4` | 同時に動かすスキャナの数 / http の Reviewer 1 体に同時に送る数の既定。`reviewers[].concurrency` を書いた Reviewer はそちらが優先。実際の送信数は `rate_limit` でも抑えられます |
 | `context.window_lines` / `max_tokens_per_task` | `40` / `8000` | LLM に渡す文脈。`max_tokens_per_task` はプロンプト全体の上限で、本文以外に約 1,500 トークン使います。Reviewer の `max_context_tokens − max_output_tokens` のほうが小さければ、そちらに合わせます |
 | `context.max_callers` | `3` | **未実装**。呼び出し元のコードはまだ文脈に含めない (既定値と `0` 以外を書くと警告) |
 

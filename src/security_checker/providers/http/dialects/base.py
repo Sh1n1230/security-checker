@@ -86,6 +86,14 @@ class Dialect(Protocol):
         """401/403 以外で返る認証エラーか. 鍵の不備を別のコードで返す形のために置く."""
         ...
 
+    def default_capabilities(self) -> dict[str, object]:
+        """この方言の形から決まる Capabilities の既定値. 無ければ空.
+
+        特定の提供元の知識ではなく、リクエストの形そのものから決まる値だけを返す
+        (構造化出力の得方、送信時に固定する文脈長)。プリセットと利用者の指定が後勝ちで上書きする。
+        """
+        ...
+
     def explain_error(self, status: int, body: str) -> str | None:
         """4xx の本文から、利用者が次に取れる行動を導けるなら文章にして返す.
 

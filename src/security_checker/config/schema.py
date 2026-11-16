@@ -211,7 +211,8 @@ class ReviewerConfig(StrictModel):
     weight: float = Field(default=1.0, ge=0.0)
     #: 既定は transport で変わる (http 120 / process 300)。_default_timeout を参照
     timeout_s: int = Field(default=120, gt=0)
-    concurrency: int = Field(default=1, gt=0)
+    #: 同時に送る数. 省略時は http が concurrency.reviews_per_provider、process が 1
+    concurrency: int | None = Field(default=None, gt=0)
     rate_limit: RateLimit = RateLimit()
 
     # http transport ("text_io" だけは process transport の方言)

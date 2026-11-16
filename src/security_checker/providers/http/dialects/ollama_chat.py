@@ -127,6 +127,13 @@ class OllamaChatDialect:
         """この方言は認証エラーを 401 / 403 で返すので、本文では判定しない."""
         return False
 
+    def default_capabilities(self) -> dict[str, object]:
+        """送信時に num_ctx を固定するので、文脈長の上限はその値になる.
+
+        超えた分はプロンプトの先頭 (system の指示) から切られる。上限として渡して入力を収めさせる。
+        """
+        return {"max_context_tokens": self.num_ctx}
+
     def explain_error(self, status: int, body: str) -> str | None:
         """モデル未取得を、実行できるコマンドの案内に変える (§9.4)."""
         if status == HTTPStatus.NOT_FOUND and "not found" in body.lower():

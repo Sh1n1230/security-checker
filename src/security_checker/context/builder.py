@@ -33,6 +33,20 @@ if TYPE_CHECKING:
 
 MIN_WINDOW_LINES = 6
 SECRET_MIN_LENGTH = 8
+
+# user プロンプトの `## Notes` に入る文. system プロンプトとテンプレートと同じく英語で書く
+# (output.language が en でも ja でも、依頼の本文は同じにする。応答の言語は別に指示する) (#289)
+NOTE_FILE_LEVEL = "This finding is about the file as a whole, so no code is shown."
+NOTE_UNREADABLE = "The target file could not be read, so no code is shown."
+NOTE_DEPENDENCY = "This finding is about a dependency, so there is no code to show."
+NOTE_MASKED_VALUE = (
+    "This candidate is a detected secret. The value is masked; the original was not sent."
+)
+_ASK_FOR_CONTEXT = "If that is not enough to decide, say so in needs_more_context."
+NOTE_OVER_BUDGET = (
+    f"The code does not fit in the token budget, so it is not shown. {_ASK_FOR_CONTEXT}"
+)
+NOTE_TRUNCATED = f"The context was truncated to fit the token budget. {_ASK_FOR_CONTEXT}"
 #: 引用符で区切った断片がこの数以下なら、閉じた引用符の組は 1 つも無い
 _UNQUOTED_PARTS = 2
 
@@ -65,15 +79,15 @@ class ContextBuilder:
 
         if candidate.location is not None and candidate.location.is_file_level:
             # 行が分からないのに先頭から読むと、指摘と無関係な本文 (資格情報ファイルなら値) を送る
-            notes.append("ファイル全体に対する指摘のため、コード本文は提示されていません。")
+            notes.append(NOTE_FILE_LEVEL)
         elif candidate.location is not None:
             primary = line_window(
                 self.root, candidate.location, window_lines=self.config.window_lines
             )
             if primary is None:
-                notes.append("対象ファイルを読み込めなかったため、コード本文は提示されていません。")
+                notes.append(NOTE_UNREADABLE)
         elif candidate.package is not None:
-            notes.append("依存パッケージに対する指摘のため、コード本文はありません。")
+            notes.append(NOTE_DEPENDENCY)
 
         if primary is not None:
             # 文脈窓には、検出された行以外の値も入りうる。カテゴリによらず伏せる (§19.2)
@@ -81,22 +95,14 @@ class ContextBuilder:
 
         if primary is not None and candidate.category is Category.SECRET:
             primary = self._redact_slice(primary, candidate)
-            notes.append(
-                "この候補はシークレット検出です。値はマスクしてあり、原文は送信していません。"
-            )
+            notes.append(NOTE_MASKED_VALUE)
 
         if primary is not None:
             primary, truncated = self._fit_budget(primary, candidate)
             if primary is None:
-                notes.append(
-                    "トークン予算に収まらないため、コード本文は提示していません。"
-                    "判断に足りなければ needs_more_context に記載してください。"
-                )
+                notes.append(NOTE_OVER_BUDGET)
             elif truncated:
-                notes.append(
-                    "トークン予算のため文脈を切り詰めています。"
-                    "判断に足りなければ needs_more_context に記載してください。"
-                )
+                notes.append(NOTE_TRUNCATED)
 
         # スキャナの message や fix にも検査対象の文字列が入る。ReviewTask に入る文字列は
         # すべてここでマスクする (§19.2 の必須通過点)。レポート用の Candidate は変えない

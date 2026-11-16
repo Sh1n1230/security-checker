@@ -291,6 +291,26 @@ def test_apply_judgement(judge, status):
     assert result.status is status
 
 
+def test_judge_cwe_comes_first_when_it_judges_vulnerable():
+    finding = split_finding()  # 一次レビューの CWE は CWE-78
+    judged = apply_judgement(
+        finding,
+        make_verdict("judge", vulnerable=True, cwe=["CWE-88", "CWE-78"]),
+        policy=PolicyConfig(),
+    )
+    assert judged.cwe == ["CWE-88", "CWE-78"]
+
+
+def test_judge_cwe_is_not_adopted_when_it_judges_not_vulnerable():
+    finding = split_finding()
+    judged = apply_judgement(
+        finding,
+        make_verdict("judge", vulnerable=False, confidence=0.95, cwe=["CWE-88"]),
+        policy=PolicyConfig(),
+    )
+    assert judged.cwe == finding.cwe
+
+
 def test_needs_judge_ignores_findings_without_opinions():
     c = make_candidate()
     cfg = AggregationConfig(strategy="judge")
