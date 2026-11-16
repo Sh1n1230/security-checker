@@ -130,6 +130,6 @@ async def test_scanner_exception_traceback_goes_to_the_debug_log(tmp_path, caplo
     scanners = [FakeScanner("boom", raises=KeyError("x"))]
     await run_scan(Config(), tmp_path, base_dir=tmp_path, scanners=scanners)
     record = next(r for r in caplog.records if r.getMessage() == "scanner.internal_error")
-    fields = record.fields  # type: ignore[attr-defined]
+    fields = record.fields
     assert fields["error_type"] == "KeyError"
     assert "Traceback (most recent call last)" in fields["traceback"]
