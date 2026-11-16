@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from security_checker.aggregate.agreement import compute_agreement
 from security_checker.aggregate.base import AggregationOutcome, aggregate_severity
@@ -21,10 +21,14 @@ from security_checker.aggregate.consensus import (
     partial_outcome,
     single_outcome,
 )
-from security_checker.config.schema import AggregationConfig
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Agreement, FindingStatus, Severity
 from security_checker.models.verdict import ReviewVerdict, VerdictStatus
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from security_checker.config.schema import AggregationConfig
+    from security_checker.models.candidate import Candidate
 
 #: threshold をどれだけ上回れば confirmed とするか (§14.2)
 CONFIRMED_MARGIN = 0.2
@@ -41,6 +45,7 @@ class WeightedAggregator:
         self.weights = dict(weights or {})
 
     def weight_of(self, verdict: ReviewVerdict) -> float:
+        """Reviewer の重み. 設定に無ければ等倍."""
         return self.weights.get(verdict.reviewer, DEFAULT_WEIGHT)
 
     def aggregate(
@@ -49,6 +54,7 @@ class WeightedAggregator:
         verdicts: list[ReviewVerdict],
         cfg: AggregationConfig,
     ) -> AggregationOutcome:
+        """重みと confidence から符号付きのスコアを作り、閾値で status を決める (§14.2)."""
         valid = [verdict for verdict in verdicts if verdict.status is VerdictStatus.OK]
         if not valid:
             return AggregationOutcome(
@@ -151,8 +157,7 @@ class WeightedAggregator:
         return aggregate_severity(vulnerable, cfg.consensus.severity, self.weight_of)
 
     def _summary(self, vulnerable: list[ReviewVerdict], score: float) -> str:
-        if not vulnerable:
-            return f"重み付きスコア {score:+.2f}。"
+        # 閾値は正なので、ここに来るのは「脆弱」と答えた Reviewer がいるときだけ
         return f"{_headline(vulnerable[0])} (重み付きスコア {score:+.2f})"
 
     def _outcome(

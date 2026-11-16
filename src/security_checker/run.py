@@ -11,24 +11,22 @@ import asyncio
 import contextlib
 import tempfile
 import time
-from collections.abc import Sequence
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from security_checker import __version__
 from security_checker.aggregate.findings import build_findings
 from security_checker.aggregate.judge import anonymize, apply_judgement, needs_judge
 from security_checker.aggregate.registry import build_aggregator
-from security_checker.config.schema import BudgetConfig, Config, ReviewerConfig
 from security_checker.context.builder import ContextBuilder
 from security_checker.context.facts import collect_repo_facts
 from security_checker.errors import ConfigError
 from security_checker.github.pr import DiffScope, head_commit, repo_prefix
 from security_checker.ids import new_run_id
 from security_checker.language import resolve_language
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category, ScanStatus, Severity
-from security_checker.models.finding import Finding
 from security_checker.models.report import (
     Coverage,
     Report,
@@ -41,7 +39,6 @@ from security_checker.models.report import (
     count_by_status,
     utcnow,
 )
-from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import Usage, VerdictStatus
 from security_checker.observability import logging as log
 from security_checker.observability.cost import ModelPrice, PriceTable
@@ -52,7 +49,6 @@ from security_checker.policy.suppress import (
     SuppressionRules,
     apply_suppressions,
 )
-from security_checker.providers.base import LLMProvider
 from security_checker.providers.registry import build_provider
 from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import (
@@ -64,6 +60,15 @@ from security_checker.review.scheduler import (
 from security_checker.scanners.base import ScanContext, Scanner, ScanResult, Target
 from security_checker.scanners.registry import build_scanners
 from security_checker.scanners.untrusted import prepare_overrides, residual_warnings
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from security_checker.config.schema import BudgetConfig, Config, ReviewerConfig
+    from security_checker.models.candidate import Candidate
+    from security_checker.models.finding import Finding
+    from security_checker.models.task import ReviewTask
+    from security_checker.providers.base import LLMProvider
 
 
 @dataclass
@@ -205,8 +210,11 @@ def _location_warning(config: Config, root: Path) -> list[str]:
     """SARIF の位置はリポジトリルートからのパスなので、ルートが分からないなら伝える."""
     if "sarif" in config.output.formats and repo_prefix(root) is None:
         return [
-            "検査対象が git 管理外のため、SARIF のパスは検査対象からの相対になります。"
-            "リポジトリのサブディレクトリなら、Code Scanning の alert がファイルに結び付きません"
+            (
+                "検査対象が git 管理外のため、SARIF のパスは検査対象からの相対になります。"
+                "リポジトリのサブディレクトリなら、"
+                "Code Scanning の alert がファイルに結び付きません"
+            )
         ]
     return []
 
@@ -252,11 +260,19 @@ async def _run_one(
         try:
             return await scanner.scan(target, ctx)
         except Exception as exc:  # 1 つの失敗で全体を落とさない (§20.2)
+            # レポートには型名と短いメッセージだけを残す. 調査に要る場所は debug ログに出す
+            log.event(
+                "scanner.internal_error",
+                level="debug",
+                scanner=scanner.name,
+                error_type=type(exc).__name__,
+                traceback=traceback.format_exc(),
+            )
             return ScanResult(
                 scanner=scanner.name,
                 category=scanner.category,
                 status=ScanStatus.FAILED,
-                reason=f"内部エラー: {exc}",
+                reason=f"内部エラー ({type(exc).__name__}): {exc}",
             )
 
 

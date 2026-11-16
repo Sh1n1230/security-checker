@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+from http import HTTPStatus
 from typing import Any
 
 from security_checker.models.verdict import Usage
@@ -41,14 +42,15 @@ class AnthropicMessagesDialect:
         self.options = options or DialectOptions()
 
     def endpoint(self, base_url: str, model: str) -> str:
+        """リクエストを送る URL を返す."""
         # base_url に /v1 を含めて書く人と含めない人の両方がいる。
         # どちらでも同じ URL になるよう正規化する (二重の /v1 を作らない)。
         trimmed = base_url.rstrip("/")
-        if trimmed.endswith("/v1"):
-            trimmed = trimmed[: -len("/v1")]
+        trimmed = trimmed.removesuffix("/v1")
         return f"{trimmed}/v1/messages"
 
     def headers(self, api_key: str | None) -> dict[str, str]:
+        """認証を含む HTTP ヘッダを返す."""
         headers = {
             "Content-Type": "application/json",
             "anthropic-version": DEFAULT_API_VERSION,
@@ -66,6 +68,7 @@ class AnthropicMessagesDialect:
         capabilities: Capabilities,
         mode: StructuredMode,
     ) -> dict[str, Any]:
+        """CompletionRequest をこの方言のリクエスト本文にする."""
         payload: dict[str, Any] = {
             "model": model,
             "max_tokens": output_limit(req, capabilities),
@@ -93,6 +96,7 @@ class AnthropicMessagesDialect:
         return payload
 
     def parse_response(self, payload: dict[str, Any]) -> DialectResponse:
+        """応答の本文から、テキスト・構造化出力・使用量を取り出す."""
         content = payload.get("content")
         if not isinstance(content, list):
             raise ProviderResponseError("応答に content がありません")
@@ -139,6 +143,7 @@ class AnthropicMessagesDialect:
         )
 
     def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]:
+        """疎通確認用の最小のリクエスト本文 (出力は 1 トークン)."""
         return {
             "model": model,
             "max_tokens": 1,
@@ -146,17 +151,22 @@ class AnthropicMessagesDialect:
         }
 
     def is_auth_error(self, status: int, body: str) -> bool:
+        """この方言は認証エラーを 401 / 403 で返すので、本文では判定しない."""
         return False
+
+    def default_capabilities(self) -> dict[str, object]:
+        """この形に json_mode は無い. 構造化出力はツール呼び出しの強制 (json_schema) で得る."""
+        return {"structured_output": StructuredMode.JSON_SCHEMA.value}
 
     def explain_error(self, status: int, body: str) -> str | None:
         """次に取れる行動が分かる場合だけ文章にする (§20.2)."""
         lowered = body.lower()
-        if status == 404 and "model" in lowered:
+        if status == HTTPStatus.NOT_FOUND and "model" in lowered:
             return (
                 "model に指定した ID がこのエンドポイントに存在しません。"
                 "設定の model を確認してください"
             )
-        if status == 400 and "max_tokens" in lowered:
+        if status == HTTPStatus.BAD_REQUEST and "max_tokens" in lowered:
             return (
                 "出力トークンの上限がモデルの許容範囲を超えています。"
                 "max_output_tokens を下げてください"
@@ -164,5 +174,5 @@ class AnthropicMessagesDialect:
         return None
 
 
-def _as_int(value: Any) -> int:
+def _as_int(value: object) -> int:
     return value if isinstance(value, int) else 0

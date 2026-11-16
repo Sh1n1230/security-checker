@@ -15,10 +15,12 @@ import json
 import os
 import sys
 import tempfile
-from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 QUOTA_FILENAME = "quota.json"
 #: 古い日付の記録は残しても役に立たない. 直近の数日分だけ持つ
@@ -26,6 +28,7 @@ KEEP_DAYS = 7
 
 
 def default_quota_path() -> Path:
+    """日次クォータの記録の既定の置き場所 (XDG_CACHE_HOME を尊重する)."""
     base = os.environ.get("XDG_CACHE_HOME")
     root = Path(base) if base else Path.home() / ".cache"
     return root / "security-checker" / QUOTA_FILENAME
@@ -54,11 +57,13 @@ class QuotaStore:
         return data if isinstance(data, dict) else {}
 
     def used(self, key: str) -> int:
+        """今日すでに使った回数."""
         day = self._load().get(self._today().isoformat(), {})
         value = day.get(key, 0) if isinstance(day, dict) else 0
         return value if isinstance(value, int) else 0
 
     def remaining(self, key: str, limit: int) -> int:
+        """今日あと何回使えるか."""
         return max(0, limit - self.used(key))
 
     def consume(self, key: str, count: int = 1) -> int:

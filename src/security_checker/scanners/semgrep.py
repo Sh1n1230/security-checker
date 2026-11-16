@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 import re
 import time
-from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from security_checker.config.schema import SemgrepConfig
 from security_checker.errors import ConfigError
 from security_checker.models.candidate import Candidate, IdFactory, Location
 from security_checker.models.enums import Category, Severity
@@ -26,6 +24,11 @@ from security_checker.scanners.base import (
 )
 from security_checker.scanners.filters import is_excluded
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.config.schema import SemgrepConfig
+
 CWE_RE = re.compile(r"CWE-\d+")
 
 SEVERITY_MAP = {
@@ -41,6 +44,8 @@ SEVERITY_MAP = {
 }
 #: semgrep CE (未ログイン) が extra.lines に入れる固定の文字列. スニペットとしては使えない
 _LOGIN_PLACEHOLDER = "requires login"
+#: semgrep は「検出あり」でも 0 か 1 を返す. これ以上は実行の失敗
+_FAILURE_EXIT_CODE = 2
 #: 同梱ルールの check_id に semgrep が前置する、インストール先から作った接頭辞の終わり
 _BUNDLED_RULE_PREFIX = "security_checker.rules.semgrep."
 CONFIDENCE_MAP = {"HIGH": 0.9, "MEDIUM": 0.6, "LOW": 0.3}
@@ -69,17 +74,21 @@ def is_secret_result(item: dict[str, Any]) -> bool:
     return bool(_SECRET_CWES & set(_extract_cwe(metadata)))
 
 
-def redact_semgrep_payload(payload: Any) -> Any:
+def _without_matched_lines(item: dict[str, Any]) -> dict[str, Any]:
+    """検出 1 件から、一致した行 (秘密の値を含みうる) を落とす."""
+    extra = dict(as_dict(item.get("extra")))
+    extra.pop("lines", None)
+    return {**item, "extra": extra}
+
+
+def redact_semgrep_payload(payload: object) -> object:
     """raw/semgrep.json に書く形. 秘密系ルールの検出では一致した行を落とす."""
     if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
         return payload
     results: list[Any] = []
     for item in payload["results"]:
-        if isinstance(item, dict) and is_secret_result(item):
-            extra = dict(as_dict(item.get("extra")))
-            extra.pop("lines", None)
-            item = {**item, "extra": extra}
-        results.append(item)
+        secret = isinstance(item, dict) and is_secret_result(item)
+        results.append(_without_matched_lines(item) if secret else item)
     return {**payload, "results": results}
 
 
@@ -91,7 +100,7 @@ def _extract_references(metadata: dict[str, Any]) -> list[str]:
 
 
 def parse_semgrep(
-    payload: Any,
+    payload: object,
     root: Path,
     *,
     exclude: list[str] | None = None,
@@ -123,80 +132,86 @@ def parse_semgrep(
         if not isinstance(check_id, str) or not isinstance(raw_path, str):
             warnings.append(f"semgrep: results[{index}] に check_id / path がありません")
             continue
-
         path = relative_path(raw_path, root)
         if exclude and is_excluded(path, exclude):
             continue
-
-        extra = as_dict(item.get("extra"))
-        metadata = as_dict(extra.get("metadata"))
-        start = as_dict(item.get("start"))
-        end = as_dict(item.get("end"))
-        start_line = start.get("line")
-        end_line = end.get("line")
-        if not isinstance(start_line, int):
-            warnings.append(f"semgrep: {check_id} ({path}) に start.line がありません")
-            start_line = 0
-        if not isinstance(end_line, int):
-            end_line = start_line
-
-        check_id = _normalize_check_id(check_id)
-        snippet_raw = extra.get("lines")
-        snippet = snippet_raw.strip() if isinstance(snippet_raw, str) else None
-        if snippet in (None, "", _LOGIN_PLACEHOLDER):
-            # CE では lines が固定文字列になり、ID が出現順だけで決まってしまう (§6.1)
-            snippet = _read_lines(root, path, start_line, end_line)
-        secret = is_secret_result(item)
-        # ID の材料には一致した行を使うが (ハッシュにしか残らない)、秘密の行は保存しない
-        fingerprint = snippet or check_id
-        if secret:
-            snippet = None
-        message = extra.get("message")
-        message_text = message.strip() if isinstance(message, str) else check_id
-        severity_raw = extra.get("severity")
-        severity = SEVERITY_MAP.get(
-            severity_raw.upper() if isinstance(severity_raw, str) else "",
-            Severity.LOW,
-        )
-        confidence_raw = metadata.get("confidence")
-        confidence = (
-            CONFIDENCE_MAP.get(confidence_raw.upper()) if isinstance(confidence_raw, str) else None
-        )
-        fix = extra.get("fix")
-
-        candidates.append(
-            Candidate(
-                id=ids.make("semgrep", check_id, path, fingerprint),
-                scanner="semgrep",
-                category=Category.SAST,
-                rule_id=check_id,
-                title=check_id.rsplit(".", 1)[-1],
-                message=message_text,
-                location=Location(
-                    path=path,
-                    start_line=start_line,
-                    end_line=end_line,
-                    snippet=snippet,
-                ),
-                severity_reported=severity,
-                confidence_reported=confidence,
-                cwe=_extract_cwe(metadata),
-                references=_extract_references(metadata),
-                # 秘密系ルールの autofix は値を含みうる. 一致した行と一緒に落とす
-                fix_available=fix if isinstance(fix, str) and not secret else None,
-                raw=redact_semgrep_payload({"results": [item]})["results"][0] if secret else item,
-                redacted=secret,
-            )
-        )
+        candidates.append(_candidate(item, check_id, path, root, ids, warnings))
 
     errors = payload.get("errors")
     if isinstance(errors, list):
-        for error in errors:
-            if isinstance(error, dict):
-                detail = error.get("message") or error.get("type") or "不明なエラー"
-                warnings.append(f"semgrep: {detail}")
+        warnings.extend(
+            f"semgrep: {error.get('message') or error.get('type') or '不明なエラー'}"
+            for error in errors
+            if isinstance(error, dict)
+        )
 
     return candidates, warnings
+
+
+def _line_range(
+    item: dict[str, Any], check_id: str, path: str, warnings: list[str]
+) -> tuple[int, int]:
+    """検出の開始行と終了行. 開始行が無ければ 0 (ファイル単位) にして知らせる."""
+    start_line = as_dict(item.get("start")).get("line")
+    end_line = as_dict(item.get("end")).get("line")
+    if not isinstance(start_line, int):
+        warnings.append(f"semgrep: {check_id} ({path}) に start.line がありません")
+        start_line = 0
+    return start_line, end_line if isinstance(end_line, int) else start_line
+
+
+def _candidate(
+    item: dict[str, Any],
+    raw_check_id: str,
+    path: str,
+    root: Path,
+    ids: IdFactory,
+    warnings: list[str],
+) -> Candidate:
+    extra = as_dict(item.get("extra"))
+    metadata = as_dict(extra.get("metadata"))
+    start_line, end_line = _line_range(item, raw_check_id, path, warnings)
+
+    check_id = _normalize_check_id(raw_check_id)
+    snippet_raw = extra.get("lines")
+    snippet = snippet_raw.strip() if isinstance(snippet_raw, str) else None
+    if snippet in (None, "", _LOGIN_PLACEHOLDER):
+        # CE では lines が固定文字列になり、ID が出現順だけで決まってしまう (§6.1)
+        snippet = _read_lines(root, path, start_line, end_line)
+    secret = is_secret_result(item)
+    # ID の材料には一致した行を使うが (ハッシュにしか残らない)、秘密の行は保存しない
+    fingerprint = snippet or check_id
+    message = extra.get("message")
+    severity_raw = extra.get("severity")
+    confidence_raw = metadata.get("confidence")
+    fix = extra.get("fix")
+    return Candidate(
+        id=ids.make("semgrep", check_id, path, fingerprint),
+        scanner="semgrep",
+        category=Category.SAST,
+        rule_id=check_id,
+        title=check_id.rsplit(".", 1)[-1],
+        message=message.strip() if isinstance(message, str) else check_id,
+        location=Location(
+            path=path,
+            start_line=start_line,
+            end_line=end_line,
+            snippet=None if secret else snippet,
+        ),
+        severity_reported=SEVERITY_MAP.get(
+            severity_raw.upper() if isinstance(severity_raw, str) else "",
+            Severity.LOW,
+        ),
+        confidence_reported=(
+            CONFIDENCE_MAP.get(confidence_raw.upper()) if isinstance(confidence_raw, str) else None
+        ),
+        cwe=_extract_cwe(metadata),
+        references=_extract_references(metadata),
+        # 秘密系ルールの autofix は値を含みうる. 一致した行と一緒に落とす
+        fix_available=fix if isinstance(fix, str) and not secret else None,
+        raw=_without_matched_lines(item) if secret else item,
+        redacted=secret,
+    )
 
 
 def _normalize_check_id(check_id: str) -> str:
@@ -249,6 +264,7 @@ class SemgrepScanner(BaseScanner):
         super().__init__(settings)
 
     async def scan(self, target: Target, ctx: ScanContext) -> ScanResult:
+        """スキャナを実行して結果を正規化する. 未導入 (skipped) と失敗 (failed) は区別して返す."""
         status = self.probe()
         if not status.available:
             return self.skipped(status.reason or "semgrep が利用できません", unavailable=True)
@@ -284,7 +300,7 @@ class SemgrepScanner(BaseScanner):
                 version=status.version,
             )
         # semgrep は「検出あり」でも 0 を返す。2 以上が実行失敗。
-        if result.exit_code is None or result.exit_code >= 2:
+        if result.exit_code is None or result.exit_code >= _FAILURE_EXIT_CODE:
             return self.failed(
                 "semgrep の実行に失敗しました",
                 exit_code=result.exit_code,

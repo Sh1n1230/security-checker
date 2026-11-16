@@ -32,7 +32,7 @@ from security_checker.config.loader import (
     available_presets,
     load_config,
 )
-from security_checker.config.schema import Config
+from security_checker.config.schema import Config, ReviewerConfig
 from security_checker.context.budget import estimate_tokens
 from security_checker.context.redact import redact_known_patterns
 from security_checker.errors import ConfigError, ExitCode, SecurityCheckerError
@@ -57,7 +57,7 @@ from security_checker.observability.explain import load_report
 from security_checker.observability.explain import render as render_explanation
 from security_checker.policy.baseline import write_baseline
 from security_checker.policy.suppress import SuppressionRules, load_rules
-from security_checker.providers.check import catalog, check_reviewer
+from security_checker.providers.check import CheckResult, catalog, check_reviewer
 from security_checker.providers.detect import Detection, detect_all
 from security_checker.report.json_writer import write_json
 from security_checker.report.markdown import write_markdown
@@ -90,6 +90,15 @@ def _console(*, stderr: bool = False) -> Console:
 
 
 err_console = _console(stderr=True)
+
+
+def _emit(text: str) -> None:
+    """機械可読な出力 (JSON・YAML・Markdown・Actions の注釈) を標準出力にそのまま書く.
+
+    人間向けの表示は rich の Console を使う。パイプやファイルに流す出力は、
+    折り返し・色・マークアップの解釈が入らないよう Console を通さない。
+    """
+    sys.stdout.write(text if text.endswith("\n") else text + "\n")
 
 
 def _fail(message: str, code: ExitCode) -> NoReturn:
@@ -225,7 +234,7 @@ def _suppression(loaded: LoadedConfig, root: Path) -> SuppressionRules:
 
 
 def _diff_scope(
-    loaded: LoadedConfig, root: Path, base: str | None, full: bool
+    loaded: LoadedConfig, root: Path, base: str | None, *, full: bool
 ) -> tuple[DiffScope | None, list[str]]:
     """target.mode と --base / --full から検査範囲を決める (§7.4)."""
     mode = "full" if full else loaded.config.target.mode
@@ -255,12 +264,12 @@ def _write_reports(loaded: LoadedConfig, outcome: RunOutcome, *, quiet: bool) ->
             ),
             None,
         )
-        render(outcome.report, outcome.decision, outcome.output_dir, details=details)
+        render(outcome.report, outcome.decision, details=details)
 
 
 @app.command()
 def scan(
-    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path(),
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", help="設定ファイル (既定は自動探索)")
     ] = None,
@@ -309,7 +318,7 @@ def scan(
     overrides.update(_logging_overrides(log_format, log_level))
     loaded = _load(root, config_path, preset, overrides)
     _configure_logging(loaded)
-    diff, diff_warnings = _diff_scope(loaded, root, base, full)
+    diff, diff_warnings = _diff_scope(loaded, root, base, full=full)
 
     try:
         outcome = asyncio.run(
@@ -330,7 +339,7 @@ def scan(
 
 @app.command()
 def review(
-    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path(),
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", help="設定ファイル (既定は自動探索)")
     ] = None,
@@ -395,7 +404,7 @@ def review(
     overrides.update(_logging_overrides(log_format, log_level))
     loaded = _load(root, config_path, preset, overrides)
     _configure_logging(loaded)
-    diff, diff_warnings = _diff_scope(loaded, root, base, full)
+    diff, diff_warnings = _diff_scope(loaded, root, base, full=full)
 
     price_table = load_price_table(
         loaded.config_path.parent if loaded.config_path is not None else None
@@ -598,7 +607,7 @@ def _print_detections(console: Console, detections: list[Detection]) -> list[Det
 
 @app.command()
 def init(
-    path: Annotated[Path, typer.Argument(help="設定ファイルを置くディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Argument(help="設定ファイルを置くディレクトリ")] = Path(),
     command: Annotated[
         str | None,
         typer.Option(
@@ -635,53 +644,13 @@ def init(
     # --stdout では標準出力を YAML だけにする (`> security-checker.yml` で使えるように)
     console = _console(stderr=stdout)
 
-    usable = _print_detections(console, detect_all())
-    blocks: list[dict[str, Any]] = []
-
-    if usable and command is not None and not yes:
-        # --command は「これを使う」という明示なので、検出分を対話で尋ねない。
-        # 尋ねると、CI やスクリプトから呼んだときに標準入力が無くて失敗する。
-        console.print(
-            "[dim]--command が指定されているため、検出されたものは採用しません。"
-            "検出分も使うなら --yes を付けるか、--command なしで実行してください[/dim]\n"
-        )
-        usable = []
-    elif usable and not yes:
-        for index, item in enumerate(usable, start=1):
-            console.print(f"    [bold]{index}[/bold]. {escape(item.name)} ({item.transport})")
-        try:
-            answer = typer.prompt(
-                "Reviewer にするものを番号で (カンマ区切り・空欄で全部・'-' で選ばない)",
-                default="",
-                show_default=False,
-                err=stdout,
-            ).strip()
-        except typer.Abort:
-            # 標準入力が無い (CI・パイプ) と、尋ねても答えが返らない. 黙って Aborted にしない
-            _fail(
-                "番号を尋ねられませんでした (標準入力がありません)。"
-                "検出したものをすべて採用するなら --yes、使わないなら --command を指定してください",
-                ExitCode.CONFIG_ERROR,
-            )
-        usable = _select(usable, answer, console)
-    blocks.extend(dict(item.config) for item in usable)
+    usable = _choose_detections(
+        console, _print_detections(console, detect_all()), command=command, yes=yes, stdout=stdout
+    )
+    blocks: list[dict[str, Any]] = [dict(item.config) for item in usable]
     placeholder_models = _fill_http_models(blocks, model)
-
     if command is not None:
-        argv = _split_command(command)
-        if not argv:
-            _fail("--command が空です", ExitCode.CONFIG_ERROR)
-        reviewer_name = name or Path(argv[0]).name
-        taken = {str(block["name"]) for block in blocks}
-        if reviewer_name in taken:
-            if name is not None:
-                _fail(
-                    f"Reviewer '{name}' は検出したプリセットと名前が重複しています。"
-                    "--name で別の名前を指定してください",
-                    ExitCode.CONFIG_ERROR,
-                )
-            reviewer_name = _unique_name(reviewer_name, taken)
-        blocks.append(_reviewer_block(reviewer_name, argv))
+        blocks.append(_command_block(command, name, taken={str(b["name"]) for b in blocks}))
 
     if not blocks:
         console.print(
@@ -712,9 +681,69 @@ def init(
             "(または --model で指定してください)"
         )
     if stdout:
-        print(document)
+        _emit(document)
         raise typer.Exit(code=int(ExitCode.OK))
+    _write_init_config(console, root, document, local=local, force=force)
 
+
+def _choose_detections(
+    console: Console,
+    usable: list[Detection],
+    *,
+    command: str | None,
+    yes: bool,
+    stdout: bool,
+) -> list[Detection]:
+    """検出されたもののうち、Reviewer にするものを決める (--yes なら全部)."""
+    if not usable or yes:
+        return usable
+    if command is not None:
+        # --command は「これを使う」という明示なので、検出分を対話で尋ねない。
+        # 尋ねると、CI やスクリプトから呼んだときに標準入力が無くて失敗する。
+        console.print(
+            "[dim]--command が指定されているため、検出されたものは採用しません。"
+            "検出分も使うなら --yes を付けるか、--command なしで実行してください[/dim]\n"
+        )
+        return []
+    for index, item in enumerate(usable, start=1):
+        console.print(f"    [bold]{index}[/bold]. {escape(item.name)} ({item.transport})")
+    try:
+        answer = typer.prompt(
+            "Reviewer にするものを番号で (カンマ区切り・空欄で全部・'-' で選ばない)",
+            default="",
+            show_default=False,
+            err=stdout,
+        ).strip()
+    except typer.Abort:
+        # 標準入力が無い (CI・パイプ) と、尋ねても答えが返らない. 黙って Aborted にしない
+        _fail(
+            "番号を尋ねられませんでした (標準入力がありません)。"
+            "検出したものをすべて採用するなら --yes、使わないなら --command を指定してください",
+            ExitCode.CONFIG_ERROR,
+        )
+    return _select(usable, answer, console)
+
+
+def _command_block(command: str, name: str | None, *, taken: set[str]) -> dict[str, Any]:
+    """--command から process transport の Reviewer を作る. 名前の重複は避ける."""
+    argv = _split_command(command)
+    if not argv:
+        _fail("--command が空です", ExitCode.CONFIG_ERROR)
+    reviewer_name = name or Path(argv[0]).name
+    if reviewer_name in taken:
+        if name is not None:
+            _fail(
+                f"Reviewer '{name}' は検出したプリセットと名前が重複しています。"
+                "--name で別の名前を指定してください",
+                ExitCode.CONFIG_ERROR,
+            )
+        reviewer_name = _unique_name(reviewer_name, taken)
+    return _reviewer_block(reviewer_name, argv)
+
+
+def _write_init_config(
+    console: Console, root: Path, document: str, *, local: bool, force: bool
+) -> None:
     destination = root / (LOCAL_CONFIG_FILENAMES[0] if local else CONFIG_FILENAMES[0])
     if destination.exists() and not force:
         _fail(
@@ -767,7 +796,8 @@ def _split_command(command: str) -> list[str]:
 
 
 def _unquote(token: str) -> str:
-    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+    quoted = len(token) > 1 and token[0] == token[-1]
+    if quoted and token[0] in "\"'":
         return token[1:-1]
     return token
 
@@ -814,7 +844,7 @@ def _select(usable: list[Detection], answer: str, console: Console) -> list[Dete
 
 @config_app.command("show")
 def config_show(
-    path: Annotated[Path, typer.Argument(help="対象ディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Argument(help="対象ディレクトリ")] = Path(),
     config_path: Annotated[Path | None, typer.Option("--config", "-c")] = None,
     preset: Annotated[str | None, typer.Option("--preset", "-p")] = None,
     explain: Annotated[
@@ -841,7 +871,7 @@ def config_show(
             console.print(f"  {escape(key)} [dim]← {escape(str(loaded.origins[key]))}[/dim]")
         return
 
-    print(json.dumps(loaded.config.masked_dump(), ensure_ascii=False, indent=2))
+    _emit(json.dumps(loaded.config.masked_dump(), ensure_ascii=False, indent=2))
 
 
 baseline_app = typer.Typer(help="既知の候補の記録 (段階導入用)", no_args_is_help=True)
@@ -852,7 +882,7 @@ DEFAULT_BASELINE = ".security-checker-baseline.json"
 
 @baseline_app.command("update")
 def baseline_update(
-    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path(),
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", help="設定ファイル (既定は自動探索)")
     ] = None,
@@ -1001,15 +1031,15 @@ def comment(
     if os.environ.get("GITHUB_ACTIONS") == "true":
         # ログを開かなくても Actions の画面に出るよう、注釈としても書く
         for message in result.warnings:
-            print(f"::warning title=security-checker comment::{' '.join(message.split())}")
+            _emit(f"::warning title=security-checker comment::{' '.join(message.split())}")
     console.print(
         f"summary: {result.summary_action}"
         + (f" ({result.summary_url})" if result.summary_url else "")
     )
     console.print(
         f"inline: 投稿 {result.inline_posted} / 投稿済み {result.inline_already_posted} / "
-        f"diff 外 {result.inline_outside_diff} / 上限超過 {result.inline_over_limit} / "
-        f"拒否 {result.inline_rejected}"
+        f"diff 外 {result.inline_outside_diff} / patch なし {result.inline_no_patch} / "
+        f"上限超過 {result.inline_over_limit} / 拒否 {result.inline_rejected}"
     )
 
 
@@ -1045,7 +1075,7 @@ def providers_check(
     name: Annotated[
         str | None, typer.Argument(help="確認する Reviewer の name (省略で全部)")
     ] = None,
-    path: Annotated[Path, typer.Option("--path", help="設定を探すディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Option("--path", help="設定を探すディレクトリ")] = Path(),
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", help="設定ファイル (既定は自動探索)")
     ] = None,
@@ -1070,8 +1100,8 @@ def providers_check(
         )
     console = _console()
     failed = False
-    for reviewer in reviewers:
-        result = asyncio.run(check_reviewer(reviewer, probe=not no_probe))
+    # 1 つのイベントループで、すべての Reviewer を並行に確かめる (表示は設定の順)
+    for result in asyncio.run(_check_all(reviewers, probe=not no_probe)):
         mark = "[green]✓[/green]" if result.ok else "[red]✗[/red]"
         console.print(f"{mark} [bold]{escape(result.name)}[/bold] ({result.transport})")
         for step in result.steps:
@@ -1083,6 +1113,10 @@ def providers_check(
             console.print(f"    [yellow]→[/yellow] {escape(suggestion)}", highlight=False)
         failed = failed or not result.ok
     raise typer.Exit(code=int(ExitCode.EXECUTION_ERROR if failed else ExitCode.OK))
+
+
+async def _check_all(reviewers: list[ReviewerConfig], *, probe: bool) -> list[CheckResult]:
+    return list(await asyncio.gather(*(check_reviewer(r, probe=probe) for r in reviewers)))
 
 
 @app.command("explain")
@@ -1098,7 +1132,7 @@ def explain_command(
         result = explain_finding(report, finding_id, report_path=report_path)
     except SecurityCheckerError as exc:
         _fail(str(exc), exc.exit_code)
-    print(render_explanation(result), end="")
+    _emit(render_explanation(result))
 
 
 @app.command("eval")
@@ -1163,7 +1197,7 @@ def eval_command(
         markdown.parent.mkdir(parents=True, exist_ok=True)
         markdown.write_text(document, encoding="utf-8")
     if not quiet:
-        print(document)
+        _emit(document)
 
     metrics = result.metrics
     # 採点できなかった run の数字は信用できない。ツールの問題として先に落とす (§27.2)
@@ -1193,7 +1227,7 @@ def eval_command(
 @app.command()
 def version() -> None:
     """バージョンを表示する."""
-    print(f"security-checker {__version__}")
+    _emit(f"security-checker {__version__}")
 
 
 def main() -> None:

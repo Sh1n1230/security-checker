@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from typer.testing import CliRunner
 
@@ -27,6 +26,9 @@ from security_checker.review.scheduler import build_runtime
 from security_checker.run import ReviewerSetup, run_review
 from security_checker.testing import FakeScanner, ScriptedProvider, verdict_payload
 from tests.factories import make_candidate, make_report
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 runner = CliRunner()
 
@@ -167,8 +169,10 @@ def test_estimate_prices_known_models_and_refuses_to_guess():
     assert priced.calls == 2
     assert priced.input_tokens > 0
     assert priced.max_output_tokens == 200
-    assert priced.usd is not None and priced.usd > 0
-    assert unpriced.usd is None and "価格表" in unpriced.note
+    assert priced.usd is not None
+    assert priced.usd > 0
+    assert unpriced.usd is None
+    assert "価格表" in unpriced.note
     # 一部だけ足した合計は実際より安く見えるので出さない
     assert result.total_usd is None
 

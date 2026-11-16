@@ -32,6 +32,17 @@ def test_id_ignores_comments_but_preserves_case():
     )
 
 
+def test_findings_that_differ_only_in_case_do_not_depend_on_their_order():
+    # 連番で区別していたときは、行の挿入で順序が変わると ID が入れ替わっていた
+    first = IdFactory()
+    upper = first.make("semgrep", "r", "a.py", "API_KEY = x")
+    lower = first.make("semgrep", "r", "a.py", "api_key = x")
+    swapped = IdFactory()
+    assert swapped.make("semgrep", "r", "a.py", "api_key = x") == lower
+    assert swapped.make("semgrep", "r", "a.py", "API_KEY = x") == upper
+    assert upper != lower
+
+
 def test_string_literals_are_not_stripped_as_comments():
     # `//` inside a URL is not a comment. Stripping it made these two snippets
     # normalize to the same text, so two different findings shared one stable ID

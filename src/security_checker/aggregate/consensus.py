@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import statistics
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from security_checker.aggregate.agreement import compute_agreement
 from security_checker.aggregate.base import (
@@ -14,16 +14,22 @@ from security_checker.aggregate.base import (
     AggregationOutcome,
     aggregate_severity,
 )
-from security_checker.config.schema import AggregationConfig
-from security_checker.models.candidate import Candidate
+from security_checker.config.schema import MAJORITY_RATIO, AggregationConfig
 from security_checker.models.enums import Agreement, FindingStatus, Severity
 from security_checker.models.verdict import ReviewVerdict, VerdictStatus
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from security_checker.models.candidate import Candidate
 
 #: 見出しに使う長さ. reasoning から作る場合の上限 (文の区切りで詰める)。
 SUMMARY_LIMIT = 200
 SUMMARY_HEAD_LIMIT = 160
 SINGLE_CONFIRMED_CONFIDENCE = 0.8
 SINGLE_LIKELY_CONFIDENCE = 0.5
+#: 合意が high でも、confidence の平均がこれ未満なら confirmed にしない
+CONFIRMED_MEAN_CONFIDENCE = 0.8
 
 
 class ConsensusAggregator:
@@ -36,6 +42,7 @@ class ConsensusAggregator:
         self.weights = dict(weights or {})
 
     def weight_of(self, verdict: ReviewVerdict) -> float:
+        """Reviewer の重み. 設定に無ければ等倍."""
         return self.weights.get(verdict.reviewer, 1.0)
 
     def aggregate(
@@ -44,6 +51,7 @@ class ConsensusAggregator:
         verdicts: list[ReviewVerdict],
         cfg: AggregationConfig,
     ) -> AggregationOutcome:
+        """「脆弱」と判定した Reviewer の数と比率から status を決める (§13.1)."""
         valid = [verdict for verdict in verdicts if verdict.status is VerdictStatus.OK]
         if not valid:
             return AggregationOutcome(
@@ -82,11 +90,15 @@ class ConsensusAggregator:
             return partial_outcome(self.name, valid[0], verdicts, candidate)
 
         # 半々は「過半数」ではなく判断が割れた状態 (§13.1)。min_ratio が低くても likely にしない
-        if votes >= cfg.consensus.min_votes and ratio >= cfg.consensus.min_ratio and ratio > 0.5:
+        if (
+            votes >= cfg.consensus.min_votes
+            and ratio >= cfg.consensus.min_ratio
+            and ratio > MAJORITY_RATIO
+        ):
             mean_confidence = statistics.fmean(v.confidence for v in vulnerable)
             status = (
                 FindingStatus.CONFIRMED
-                if agreement is Agreement.HIGH and mean_confidence >= 0.8
+                if agreement is Agreement.HIGH and mean_confidence >= CONFIRMED_MEAN_CONFIDENCE
                 else FindingStatus.LIKELY
             )
             return self._outcome(
@@ -277,7 +289,7 @@ def _headline(verdict: ReviewVerdict, limit: int = SUMMARY_LIMIT) -> str:
 
 def _first_sentence(text: str, limit: int) -> str:
     """先頭の 1 文を返す. 収まらなければ文・節の区切りまで戻して詰める."""
-    line = " ".join(text.split("\n")[0].split()).strip()
+    line = " ".join(text.split("\n", maxsplit=1)[0].split()).strip()
     if len(line) <= limit:
         return line
     window = line[:limit]

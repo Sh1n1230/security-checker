@@ -6,10 +6,14 @@ v2.0 は (1) 行ウィンドウから始める。全言語で常に機能する�
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from security_checker.models.candidate import Location
 from security_checker.models.task import CodeSlice
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.candidate import Location
 
 MAX_FILE_BYTES = 2_000_000
 BINARY_SNIFF_BYTES = 4096

@@ -6,9 +6,8 @@ LLM は ScriptedProvider で置き換える。CI は実 LLM を一切叩かな�
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -16,11 +15,15 @@ from security_checker.config.schema import Config, ReviewerConfig
 from security_checker.errors import ConfigError, ExitCode
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, FindingStatus, Severity
+from security_checker.providers.errors import ProviderServerError
 from security_checker.report.json_writer import write_json
 from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import build_runtime
 from security_checker.run import ReviewerSetup, run_review
 from security_checker.testing import FakeScanner, ScriptedProvider, verdict_payload
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 SECRET = "xoxb-TESTONLY-DUMMY-NOT-A-REAL-SECRET"  # noqa: S105  gitleaks:allow
 
@@ -180,8 +183,6 @@ async def test_budget_limit_marks_remaining_as_not_reviewed(workspace, tmp_path)
 
 
 async def test_provider_errors_are_reported_as_error_findings(workspace, tmp_path):
-    from security_checker.providers.errors import ProviderServerError
-
     outcome = await run_review(
         make_config(tmp_path),
         workspace,
@@ -195,8 +196,6 @@ async def test_provider_errors_are_reported_as_error_findings(workspace, tmp_pat
 
 
 async def test_strict_makes_error_findings_exit_3(workspace, tmp_path):
-    from security_checker.providers.errors import ProviderServerError
-
     config = make_config(tmp_path, policy={"strict": True})
     outcome = await run_review(
         config,

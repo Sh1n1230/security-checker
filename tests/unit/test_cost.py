@@ -10,18 +10,16 @@ from security_checker.observability.cost import ModelPrice, PriceTable, load_pri
 from security_checker.observability.estimate import Estimate, ReviewerEstimate
 
 
-def test_unknown_model_is_cost_unknown():
-    table = PriceTable()
-    usage = table.apply(Usage(input_tokens=1000, output_tokens=500), "unknown-model")
-    assert usage.cost_known is False
-    assert usage.estimated_usd is None
+def test_unknown_model_has_no_price():
+    assert PriceTable().lookup("unknown-model") is None
 
 
 def test_known_model_is_priced():
     table = PriceTable(prices={"m": ModelPrice(input_per_1m=3.0, output_per_1m=15.0)})
-    usage = table.apply(Usage(input_tokens=1_000_000, output_tokens=100_000), "m")
-    assert usage.estimated_usd == pytest.approx(3.0 + 1.5)
-    assert usage.cost_known is True
+    price = table.lookup("m")
+    assert price is not None
+    usage = Usage(input_tokens=1_000_000, output_tokens=100_000)
+    assert price.estimate(usage) == pytest.approx(3.0 + 1.5)
 
 
 def test_usage_merge_keeps_unknown_sticky():

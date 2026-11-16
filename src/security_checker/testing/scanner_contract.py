@@ -35,6 +35,7 @@ class ScannerContractTests:
     """すべての Scanner が満たすべき契約."""
 
     def make_scanner(self) -> Scanner:  # pragma: no cover - サブクラスが実装する
+        """検査する Scanner を返す (サブクラスが実装する)."""
         raise NotImplementedError
 
     def populate(self, root: Path) -> None:
@@ -51,15 +52,19 @@ class ScannerContractTests:
         return result, root, raw
 
     def test_identity(self) -> None:
+        """name と category が設定されている."""
         scanner = self.make_scanner()
-        assert isinstance(scanner.name, str) and scanner.name
+        assert isinstance(scanner.name, str)
+        assert scanner.name
         assert isinstance(scanner.category, Category)
 
     def test_probe_does_not_raise(self) -> None:
+        """probe が例外を投げず ToolStatus を返す."""
         assert isinstance(self.make_scanner().probe(), ToolStatus)
 
     @pytest.mark.asyncio
     async def test_status_is_explicit(self, tmp_path: Path) -> None:
+        """結果の status が明示され、ツールが無ければ skipped になる."""
         scanner = self.make_scanner()
         result, _, _ = await self._scan(tmp_path)
         assert isinstance(result, ScanResult)
@@ -77,6 +82,7 @@ class ScannerContractTests:
 
     @pytest.mark.asyncio
     async def test_candidates_are_well_formed(self, tmp_path: Path) -> None:
+        """候補の ID が重複せず、パスが検査対象の中、生出力が raw_dir の中にある."""
         scanner = self.make_scanner()
         result, root, raw = await self._scan(tmp_path)
         ids = [candidate.id for candidate in result.candidates]
@@ -95,6 +101,7 @@ class ScannerContractTests:
 
     @pytest.mark.asyncio
     async def test_ids_are_stable_across_runs(self, tmp_path: Path) -> None:
+        """同じ対象を 2 回検査しても候補の ID が変わらない."""
         first, _, _ = await self._scan(tmp_path, "first")
         second, _, _ = await self._scan(tmp_path, "second")
         assert [c.id for c in first.candidates] == [c.id for c in second.candidates], (

@@ -67,7 +67,7 @@ class _Formatter(logging.Formatter):
         return redact_known_patterns(text)
 
 
-def _text_value(value: Any) -> str:
+def _text_value(value: object) -> str:
     """text 形式の値. 空白・`=`・引用符・制御文字を含むなら JSON の文字列として引用する.
 
     そのままだと `reason=rate limit hit` が `reason=rate` と `limit` と `hit` に見え、
@@ -103,6 +103,6 @@ def disable() -> None:
             handler.close()
 
 
-def event(name: str, *, level: str = "info", **fields: Any) -> None:
+def event(name: str, *, level: str = "info", **fields: object) -> None:
     """1 イベントを記録する. 値は JSON にできるものだけを渡す."""
     logger.log(LEVELS.get(level, logging.INFO), name, extra={"fields": fields})

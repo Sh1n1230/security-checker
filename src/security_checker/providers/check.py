@@ -12,10 +12,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from security_checker.config.schema import ReviewerConfig
 from security_checker.errors import SecurityCheckerError
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, Severity
@@ -33,12 +32,19 @@ from security_checker.providers.presets.loader import load_http_presets, load_pr
 from security_checker.providers.registry import build_provider, discover_plugin_providers
 from security_checker.review.reviewer import Reviewer
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from security_checker.config.schema import ReviewerConfig
+
 #: 疎通確認に使う合成コード. 実在のリポジトリのコードは送らない
 PROBE_CODE = "import subprocess\n\ndef run(cmd):\n    return subprocess.run(cmd, shell=True)\n"
 
 
 @dataclass
 class Step:
+    """疎通確認の 1 段階 (設定・疎通・構造化出力) の結果."""
+
     label: str
     ok: bool
     detail: str = ""
@@ -46,6 +52,8 @@ class Step:
 
 @dataclass
 class CheckResult:
+    """Reviewer 1 体の疎通確認の結果と、次に取れる行動の案内."""
+
     name: str
     transport: str
     steps: list[Step] = field(default_factory=list)
@@ -53,10 +61,12 @@ class CheckResult:
 
     @property
     def ok(self) -> bool:
+        """すべての段階が通ったか."""
         return bool(self.steps) and all(step.ok for step in self.steps)
 
 
 def probe_task() -> ReviewTask:
+    """疎通確認に使う合成の ReviewTask (shell=True に引数を渡す、明らかに脆弱なコード)."""
     candidate = Candidate(
         id="providers-check",
         scanner="security-checker",
@@ -101,12 +111,13 @@ def _suggest(exc: Exception, reviewer: ReviewerConfig) -> str:
 async def check_reviewer(
     reviewer: ReviewerConfig, *, environ: dict[str, str] | None = None, probe: bool = True
 ) -> CheckResult:
+    """設定 → 疎通 → 構造化出力の順に確かめる. `probe=False` なら疎通まで."""
     result = CheckResult(name=reviewer.name, transport=reviewer.transport)
     warnings: list[str] = []
     try:
         provider = build_provider(reviewer, environ=environ, warnings=warnings)
     except SecurityCheckerError as exc:
-        result.steps.append(Step("設定", False, str(exc)))
+        result.steps.append(Step("設定", ok=False, detail=str(exc)))
         result.suggestions.append(
             "設定を直して再実行してください (config show --explain で確認できます)"
         )
@@ -115,8 +126,8 @@ async def check_reviewer(
     result.steps.append(
         Step(
             "設定",
-            True,
-            f"dialect={provider.dialect} model={getattr(provider, 'model', '-')} "
+            ok=True,
+            detail=f"dialect={provider.dialect} model={getattr(provider, 'model', '-')} "
             f"structured={caps.structured_output.value}",
         )
     )
@@ -127,8 +138,8 @@ async def check_reviewer(
         result.steps.append(
             Step(
                 "疎通",
-                health.ok,
-                health.detail or (f"{health.latency_ms} ms" if health.latency_ms else ""),
+                ok=health.ok,
+                detail=health.detail or (f"{health.latency_ms} ms" if health.latency_ms else ""),
             )
         )
         if not health.ok:
@@ -148,8 +159,8 @@ async def check_reviewer(
             result.steps.append(
                 Step(
                     "構造化出力",
-                    True,
-                    f"vulnerable={verdict.vulnerable} confidence={verdict.confidence:.2f} "
+                    ok=True,
+                    detail=f"vulnerable={verdict.vulnerable} confidence={verdict.confidence:.2f} "
                     f"(attempt {verdict.attempt}, {verdict.latency_ms} ms)",
                 )
             )
@@ -160,13 +171,13 @@ async def check_reviewer(
                     "動作はしていますが、このモデルの判定の質は eval で確かめてください"
                 )
         else:
-            result.steps.append(Step("構造化出力", False, verdict.reasoning))
+            result.steps.append(Step("構造化出力", ok=False, detail=verdict.reasoning))
             result.suggestions.append(
                 "スキーマに沿った JSON が返りませんでした。"
                 "capabilities.structured_output を json_mode か prompt_only に下げて試してください"
             )
     except ProviderError as exc:
-        result.steps.append(Step("呼び出し", False, str(exc)))
+        result.steps.append(Step("呼び出し", ok=False, detail=str(exc)))
         result.suggestions.append(_suggest(exc, reviewer))
     finally:
         await provider.aclose()
@@ -175,6 +186,8 @@ async def check_reviewer(
 
 @dataclass
 class ProviderCatalog:
+    """使える方言・プリセット・プラグインの一覧."""
+
     dialects: list[str]
     http_presets: dict[str, str]
     process_presets: dict[str, str]

@@ -11,18 +11,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
-from security_checker.config.schema import Config, ContextConfig, ReviewerConfig
+from security_checker.config.schema import MAJORITY_RATIO, Config, ContextConfig, ReviewerConfig
 
 
-def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = None) -> list[str]:
+def unimplemented_warnings(config: Config) -> list[str]:
     """受け付けたが効かない設定の一覧を返す. 呼び出し側は必ず警告として残すこと.
 
-    `origins` (どの層で値が決まったか) は、既定値のままの項目を警告しないために受け取る。
-    P5 時点で残っているのは方言の組み合わせの検査だけで、使っていない。
+    見ているのは、未実装の項目 (target.root・context.max_callers)、過半数に満たない
+    min_ratio、transport や方言と合わない項目 (process に base_url、ollama_chat 以外に
+    num_ctx など)、出力先や形式を変えてしまう extra_args。
     """
-    del origins
     warnings: list[str] = []
 
     # 検査対象は CLI の引数 (PATH) で決まる。target.root はどこからも読まれない。
@@ -41,7 +39,7 @@ def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = N
         )
 
     # 過半数に満たない票では likely にしない (§14.1)。0.5 未満を書いても 0.5 と同じ扱いになる
-    if config.aggregation.consensus.min_ratio < 0.5:
+    if config.aggregation.consensus.min_ratio < MAJORITY_RATIO:
         warnings.append(
             f"aggregation.consensus.min_ratio ({config.aggregation.consensus.min_ratio}) は "
             "効きません。票が過半数に満たない候補は常に review_required になります"
@@ -57,12 +55,12 @@ def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = N
         # 別の方言に書いても効かないので、そのことを伝える。
         if reviewer.dialect == "ollama_chat":
             continue
-        for field in ("num_ctx", "keep_alive"):
-            if getattr(reviewer, field) is not None:
-                warnings.append(
-                    f"reviewer '{reviewer.name}': {field} は ollama_chat 方言専用です。"
-                    f"dialect: {reviewer.dialect or '(未指定)'} では無視されます"
-                )
+        warnings.extend(
+            f"reviewer '{reviewer.name}': {field} は ollama_chat 方言専用です。"
+            f"dialect: {reviewer.dialect or '(未指定)'} では無視されます"
+            for field in ("num_ctx", "keep_alive")
+            if getattr(reviewer, field) is not None
+        )
 
     return warnings
 

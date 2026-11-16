@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from security_checker.config.schema import (
     GitleaksConfig,
@@ -16,13 +17,15 @@ from security_checker.config.schema import (
 )
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, ScanStatus
-from security_checker.scanners.base import Scanner
 from security_checker.scanners.gitleaks import GitleaksScanner
 from security_checker.scanners.osv import OsvScanner
 from security_checker.scanners.repo_hygiene import RepoHygieneScanner
 from security_checker.scanners.semgrep import SemgrepScanner
 from security_checker.scanners.trivy import TrivyScanner
 from security_checker.testing import FakeScanner, ScannerContractTests
+
+if TYPE_CHECKING:
+    from security_checker.scanners.base import Scanner
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 

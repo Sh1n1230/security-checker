@@ -15,14 +15,18 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from security_checker.config.schema import GithubConfig
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
-from security_checker.models.finding import Finding
-from security_checker.models.report import Report
 from security_checker.report import sanitize as md
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Collection, Iterable, Mapping
+
+    from security_checker.config.schema import GithubConfig
+    from security_checker.models.finding import Finding
+    from security_checker.models.report import Report
 
 #: 重複したサマリの古いほうに書く本文. マーカーを含めないので、以後は更新の対象にならない
 STALE_SUMMARY = (
@@ -229,23 +233,7 @@ def _summary_block(finding: Finding) -> list[str]:
     cwe = f" · {finding.cwe[0]}" if finding.cwe else ""
     title = _one_line(finding.summary or candidate.title, 120)
     if finding.status is FindingStatus.REVIEW_REQUIRED:
-        lines = [
-            f"### ❓ REVIEW REQUIRED{cwe} · {title}",
-            f"{md.code_span(candidate.where)} · agreement **{finding.agreement.value}**",
-            "",
-            "判断が分かれました。人間による確認を推奨します。",
-        ]
-        for verdict in finding.verdicts:
-            if verdict.status.value != "ok":
-                continue
-            judgement = (
-                f"脆弱 ({verdict.severity.value}, {verdict.confidence:.2f})"
-                if verdict.vulnerable
-                else f"脆弱でない ({verdict.confidence:.2f})"
-            )
-            reason = _one_line(verdict.reasoning, 160)
-            lines.append(f"- {md.code_span(verdict.reviewer)}: {judgement} — 「{reason}」")
-        return [*lines, ""]
+        return _split_block(finding, f"{cwe} · {title}")
 
     mark = SEVERITY_MARK[finding.severity]
     label = finding.severity.value.upper()
@@ -253,8 +241,10 @@ def _summary_block(finding: Finding) -> list[str]:
         label += " (likely)"
     lines = [
         f"### {mark} {label}{cwe} · {title}",
-        f"{md.code_span(candidate.where)} · confidence **{finding.confidence:.0%}** · "
-        f"agreement **{finding.agreement.value}**",
+        (
+            f"{md.code_span(candidate.where)} · confidence **{finding.confidence:.0%}** · "
+            f"agreement **{finding.agreement.value}**"
+        ),
         "",
     ]
     if candidate.redacted:
@@ -273,24 +263,50 @@ def _summary_block(finding: Finding) -> list[str]:
     remediation = next((v.remediation for v in ok if v.remediation is not None), None)
     if remediation is not None and remediation.approach:
         lines += ["**Remediation**", _one_line(remediation.approach, 600), ""]
-    if finding.verdicts:
-        lines += [
-            "<details><summary>各 Reviewer の判定</summary>",
-            "",
-            "| Reviewer | vulnerable | severity | confidence | FP prob |",
-            "|---|---|---|---|---|",
-        ]
-        for verdict in finding.verdicts:
-            if verdict.status.value != "ok":
-                lines.append(f"| {_cell(verdict.reviewer)} | ⚠️ {verdict.status.value} | | | |")
-                continue
-            lines.append(
-                f"| {_cell(verdict.reviewer)} | {'✅' if verdict.vulnerable else '—'} | "
-                f"{verdict.severity.value} | {verdict.confidence:.2f} | "
-                f"{verdict.false_positive_probability:.2f} |"
-            )
-        lines += ["</details>", ""]
-    return lines
+    return [*lines, *_verdict_details(finding)]
+
+
+def _split_block(finding: Finding, heading: str) -> list[str]:
+    """判断が分かれた指摘. 結論を出さず、各 Reviewer の判定と理由を並べる."""
+    lines = [
+        f"### ❓ REVIEW REQUIRED{heading}",
+        f"{md.code_span(finding.candidate.where)} · agreement **{finding.agreement.value}**",
+        "",
+        "判断が分かれました。人間による確認を推奨します。",
+    ]
+    for verdict in finding.verdicts:
+        if verdict.status.value != "ok":
+            continue
+        judgement = (
+            f"脆弱 ({verdict.severity.value}, {verdict.confidence:.2f})"
+            if verdict.vulnerable
+            else f"脆弱でない ({verdict.confidence:.2f})"
+        )
+        reason = _one_line(verdict.reasoning, 160)
+        lines.append(f"- {md.code_span(verdict.reviewer)}: {judgement} — 「{reason}」")
+    return [*lines, ""]
+
+
+def _verdict_details(finding: Finding) -> list[str]:
+    """各 Reviewer の判定を折りたたみの表にする. 失敗した Reviewer も行として残す."""
+    if not finding.verdicts:
+        return []
+    lines = [
+        "<details><summary>各 Reviewer の判定</summary>",
+        "",
+        "| Reviewer | vulnerable | severity | confidence | FP prob |",
+        "|---|---|---|---|---|",
+    ]
+    for verdict in finding.verdicts:
+        if verdict.status.value != "ok":
+            lines.append(f"| {_cell(verdict.reviewer)} | ⚠️ {verdict.status.value} | | | |")
+            continue
+        lines.append(
+            f"| {_cell(verdict.reviewer)} | {'✅' if verdict.vulnerable else '—'} | "
+            f"{verdict.severity.value} | {verdict.confidence:.2f} | "
+            f"{verdict.false_positive_probability:.2f} |"
+        )
+    return [*lines, "</details>", ""]
 
 
 def _cell(value: str) -> str:
@@ -320,8 +336,10 @@ def _candidate_table(report: Report) -> list[str]:
 def _footer(report: Report, report_url: str | None) -> str:
     parts = [
         f"security-checker v{report.tool_version}",
-        f"{report.coverage.candidates_total} candidates → "
-        f"{report.coverage.candidates_reviewed} reviewed",
+        (
+            f"{report.coverage.candidates_total} candidates → "
+            f"{report.coverage.candidates_reviewed} reviewed"
+        ),
     ]
     usage = report.usage
     if usage.cost_known and usage.estimated_usd is not None:
@@ -335,6 +353,7 @@ def _footer(report: Report, report_url: str | None) -> str:
 
 
 def finding_marker(finding: Finding) -> str:
+    """inline コメントに埋める印. 同じ指摘を二重に投稿しないために使う."""
     return f"{FINDING_MARKER_PREFIX}{finding.candidate.id} -->"
 
 
@@ -349,6 +368,7 @@ def existing_finding_ids(bodies: Iterable[str]) -> set[str]:
 
 
 def render_inline(finding: Finding) -> str:
+    """指摘 1 件の inline コメントの本文."""
     candidate = finding.candidate
     if finding.status is FindingStatus.REVIEW_REQUIRED:
         head = "❓ **REVIEW REQUIRED** — Reviewer の判断が分かれました"
@@ -376,6 +396,8 @@ def render_inline(finding: Finding) -> str:
 
 @dataclass(frozen=True)
 class InlineComment:
+    """投稿する inline コメント 1 件 (位置と本文)."""
+
     path: str
     line: int
     body: str
@@ -384,12 +406,16 @@ class InlineComment:
 
 @dataclass
 class InlinePlan:
+    """inline コメントの投稿計画と、投稿しなかった件数の内訳."""
+
     comments: list[InlineComment] = field(default_factory=list)
     already_posted: int = 0
     outside_diff: int = 0
     over_limit: int = 0
     #: base 側の変更と重なり、PR の head の行に対応づけられなかった件数
     unmapped: int = 0
+    #: 変更されたファイルだが、差分が大きく GitHub が patch を返さなかった件数
+    no_patch: int = 0
 
 
 def plan_inline(
@@ -399,10 +425,13 @@ def plan_inline(
     posted_ids: set[str],
     *,
     to_head: Callable[[str, int], int | None] | None = None,
+    without_patch: Collection[str] = (),
 ) -> InlinePlan:
     """inline コメントの投稿計画を立てる (§21.3).
 
     `commentable` は PR の diff に含まれる新しい側の行範囲 (GitHub は範囲外に付けられない)。
+    `without_patch` は、変更されたのに GitHub が patch を返さなかったファイル (差分が大きい)。
+    行が分からないだけで「diff 外」ではないので、別に数える。
     パスはリポジトリルートから、行番号は PR の head の行番号で数える。
     `to_head` は検査した行番号を head の行番号に直す。base 側の変更と重なって対応の取れない行は
     推測せず `unmapped` に数える。
@@ -448,7 +477,10 @@ def plan_inline(
             None,
         )
         if anchor is None:
-            plan.outside_diff += 1
+            if path in without_patch:
+                plan.no_patch += 1
+            else:
+                plan.outside_diff += 1
             continue
         if len(plan.comments) >= settings.max_inline_comments:
             plan.over_limit += 1

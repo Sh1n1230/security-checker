@@ -110,13 +110,17 @@ class LLMProvider(Protocol):
     dialect: str
 
     @property
-    def capabilities(self) -> Capabilities: ...
+    def capabilities(self) -> Capabilities:
+        """この Provider が使える機能."""
 
-    async def complete(self, req: CompletionRequest) -> CompletionResponse: ...
+    async def complete(self, req: CompletionRequest) -> CompletionResponse:
+        """1 回の補完を実行する. 失敗は ProviderError の派生に正規化して投げる."""
 
-    async def health_check(self) -> HealthStatus: ...
+    async def health_check(self) -> HealthStatus:
+        """到達できるかを確かめる."""
 
-    async def aclose(self) -> None: ...
+    async def aclose(self) -> None:
+        """保持している接続やプロセスを閉じる. 2 回呼んでもよい."""
 
 
 class CapabilityOverrides(BaseModel):
@@ -134,5 +138,6 @@ class CapabilityOverrides(BaseModel):
     output_limit_param: Literal["max_tokens", "max_completion_tokens"] | None = None
 
     def apply(self, base: Capabilities) -> Capabilities:
+        """明示された項目だけを上書きした Capabilities を返す."""
         updates = {key: value for key, value in self.model_dump().items() if value is not None}
         return base.model_copy(update=updates)

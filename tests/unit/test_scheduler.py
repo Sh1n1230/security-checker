@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
@@ -33,6 +31,10 @@ from security_checker.review.scheduler import (
     build_runtime,
 )
 from security_checker.testing import ScriptedProvider, SlowProvider, verdict_payload
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
 
 
 def make_task(index: int = 0) -> ReviewTask:
@@ -406,3 +408,42 @@ async def test_rate_limiter_forgets_requests_older_than_a_minute(monkeypatch):
     now[0] += 61.0  # 1 分以上前の送信は枠を空ける
     await limiter.acquire(fake_sleep)
     assert slept == []
+
+
+# --- 並列度の既定 (#234) ----------------------------------------------------------
+
+
+def _reviewer_config(**overrides: Any) -> ReviewerConfig:
+    payload: dict[str, Any] = {
+        "name": "r1",
+        "transport": "http",
+        "dialect": "openai_chat",
+        "base_url": "http://x/v1",
+        "model": "m",
+    }
+    payload.update(overrides)
+    return ReviewerConfig(**payload)
+
+
+def _concurrency(config: ReviewerConfig, default: int) -> int:
+    runtime = build_runtime(
+        Reviewer(config.name, ScriptedProvider([])), config, default_concurrency=default
+    )
+    return runtime.semaphore._value
+
+
+def test_http_reviewer_uses_reviews_per_provider_by_default():
+    assert _concurrency(_reviewer_config(), default=4) == 4
+    # frugal プリセットの reviews_per_provider: 2 が実際に効く
+    assert _concurrency(_reviewer_config(), default=2) == 2
+
+
+def test_an_explicit_reviewer_concurrency_wins_in_both_directions():
+    assert _concurrency(_reviewer_config(concurrency=8), default=4) == 8
+    assert _concurrency(_reviewer_config(concurrency=1), default=4) == 1
+
+
+def test_process_reviewer_runs_one_at_a_time_unless_told_otherwise():
+    process = ReviewerConfig(name="p", transport="process", command=["tool"])
+    assert _concurrency(process, default=4) == 1
+    assert _concurrency(process.model_copy(update={"concurrency": 3}), default=4) == 3

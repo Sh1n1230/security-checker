@@ -30,10 +30,12 @@ class OpenAIChatDialect:
         self.options = options or DialectOptions()
 
     def endpoint(self, base_url: str, model: str) -> str:
+        """リクエストを送る URL を返す."""
         # この形はモデルをペイロードで送るため、URL には現れない
         return f"{base_url.rstrip('/')}/chat/completions"
 
     def headers(self, api_key: str | None) -> dict[str, str]:
+        """認証を含む HTTP ヘッダを返す."""
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -47,6 +49,7 @@ class OpenAIChatDialect:
         capabilities: Capabilities,
         mode: StructuredMode,
     ) -> dict[str, Any]:
+        """CompletionRequest をこの方言のリクエスト本文にする."""
         messages: list[dict[str, str]] = []
         if capabilities.supports_system_role:
             messages.append({"role": "system", "content": req.system})
@@ -81,6 +84,7 @@ class OpenAIChatDialect:
         return payload
 
     def parse_response(self, payload: dict[str, Any]) -> DialectResponse:
+        """応答の本文から、テキスト・構造化出力・使用量を取り出す."""
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
             raise ProviderResponseError("応答に choices がありません")
@@ -126,6 +130,7 @@ class OpenAIChatDialect:
         )
 
     def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]:
+        """疎通確認用の最小のリクエスト本文 (出力は 1 トークン)."""
         return {
             "model": model,
             "messages": [{"role": "user", "content": "ping"}],
@@ -133,12 +138,17 @@ class OpenAIChatDialect:
         }
 
     def is_auth_error(self, status: int, body: str) -> bool:
+        """この方言は認証エラーを 401 / 403 で返すので、本文では判定しない."""
         return False
+
+    def default_capabilities(self) -> dict[str, object]:
+        """この形に固有の既定は無い (json_mode から始める)."""
+        return {}
 
     def explain_error(self, status: int, body: str) -> str | None:
         """この形はサービスごとに本文が違いすぎるため、推測しない."""
         return None
 
 
-def _as_int(value: Any) -> int:
+def _as_int(value: object) -> int:
     return value if isinstance(value, int) else 0

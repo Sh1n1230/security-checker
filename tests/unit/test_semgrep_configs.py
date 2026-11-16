@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
@@ -14,6 +14,9 @@ from security_checker.config.schema import SemgrepConfig
 from security_checker.models.enums import ScanStatus
 from security_checker.scanners.base import ScanContext, Target
 from security_checker.scanners.semgrep import SemgrepScanner, resolve_config
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture

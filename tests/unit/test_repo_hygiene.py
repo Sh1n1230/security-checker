@@ -5,15 +5,14 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
 
 from security_checker.config.schema import Config, ContextConfig, RepoHygieneConfig
-from security_checker.context.builder import ContextBuilder
+from security_checker.context.builder import NOTE_FILE_LEVEL, ContextBuilder
 from security_checker.github.pr import DiffScope
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import ScanStatus, Severity
 from security_checker.models.task import RepoFacts
 from security_checker.report.json_writer import write_json
@@ -28,6 +27,11 @@ from security_checker.scanners.repo_hygiene import (
     key_file_severity,
     literal_mcp_keys,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.candidate import Candidate
 
 needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git 未導入")
 
@@ -346,7 +350,7 @@ async def test_values_never_reach_the_report_or_the_review_task(tmp_path):
         task = builder.build(candidate)
         assert task.code_context.primary is None
         assert LITERAL_VALUE not in task.model_dump_json()
-        assert any("ファイル全体" in note for note in task.notes)
+        assert NOTE_FILE_LEVEL in task.notes
 
 
 # --- 差分モード ------------------------------------------------------------------------

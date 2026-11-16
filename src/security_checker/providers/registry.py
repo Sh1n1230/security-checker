@@ -6,14 +6,11 @@ capability の決定順序: 利用者の明示指定 → プリセットデー�
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
 from importlib.metadata import entry_points
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
 from pydantic import ValidationError
 
-from security_checker.config.schema import ReviewerConfig
 from security_checker.errors import ConfigError
 from security_checker.providers.base import (
     Capabilities,
@@ -34,6 +31,13 @@ from security_checker.providers.presets.loader import (
     resolve_process_preset,
 )
 from security_checker.providers.process.runner import ProcessProvider
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
+    import httpx
+
+    from security_checker.config.schema import ReviewerConfig
 
 ENTRY_POINT_GROUP = "security_checker.providers"
 
@@ -85,9 +89,15 @@ def resolve_headers(
 def resolve_capabilities(
     reviewer: ReviewerConfig,
     preset: BasePreset | None,
+    dialect_defaults: Mapping[str, object] | None = None,
 ) -> Capabilities:
-    """3 段構え: 既定 → プリセット → 利用者の明示指定 (後勝ち)."""
-    base = Capabilities(structured_output=StructuredMode.JSON_MODE)
+    """4 段構え: 既定 → 方言の形から決まる値 → プリセット → 利用者の明示指定 (後勝ち)."""
+    base = Capabilities.model_validate(
+        {
+            **Capabilities(structured_output=StructuredMode.JSON_MODE).model_dump(mode="json"),
+            **(dialect_defaults or {}),
+        }
+    )
     if preset is not None and preset.capabilities:
         try:
             base = Capabilities.model_validate(
@@ -137,12 +147,13 @@ def build_http_provider(
 
     api_key_env = reviewer.api_key_env or (preset.api_key_env if preset else None)
     key_source = reviewer.model_copy(update={"api_key_env": api_key_env})
+    dialect = factory(options)
     return HttpProvider(
         name=reviewer.name,
-        dialect=factory(options),
+        dialect=dialect,
         base_url=base_url,
         model=reviewer.model,
-        capabilities=resolve_capabilities(reviewer, preset),
+        capabilities=resolve_capabilities(reviewer, preset, dialect.default_capabilities()),
         api_key=resolve_api_key(key_source, environ),
         extra_headers=resolve_headers(reviewer, environ),
         client=client,

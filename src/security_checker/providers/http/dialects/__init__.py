@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from security_checker.providers.http.dialects.anthropic_messages import AnthropicMessagesDialect
 from security_checker.providers.http.dialects.base import (
@@ -13,6 +13,9 @@ from security_checker.providers.http.dialects.base import (
 from security_checker.providers.http.dialects.gemini_generate import GeminiGenerateDialect
 from security_checker.providers.http.dialects.ollama_chat import OllamaChatDialect
 from security_checker.providers.http.dialects.openai_chat import OpenAIChatDialect
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 DIALECTS: dict[str, Callable[..., Dialect]] = {
     AnthropicMessagesDialect.name: AnthropicMessagesDialect,

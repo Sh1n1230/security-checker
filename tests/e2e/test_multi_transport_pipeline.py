@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from security_checker.config.schema import Config, ReviewerConfig
 from security_checker.models.candidate import Candidate, Location
@@ -23,6 +22,9 @@ from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import build_runtime
 from security_checker.run import ReviewerSetup, run_review
 from security_checker.testing import FakeScanner, ScriptedProvider, verdict_payload
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 #: stdin を読み、与えられた verdict を散文で包んで stdout に返すだけのコマンド。
 #: 実在のコマンドを模したものではなく、§9.7 の契約だけを満たす最小の実装。

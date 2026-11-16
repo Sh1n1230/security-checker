@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from security_checker.config.schema import Config
 from security_checker.errors import ExitCode
@@ -10,6 +11,7 @@ from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, ScanStatus, Severity
 from security_checker.report.json_writer import write_json
 from security_checker.run import run_scan
+from security_checker.scanners import registry
 from security_checker.testing.fakes import FakeScanner
 
 
@@ -82,6 +84,9 @@ async def test_scanner_exception_is_contained(tmp_path):
     statuses = {run.scanner: run.status for run in outcome.report.scanners}
     assert statuses == {"boom": ScanStatus.FAILED, "fine": ScanStatus.OK}
     assert len(outcome.report.candidates) == 1
+    # 例外の型名が残る (KeyError('x') が「'x'」だけになると調べられない)
+    boom = next(run for run in outcome.report.scanners if run.scanner == "boom")
+    assert boom.reason == "内部エラー (RuntimeError): 想定外"
 
 
 async def test_report_json_roundtrip(tmp_path):
@@ -106,7 +111,6 @@ async def test_raw_dir_is_created(tmp_path):
 
 async def test_unimplemented_scanners_are_reported_as_config_warning(tmp_path, monkeypatch):
     """設定で有効なのにアダプタが無い (プラグインの読み込み失敗など) ときは警告にする."""
-    from security_checker.scanners import registry
 
     monkeypatch.setattr(
         registry,
@@ -119,3 +123,13 @@ async def test_unimplemented_scanners_are_reported_as_config_warning(tmp_path, m
     outcome = await run_scan(config, tmp_path, base_dir=tmp_path)
     messages = [w.message for w in outcome.report.warnings if w.source == "config"]
     assert any("osv" in message for message in messages)
+
+
+async def test_scanner_exception_traceback_goes_to_the_debug_log(tmp_path, caplog):
+    caplog.set_level(logging.DEBUG, logger="security_checker")
+    scanners = [FakeScanner("boom", raises=KeyError("x"))]
+    await run_scan(Config(), tmp_path, base_dir=tmp_path, scanners=scanners)
+    record = next(r for r in caplog.records if r.getMessage() == "scanner.internal_error")
+    fields = record.fields
+    assert fields["error_type"] == "KeyError"
+    assert "Traceback (most recent call last)" in fields["traceback"]

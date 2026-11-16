@@ -180,7 +180,8 @@ def test_apply_order_and_reasons(tmp_path):
         ("known", SuppressionReason.BASELINE),
     ]
     # 理由の無い注釈は抑制するが警告する
-    assert len(warnings) == 1 and "reason=" in warnings[0]
+    assert len(warnings) == 1
+    assert "reason=" in warnings[0]
 
 
 def test_baseline_path_is_relative_to_the_config_file(tmp_path):

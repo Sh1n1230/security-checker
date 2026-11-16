@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import date
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from security_checker.config.schema import BudgetConfig, RateLimit, ReviewerConfig
 from security_checker.models.verdict import VerdictStatus
@@ -26,6 +25,9 @@ from security_checker.review.scheduler import (
     build_runtime,
 )
 from security_checker.testing import ScriptedProvider, verdict_payload
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def store(tmp_path: Path, day: date = date(2026, 10, 4)) -> QuotaStore:
@@ -119,7 +121,8 @@ async def test_token_limiter_waits_for_the_window(monkeypatch):
     limiter = TokenLimiter(tpm=1000)
     await limiter.acquire(600)
     await limiter.acquire(600)  # 窓が空くまで待つ
-    assert slept and round(sum(slept)) == 60
+    assert slept
+    assert round(sum(slept)) == 60
     # 1 回で上限を超える依頼も、窓が空いていれば通す (永久に待たない)
     await asyncio.wait_for(TokenLimiter(tpm=10).acquire(500), timeout=1)
 

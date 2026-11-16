@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from security_checker.aggregate.registry import build_aggregator
 from security_checker.aggregate.weighted import CONFIRMED_MARGIN, WeightedAggregator
@@ -189,3 +190,9 @@ def test_partial_failure_is_not_false_positive(failure):
     )
     assert outcome.status is FindingStatus.REVIEW_REQUIRED
     assert outcome.detail["mode"] == "partial_reviewers"
+
+
+def test_a_zero_threshold_is_rejected():
+    # 0 だと、誰も脆弱と言っていない候補 (スコア 0) まで likely になる
+    with pytest.raises(ValidationError, match="threshold"):
+        AggregationConfig(strategy="weighted", weighted={"threshold": 0})

@@ -6,13 +6,16 @@
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from security_checker.config.schema import Config
 from security_checker.policy.suppress import SuppressionRules
 from security_checker.run import run_scan
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytestmark = pytest.mark.e2e
 

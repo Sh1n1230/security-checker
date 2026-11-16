@@ -12,12 +12,12 @@ import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from http import HTTPStatus
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Self
 
 import httpx
 
-from security_checker.config.schema import GithubConfig
 from security_checker.errors import ConfigError, SecurityCheckerError
 from security_checker.github.comment import (
     STALE_SUMMARY,
@@ -29,7 +29,10 @@ from security_checker.github.comment import (
     render_summary,
 )
 from security_checker.github.pr import DiffError, head_line_mapper
-from security_checker.models.report import Report
+
+if TYPE_CHECKING:
+    from security_checker.config.schema import GithubConfig
+    from security_checker.models.report import Report
 
 DEFAULT_API_URL = "https://api.github.com"
 TIMEOUT_S = 30.0
@@ -114,23 +117,31 @@ class GithubClient:
         )
 
     def close(self) -> None:
+        """HTTP の接続を閉じる."""
         self._client.close()
 
-    def __enter__(self) -> GithubClient:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_: object) -> None:
         self.close()
 
-    def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
-        response = self._send(method, url, **kwargs)
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Mapping[str, str] | None = None,
+        body: object | None = None,
+    ) -> httpx.Response:
+        response = self._send(method, url, params=params, body=body)
         wait = _rate_limit_wait(response)
         if wait is not None and wait <= MAX_RATE_LIMIT_WAIT_S:
             # 二次レート制限は短い待ちで解けることが多い. 1 回だけ待って送り直す
             self._sleep(wait)
-            response = self._send(method, url, **kwargs)
+            response = self._send(method, url, params=params, body=body)
             wait = _rate_limit_wait(response)
-        if response.status_code >= 400:
+        if response.status_code >= HTTPStatus.BAD_REQUEST:
             message = _error_message(response)
             if wait is not None:
                 raise GithubError(
@@ -145,9 +156,16 @@ class GithubClient:
             )
         return response
 
-    def _send(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+    def _send(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Mapping[str, str] | None,
+        body: object | None,
+    ) -> httpx.Response:
         try:
-            return self._client.request(method, url, **kwargs)
+            return self._client.request(method, url, params=params, json=body)
         except httpx.HTTPError as exc:
             raise GithubError(f"GitHub API に接続できません: {exc}") from exc
 
@@ -167,33 +185,40 @@ class GithubClient:
         return items
 
     def issue_comments(self, pr: PullRequestContext) -> list[dict[str, Any]]:
+        """PR に付いたコメント (サマリの置き場所) の一覧."""
         return self._paginate(f"/repos/{pr.repository}/issues/{pr.number}/comments")
 
     def create_issue_comment(self, pr: PullRequestContext, body: str) -> dict[str, Any]:
+        """PR にコメントを 1 件付ける."""
         url = f"/repos/{pr.repository}/issues/{pr.number}/comments"
-        result: dict[str, Any] = self._request("POST", url, json={"body": body}).json()
+        result: dict[str, Any] = self._request("POST", url, body={"body": body}).json()
         return result
 
     def update_issue_comment(
         self, pr: PullRequestContext, comment_id: int, body: str
     ) -> dict[str, Any]:
+        """既存のコメントの本文を置き換える."""
         url = f"/repos/{pr.repository}/issues/comments/{comment_id}"
-        result: dict[str, Any] = self._request("PATCH", url, json={"body": body}).json()
+        result: dict[str, Any] = self._request("PATCH", url, body={"body": body}).json()
         return result
 
     def review_comments(self, pr: PullRequestContext) -> list[dict[str, Any]]:
+        """PR の差分に付いた inline コメントの一覧."""
         return self._paginate(f"/repos/{pr.repository}/pulls/{pr.number}/comments")
 
     def pull_files(self, pr: PullRequestContext) -> list[dict[str, Any]]:
+        """PR で変更されたファイルと、その patch の一覧."""
         return self._paginate(f"/repos/{pr.repository}/pulls/{pr.number}/files")
 
     def head_sha(self, pr: PullRequestContext) -> str:
+        """PR の head のコミット SHA."""
         data = self._request("GET", f"/repos/{pr.repository}/pulls/{pr.number}").json()
         return str(data["head"]["sha"])
 
     def create_review(
         self, pr: PullRequestContext, commit_id: str, comments: list[dict[str, Any]]
     ) -> dict[str, Any]:
+        """inline コメントをまとめた review を 1 件作る (event は COMMENT)."""
         url = f"/repos/{pr.repository}/pulls/{pr.number}/reviews"
         payload = {
             "commit_id": commit_id,
@@ -201,7 +226,7 @@ class GithubClient:
             "event": "COMMENT",
             "comments": comments,
         }
-        result: dict[str, Any] = self._request("POST", url, json=payload).json()
+        result: dict[str, Any] = self._request("POST", url, body=payload).json()
         return result
 
 
@@ -215,7 +240,7 @@ def _error_message(response: httpx.Response) -> str:
 
 def _rate_limit_wait(response: httpx.Response) -> float | None:
     """レート制限の応答なら待つ秒数 (不明なら inf). そうでなければ None."""
-    if response.status_code not in (403, 429):
+    if response.status_code not in (HTTPStatus.FORBIDDEN, HTTPStatus.TOO_MANY_REQUESTS):
         return None
     headers = response.headers
     retry_after = headers.get("retry-after")
@@ -230,7 +255,10 @@ def _rate_limit_wait(response: httpx.Response) -> float | None:
             return max(0.0, float(reset or "") - time.time())
         except ValueError:
             return float("inf")
-    if response.status_code == 429 or "rate limit" in _error_message(response).lower():
+    if (
+        response.status_code == HTTPStatus.TOO_MANY_REQUESTS
+        or "rate limit" in _error_message(response).lower()
+    ):
         return float("inf")
     return None
 
@@ -248,6 +276,8 @@ class CommentResult:
     inline_unmapped: int = 0
     #: GitHub が 422 で受け付けなかった inline コメント (行が diff に無いなど)
     inline_rejected: int = 0
+    #: 差分が大きく GitHub が patch を返さなかったファイルの指摘 (「diff 外」とは別に数える)
+    inline_no_patch: int = 0
     warnings: list[str] = field(default_factory=list)
 
 
@@ -389,9 +419,13 @@ def _post_inline(
 ) -> None:
     if not settings.inline_comments or not report.findings:
         return
+    files = client.pull_files(pr)
     commentable = {
-        str(item["filename"]): commentable_ranges(str(item.get("patch") or ""))
-        for item in client.pull_files(pr)
+        str(item["filename"]): commentable_ranges(str(item.get("patch") or "")) for item in files
+    }
+    # 差分が大きいファイルは、行の追加があっても GitHub が patch を返さない
+    without_patch = {
+        str(item["filename"]) for item in files if not item.get("patch") and item.get("additions")
     }
     ours, foreign = _split_by_author(
         client.review_comments(pr),
@@ -406,7 +440,9 @@ def _post_inline(
     sha = pr.head_sha or client.head_sha(pr)
     try:
         to_head = head_line_mapper(repo_dir, report.target.commit, sha)
-        plan = plan_inline(report, settings, commentable, posted, to_head=to_head)
+        plan = plan_inline(
+            report, settings, commentable, posted, to_head=to_head, without_patch=without_patch
+        )
     except DiffError as exc:
         # 行番号を確かめられないまま付けると、無関係な行に指摘が載る
         result.warnings.append(
@@ -420,6 +456,12 @@ def _post_inline(
             f"base 側の変更と重なる {plan.unmapped} 件は、"
             "行を対応づけられないので inline を省きました"
         )
+    result.inline_no_patch = plan.no_patch
+    if plan.no_patch:
+        result.warnings.append(
+            f"{plan.no_patch} 件は、差分が大きく GitHub が patch を返さなかった"
+            "ファイルの指摘のため、inline にできません (サマリには載っています)"
+        )
     result.inline_already_posted = plan.already_posted
     result.inline_outside_diff = plan.outside_diff
     result.inline_over_limit = plan.over_limit
@@ -428,19 +470,30 @@ def _post_inline(
     payload = [
         {"path": c.path, "line": c.line, "side": "RIGHT", "body": c.body} for c in plan.comments
     ]
+    _send_inline(client, pr, sha, payload, result)
+
+
+def _send_inline(
+    client: GithubClient,
+    pr: PullRequestContext,
+    sha: str,
+    payload: list[dict[str, Any]],
+    result: CommentResult,
+) -> None:
+    """inline コメントを 1 つの review として送る. 422 なら 1 件ずつ送り直す."""
     try:
         client.create_review(pr, sha, payload)
         result.inline_posted = len(payload)
         return
     except GithubError as exc:
-        if exc.status_code != 422:
+        if exc.status_code != HTTPStatus.UNPROCESSABLE_ENTITY:
             raise
     # 1 件でも行が合わないと review 全体が 422 になる. 1 件ずつ送り直し、弾かれたものだけ数える
     for comment in payload:
         try:
             client.create_review(pr, sha, [comment])
         except GithubError as exc:
-            if exc.status_code != 422:
+            if exc.status_code != HTTPStatus.UNPROCESSABLE_ENTITY:
                 raise
             result.inline_rejected += 1
             continue
