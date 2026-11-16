@@ -24,8 +24,12 @@ def test_id_is_stable_across_line_moves():
     assert first == second
 
 
-def test_id_ignores_comments_and_case():
-    assert normalize_snippet("Foo()  # 危険") == normalize_snippet("foo()")
+def test_id_ignores_comments_but_preserves_case():
+    assert normalize_snippet("Foo()  # 危険") == normalize_snippet("Foo()")
+    assert normalize_snippet("Foo()") != normalize_snippet("foo()")
+    assert candidate_id("semgrep", "r", "a.py", "API_KEY = x") != candidate_id(
+        "semgrep", "r", "a.py", "api_key = x"
+    )
 
 
 def test_string_literals_are_not_stripped_as_comments():
@@ -72,6 +76,15 @@ def test_duplicate_snippets_get_sequence_suffix():
     second = factory.make("semgrep", "r", "a.py", "eval(x)")
     assert first != second
     assert second == f"{first}-1"
+
+
+def test_case_distinct_findings_have_independent_occurrence_counters():
+    factory = IdFactory()
+    upper = factory.make("semgrep", "r", "a.py", "eval(A)")
+    lower = factory.make("semgrep", "r", "a.py", "eval(a)")
+    duplicate_upper = factory.make("semgrep", "r", "a.py", "eval(A)")
+    assert upper != lower
+    assert duplicate_upper == f"{upper}-1"
 
 
 @pytest.mark.parametrize("path", ["/Users/foo/app.py", "C:\\Users\\foo\\app.py"])
