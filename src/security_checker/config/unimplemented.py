@@ -11,8 +11,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from security_checker.config.schema import MAJORITY_RATIO, Config, ContextConfig, ReviewerConfig
 
 
