@@ -276,6 +276,8 @@ class CommentResult:
     inline_unmapped: int = 0
     #: GitHub が 422 で受け付けなかった inline コメント (行が diff に無いなど)
     inline_rejected: int = 0
+    #: 差分が大きく GitHub が patch を返さなかったファイルの指摘 (「diff 外」とは別に数える)
+    inline_no_patch: int = 0
     warnings: list[str] = field(default_factory=list)
 
 
@@ -417,9 +419,13 @@ def _post_inline(
 ) -> None:
     if not settings.inline_comments or not report.findings:
         return
+    files = client.pull_files(pr)
     commentable = {
-        str(item["filename"]): commentable_ranges(str(item.get("patch") or ""))
-        for item in client.pull_files(pr)
+        str(item["filename"]): commentable_ranges(str(item.get("patch") or "")) for item in files
+    }
+    # 差分が大きいファイルは、行の追加があっても GitHub が patch を返さない
+    without_patch = {
+        str(item["filename"]) for item in files if not item.get("patch") and item.get("additions")
     }
     ours, foreign = _split_by_author(
         client.review_comments(pr),
@@ -434,7 +440,9 @@ def _post_inline(
     sha = pr.head_sha or client.head_sha(pr)
     try:
         to_head = head_line_mapper(repo_dir, report.target.commit, sha)
-        plan = plan_inline(report, settings, commentable, posted, to_head=to_head)
+        plan = plan_inline(
+            report, settings, commentable, posted, to_head=to_head, without_patch=without_patch
+        )
     except DiffError as exc:
         # 行番号を確かめられないまま付けると、無関係な行に指摘が載る
         result.warnings.append(
@@ -447,6 +455,12 @@ def _post_inline(
         result.warnings.append(
             f"base 側の変更と重なる {plan.unmapped} 件は、"
             "行を対応づけられないので inline を省きました"
+        )
+    result.inline_no_patch = plan.no_patch
+    if plan.no_patch:
+        result.warnings.append(
+            f"{plan.no_patch} 件は、差分が大きく GitHub が patch を返さなかった"
+            "ファイルの指摘のため、inline にできません (サマリには載っています)"
         )
     result.inline_already_posted = plan.already_posted
     result.inline_outside_diff = plan.outside_diff

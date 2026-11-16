@@ -22,7 +22,7 @@ from security_checker.models.enums import FindingStatus, ScanStatus, Severity
 from security_checker.report import sanitize as md
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping
+    from collections.abc import Callable, Collection, Iterable, Mapping
 
     from security_checker.config.schema import GithubConfig
     from security_checker.models.finding import Finding
@@ -414,6 +414,8 @@ class InlinePlan:
     over_limit: int = 0
     #: base 側の変更と重なり、PR の head の行に対応づけられなかった件数
     unmapped: int = 0
+    #: 変更されたファイルだが、差分が大きく GitHub が patch を返さなかった件数
+    no_patch: int = 0
 
 
 def plan_inline(
@@ -423,10 +425,13 @@ def plan_inline(
     posted_ids: set[str],
     *,
     to_head: Callable[[str, int], int | None] | None = None,
+    without_patch: Collection[str] = (),
 ) -> InlinePlan:
     """inline コメントの投稿計画を立てる (§21.3).
 
     `commentable` は PR の diff に含まれる新しい側の行範囲 (GitHub は範囲外に付けられない)。
+    `without_patch` は、変更されたのに GitHub が patch を返さなかったファイル (差分が大きい)。
+    行が分からないだけで「diff 外」ではないので、別に数える。
     パスはリポジトリルートから、行番号は PR の head の行番号で数える。
     `to_head` は検査した行番号を head の行番号に直す。base 側の変更と重なって対応の取れない行は
     推測せず `unmapped` に数える。
@@ -472,7 +477,10 @@ def plan_inline(
             None,
         )
         if anchor is None:
-            plan.outside_diff += 1
+            if path in without_patch:
+                plan.no_patch += 1
+            else:
+                plan.outside_diff += 1
             continue
         if len(plan.comments) >= settings.max_inline_comments:
             plan.over_limit += 1
