@@ -113,11 +113,13 @@ aggregation:
 リファレンス: [docs/configuration.md](docs/configuration.md) ·
 集約の戦略: [docs/aggregation.md](docs/aggregation.md)。
 
-## LLM を足す 2 つの経路
+## LLM を足す 3 つの経路
 
 1. **既知の API の形を話す HTTP エンドポイント** → 設定 1 ブロック。大事なのはベンダーではなく、
    形 (方言) です。
 2. **非対話で動き、JSON を出力するコマンド** → `transport: process` の設定 1 ブロック。
+3. **それ以外** → entry point に登録した小さな Python パッケージを `transport: plugin` で有効にします。
+   公開している契約テスト (`security_checker.testing.ProviderContractTests`) で検証できます。
 
 `security-checker providers check` が、新しい Reviewer を端から端まで (設定・疎通・構造化出力) 確かめます。
 詳しくは [docs/providers.md](docs/providers.md)。`process` transport の制約 (ツールの実行やファイルの
@@ -210,6 +212,7 @@ cp -r skills/security-check skills/security-fix ~/.claude/skills/
 
 [CONTRIBUTING.md](CONTRIBUTING.md)・[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)・[SECURITY.md](SECURITY.md)
 を見てください (**脆弱性は公開の Issue ではなく、非公開で報告してください**)。文書の一覧は
-[docs/README.md](docs/README.md) にあります。Issue と PR は日本語でも英語でも歓迎します。ライセンスは MIT です。
+[docs/README.md](docs/README.md) に、うまく動かないときの手引きは
+[docs/troubleshooting.md](docs/troubleshooting.md) にあります。Issue と PR は日本語でも英語でも歓迎します。ライセンスは MIT です。
 
 最初の v1 (bash / PowerShell) は v1.1.0 の後に削除しました。必要なら `v1.1.0` タグを参照してください。

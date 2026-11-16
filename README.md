@@ -10,9 +10,10 @@
 An AI security review platform: it runs the usual scanners, then has **independent LLMs review each
 finding as third-party auditors**, so you get fewer false positives without hiding real issues.
 
-> **Status:** alpha. Phases P1–P5 of the [migration plan](docs/DESIGN.md#32-移行計画) are done;
-> releases are published on GitHub only for now (install from git); PyPI comes later.
-> The design docs are currently in Japanese ([ADR 0002](docs/adr/0002-docs-language.md)).
+> **Status:** alpha. Releases are published on GitHub only for now (install from git); PyPI comes
+> later — what is left is tracked in [docs/NEXT-STEPS.md](docs/NEXT-STEPS.md).
+> The docs under `docs/` are currently in Japanese ([ADR 0002](docs/adr/0002-docs-language.md));
+> help translating them is welcome.
 
 ## What it is — and what it is not
 
@@ -119,8 +120,9 @@ aggregation strategies: [docs/aggregation.md](docs/aggregation.md).
 1. **An HTTP endpoint that speaks a known API shape** → one config block. The shape (dialect), not the
    vendor, is what matters.
 2. **A command that runs non-interactively and prints JSON** → one config block with `transport: process`.
-3. **Anything else** → a small Python package registered via entry points, verified with the published
-   contract tests (`security_checker.testing.ProviderContractTests`).
+3. **Anything else** → a small Python package registered via entry points and enabled with
+   `transport: plugin`, verified with the published contract tests
+   (`security_checker.testing.ProviderContractTests`).
 
 `security-checker providers check` verifies a new reviewer end to end (config, reachability, structured
 output). See [docs/providers.md](docs/providers.md).
@@ -143,7 +145,8 @@ we will say so. See [docs/evaluation.md](docs/evaluation.md).
 ## Security and privacy
 
 `review` sends the flagged code and its surrounding context (not the whole repository) to the reviewers you
-configured. Detected secret values are masked before they are stored or sent. `scan` sends nothing.
+configured. Detected secret values are masked before they are stored or sent. `scan` sends no code;
+the dependency scanner does look up package names and versions online, which you can turn off.
 Details: [docs/security-model.md](docs/security-model.md).
 
 ## Exit codes
@@ -210,6 +213,7 @@ with [checklist/CHECKLIST.md](checklist/CHECKLIST.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and
 [SECURITY.md](SECURITY.md) (**report vulnerabilities privately, not in public issues**). All documentation is
-indexed in [docs/README.md](docs/README.md). Issues and PRs are welcome in English or Japanese. MIT licensed.
+indexed in [docs/README.md](docs/README.md); if something does not work, start with
+[docs/troubleshooting.md](docs/troubleshooting.md). Issues and PRs are welcome in English or Japanese. MIT licensed.
 
 The original v1 (bash / PowerShell) was removed after v1.1.0; see the `v1.1.0` tag if you need it.
