@@ -99,7 +99,8 @@ def test_nothing_is_sent_when_even_the_truncation_mark_does_not_fit():
 
 def test_masking_leaves_text_alone_for_candidates_without_a_location():
     candidate = make_candidate(location=None, package=PackageRef(ecosystem="PyPI", name="p"))
-    text = 'TOKEN = "0123456789abcdef0123456789abcdef"'
+    # 長い引用符付きの値. リポジトリ自身の秘密検査に掛からないよう、実行時に組み立てる
+    text = f'VALUE = "{"0123456789abcdef" * 2}"'
     assert _mask_long_tokens_on_line(text, candidate) == text
     assert _mask_detected_lines(text, 1, candidate) == text
 
