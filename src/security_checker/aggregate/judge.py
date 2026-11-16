@@ -123,11 +123,14 @@ def apply_judgement(
         },
     }
     summary = judge.reasoning.split("\n", 1)[0][:200] if judge.reasoning else finding.summary
+    # Judge が脆弱と判定したなら、Judge の挙げた CWE を先頭にする (一次レビューの分は残す)
+    cwe = list(dict.fromkeys([*judge.cwe, *finding.cwe])) if judge.vulnerable else finding.cwe
     return finding.model_copy(
         update={
             "status": status,
             "severity": severity,
             "confidence": judge.confidence,
+            "cwe": cwe,
             "summary": summary,
             "aggregation": _aggregation(finding, detail),
         }

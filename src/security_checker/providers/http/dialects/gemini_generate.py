@@ -146,6 +146,10 @@ class GeminiGenerateDialect:
         # この形は鍵の不備を 401 ではなく 400 で返す
         return status == HTTPStatus.BAD_REQUEST and "api key" in body.lower()
 
+    def default_capabilities(self) -> dict[str, object]:
+        """この形に固有の既定は無い (json_mode から始める)."""
+        return {}
+
     def explain_error(self, status: int, body: str) -> str | None:
         """次に取れる行動が分かる場合だけ文章にする (§20.2)."""
         lowered = body.lower()
