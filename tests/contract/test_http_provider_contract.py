@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import httpx
 import respx
@@ -11,6 +11,9 @@ from security_checker.providers.base import Capabilities, LLMProvider, Structure
 from security_checker.providers.http.dialects.openai_chat import OpenAIChatDialect
 from security_checker.providers.http.transport import HttpProvider
 from security_checker.testing import ProviderContractTests
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 BASE_URL = "http://contract.test/v1"
 

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
 from importlib.metadata import entry_points
+from typing import TYPE_CHECKING
 
-from security_checker.aggregate.base import Aggregator
 from security_checker.aggregate.consensus import ConsensusAggregator
 from security_checker.aggregate.weighted import WeightedAggregator
 from security_checker.errors import ConfigError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
+    from security_checker.aggregate.base import Aggregator
 
 ENTRY_POINT_GROUP = "security_checker.aggregators"
 
@@ -21,6 +25,7 @@ BUILTIN_AGGREGATORS: dict[str, Callable[..., Aggregator]] = {
 
 
 def discover_plugin_aggregators() -> tuple[dict[str, Callable[..., Aggregator]], list[str]]:
+    """entry point で登録された Aggregator を探す. 読み込みの失敗は警告にして続行する."""
     found: dict[str, Callable[..., Aggregator]] = {}
     warnings: list[str] = []
     for entry in entry_points(group=ENTRY_POINT_GROUP):

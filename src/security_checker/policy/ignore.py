@@ -24,10 +24,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from security_checker.models.candidate import Candidate
 from security_checker.scanners.filters import is_excluded
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.candidate import Candidate
 
 IGNORE_FILENAME = ".security-checker-ignore"
 
@@ -45,10 +49,13 @@ _COMMENT_LEAD_RE = re.compile(r"[\s#/*<!\-;%{]*")
 
 @dataclass(frozen=True)
 class RuleIgnore:
+    """`rule:<id> [path]` の 1 行. パスを省くと全ファイルに効く."""
+
     rule: str
     paths: tuple[str, ...] = ()
 
     def matches(self, candidate: Candidate) -> bool:
+        """この行が候補を抑制するか."""
         if not rule_matches(self.rule, candidate):
             return False
         if not self.paths:
@@ -59,6 +66,8 @@ class RuleIgnore:
 
 @dataclass
 class IgnoreFile:
+    """.security-checker-ignore の内容 (パスのパターンとルール指定)."""
+
     path_patterns: list[str] = field(default_factory=list)
     rules: list[RuleIgnore] = field(default_factory=list)
 
@@ -83,6 +92,7 @@ def _candidate_path(candidate: Candidate) -> str | None:
 
 
 def rule_matches(rule: str, candidate: Candidate) -> bool:
+    """ルール指定 (`*`・`<rule_id>`・`<scanner>/<rule_id>`) が候補に当たるか."""
     return rule in ("*", candidate.rule_id, f"{candidate.scanner}/{candidate.rule_id}")
 
 
@@ -115,6 +125,7 @@ def parse_ignore_file(text: str, source: str = IGNORE_FILENAME) -> tuple[IgnoreF
 
 
 def load_ignore_file(directory: Path) -> tuple[IgnoreFile | None, list[str]]:
+    """ディレクトリの .security-checker-ignore を読む. 無ければ None."""
     path = directory / IGNORE_FILENAME
     if not path.is_file():
         return None, []
@@ -123,6 +134,8 @@ def load_ignore_file(directory: Path) -> tuple[IgnoreFile | None, list[str]]:
 
 @dataclass(frozen=True)
 class Annotation:
+    """コード内の ignore 注釈 1 つ (対象のルールと理由)."""
+
     rules: tuple[str, ...]
     reason: str | None
 
@@ -134,6 +147,7 @@ def is_annotation_only(line: str) -> bool:
 
 
 def parse_annotation(line: str) -> Annotation | None:
+    """1 行から ignore 注釈を読む. 無ければ None."""
     match = _ANNOTATION_RE.search(line)
     if match is None:
         return None
@@ -171,6 +185,7 @@ class AnnotationReader:
         return self._cache[relative]
 
     def find(self, candidate: Candidate) -> Annotation | None:
+        """候補の行か、その直前の注釈だけの行にある注釈を返す."""
         location = candidate.location
         if location is None or location.is_file_level:
             return None

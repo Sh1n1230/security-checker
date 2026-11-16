@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from security_checker.context import facts
 from security_checker.context.facts import collect_repo_facts
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def write(root: Path, relative: str, body: str = "x\n") -> None:

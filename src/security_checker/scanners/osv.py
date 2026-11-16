@@ -13,10 +13,8 @@ from __future__ import annotations
 import json
 import re
 import time
-from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from security_checker.config.schema import OsvConfig
 from security_checker.models.candidate import Candidate, IdFactory, PackageRef
 from security_checker.models.enums import Category, Severity
 from security_checker.scanners.base import (
@@ -31,8 +29,21 @@ from security_checker.scanners.base import (
 )
 from security_checker.scanners.filters import is_excluded
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+
+    from security_checker.config.schema import OsvConfig
+
 EXIT_NO_PACKAGES = 128
 MAX_REFERENCES = 5
+
+#: CVSS v3 の定性評価の帯 (下限の高い順). 0 より大きく最小の帯に届かなければ low
+_CVSS_BANDS: tuple[tuple[float, Severity], ...] = (
+    (9.0, Severity.CRITICAL),
+    (7.0, Severity.HIGH),
+    (4.0, Severity.MEDIUM),
+)
 
 #: OSV の database_specific.severity (GHSA の表記) → Severity
 _TEXT_SEVERITY = {
@@ -47,12 +58,9 @@ _CVE_RE = re.compile(r"^CVE-\d{4}-\d+$")
 
 def severity_from_score(score: float) -> Severity:
     """CVSS の基本値 → Severity (CVSS v3 の定性評価の帯)."""
-    if score >= 9.0:
-        return Severity.CRITICAL
-    if score >= 7.0:
-        return Severity.HIGH
-    if score >= 4.0:
-        return Severity.MEDIUM
+    for floor, severity in _CVSS_BANDS:
+        if score >= floor:
+            return severity
     if score > 0.0:
         return Severity.LOW
     return Severity.NONE
@@ -86,8 +94,8 @@ def _fixed_version(
     matched: list[str] = []
     every: list[str] = []
     for vuln in vulns:
-        for affected in vuln.get("affected") or []:
-            affected = as_dict(affected)
+        for raw_affected in vuln.get("affected") or []:
+            affected = as_dict(raw_affected)
             package = as_dict(affected.get("package"))
             if package.get("name") != name:
                 continue
@@ -109,7 +117,7 @@ def _fixed_version(
 
 
 def parse_osv(
-    payload: Any, root: Path, *, exclude: list[str] | None = None
+    payload: object, root: Path, *, exclude: list[str] | None = None
 ) -> tuple[list[Candidate], list[str]]:
     """osv-scanner の JSON を Candidate に正規化する."""
     warnings: list[str] = []
@@ -139,64 +147,84 @@ def parse_osv(
         if exclude and is_excluded(manifest, exclude):
             continue
         for entry in as_dict(result).get("packages") or []:
-            package = as_dict(as_dict(entry).get("package"))
-            name = package.get("name")
-            ecosystem = package.get("ecosystem")
-            if not isinstance(name, str) or not isinstance(ecosystem, str):
-                warnings.append(f"{manifest}: パッケージ名の無い結果を読み飛ばしました")
-                continue
-            version = package.get("version") if isinstance(package.get("version"), str) else None
-            vulns_by_id = {
-                v["id"]: v
-                for v in (as_dict(entry).get("vulnerabilities") or [])
-                if isinstance(v, dict) and isinstance(v.get("id"), str)
-            }
-            groups = as_dict(entry).get("groups") or [{"ids": [key]} for key in vulns_by_id]
-            for group in groups:
-                group_ids = [i for i in as_dict(group).get("ids") or [] if isinstance(i, str)]
-                if not group_ids:
-                    continue
-                vulns = [vulns_by_id[i] for i in group_ids if i in vulns_by_id]
-                aliases = [a for a in as_dict(group).get("aliases") or [] if isinstance(a, str)]
-                primary = sorted(group_ids)[0]
-                key = (manifest, ecosystem, name.lower(), primary)
-                if key in seen:
-                    continue
-                seen.add(key)
-                summary = next(
-                    (str(v["summary"]) for v in vulns if isinstance(v.get("summary"), str)), ""
-                )
-                severity = _group_severity(as_dict(group), vulns)
-                ref = PackageRef(ecosystem=ecosystem, name=name, version=version, manifest=manifest)
-                references = [
-                    str(as_dict(r).get("url"))
-                    for v in vulns
-                    for r in v.get("references") or []
-                    if isinstance(as_dict(r).get("url"), str)
-                ]
-                message = (
-                    f"{name} {version or ''} に既知の脆弱性があります: {summary or primary}"
-                ).replace("  ", " ")
-                if severity is None:
-                    message += " (重大度不明のため medium として扱います)"
-                candidates.append(
-                    Candidate(
-                        id=ids.make("osv", primary, manifest, ref.as_key()),
-                        scanner="osv",
-                        category=Category.DEPENDENCY,
-                        rule_id=primary,
-                        title=summary or f"{name} の既知の脆弱性 {primary}",
-                        message=message,
-                        package=ref,
-                        # 不明を info にするとゲートから消える。依存の脆弱性は控えめに中とする
-                        severity_reported=severity or Severity.MEDIUM,
-                        cve=sorted({a for a in [*aliases, *group_ids] if _CVE_RE.match(a)}),
-                        references=list(dict.fromkeys(references))[:MAX_REFERENCES],
-                        fix_available=_fixed_version(vulns, name, version),
-                        raw={"ids": group_ids, "aliases": aliases},
-                    )
-                )
+            candidates.extend(_package_candidates(as_dict(entry), manifest, ids, seen, warnings))
     return candidates, warnings
+
+
+def _package_candidates(
+    entry: dict[str, Any],
+    manifest: str,
+    ids: IdFactory,
+    seen: set[tuple[str, str, str, str]],
+    warnings: list[str],
+) -> Iterator[Candidate]:
+    """パッケージ 1 つ分. 別名でまとめられた脆弱性 (group) ごとに 1 件にする."""
+    package = as_dict(entry.get("package"))
+    name = package.get("name")
+    ecosystem = package.get("ecosystem")
+    if not isinstance(name, str) or not isinstance(ecosystem, str):
+        warnings.append(f"{manifest}: パッケージ名の無い結果を読み飛ばしました")
+        return
+    version = package.get("version") if isinstance(package.get("version"), str) else None
+    ref = PackageRef(ecosystem=ecosystem, name=name, version=version, manifest=manifest)
+    vulns_by_id = {
+        v["id"]: v
+        for v in (entry.get("vulnerabilities") or [])
+        if isinstance(v, dict) and isinstance(v.get("id"), str)
+    }
+    groups = entry.get("groups") or [{"ids": [key]} for key in vulns_by_id]
+    for raw_group in groups:
+        group = as_dict(raw_group)
+        group_ids = [i for i in group.get("ids") or [] if isinstance(i, str)]
+        if not group_ids:
+            continue
+        primary = min(group_ids)
+        key = (manifest, ecosystem, name.lower(), primary)
+        if key in seen:
+            continue
+        seen.add(key)
+        vulns = [vulns_by_id[i] for i in group_ids if i in vulns_by_id]
+        yield _group_candidate(group, group_ids, vulns, ref, ids)
+
+
+def _group_candidate(
+    group: dict[str, Any],
+    group_ids: list[str],
+    vulns: list[dict[str, Any]],
+    ref: PackageRef,
+    ids: IdFactory,
+) -> Candidate:
+    primary = min(group_ids)
+    manifest = ref.manifest or ""
+    aliases = [a for a in group.get("aliases") or [] if isinstance(a, str)]
+    summary = next((str(v["summary"]) for v in vulns if isinstance(v.get("summary"), str)), "")
+    severity = _group_severity(group, vulns)
+    references = [
+        str(as_dict(r).get("url"))
+        for v in vulns
+        for r in v.get("references") or []
+        if isinstance(as_dict(r).get("url"), str)
+    ]
+    message = (
+        f"{ref.name} {ref.version or ''} に既知の脆弱性があります: {summary or primary}"
+    ).replace("  ", " ")
+    if severity is None:
+        message += " (重大度不明のため medium として扱います)"
+    return Candidate(
+        id=ids.make("osv", primary, manifest, ref.as_key()),
+        scanner="osv",
+        category=Category.DEPENDENCY,
+        rule_id=primary,
+        title=summary or f"{ref.name} の既知の脆弱性 {primary}",
+        message=message,
+        package=ref,
+        # 不明を info にするとゲートから消える。依存の脆弱性は控えめに中とする
+        severity_reported=severity or Severity.MEDIUM,
+        cve=sorted({a for a in [*aliases, *group_ids] if _CVE_RE.match(a)}),
+        references=list(dict.fromkeys(references))[:MAX_REFERENCES],
+        fix_available=_fixed_version(vulns, ref.name, ref.version),
+        raw={"ids": group_ids, "aliases": aliases},
+    )
 
 
 class OsvScanner(BaseScanner):
@@ -215,6 +243,7 @@ class OsvScanner(BaseScanner):
         super().__init__(settings)
 
     async def scan(self, target: Target, ctx: ScanContext) -> ScanResult:
+        """スキャナを実行して結果を正規化する. 未導入 (skipped) と失敗 (failed) は区別して返す."""
         status = self.probe()
         if not status.available:
             return self.skipped(status.reason or "osv-scanner が利用できません", unavailable=True)

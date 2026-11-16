@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
@@ -33,6 +31,10 @@ from security_checker.review.scheduler import (
     build_runtime,
 )
 from security_checker.testing import ScriptedProvider, SlowProvider, verdict_payload
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
 
 
 def make_task(index: int = 0) -> ReviewTask:
@@ -390,3 +392,19 @@ async def test_usd_budget_still_works_with_an_unpriced_reviewer():
     ).run([make_task(i) for i in range(8)])
     assert "予算" in (result.stopped_reason or "")
     assert len(priced_provider.requests) < 8
+
+
+async def test_rate_limiter_forgets_requests_older_than_a_minute(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr("time.monotonic", lambda: now[0])
+    limiter = RateLimiter(rpm=1)
+    slept: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += seconds
+
+    await limiter.acquire(fake_sleep)
+    now[0] += 61.0  # 1 分以上前の送信は枠を空ける
+    await limiter.acquire(fake_sleep)
+    assert slept == []

@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import io
 import json
-from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import pytest
 from typer.testing import CliRunner
 
 from security_checker.cli import app
 from security_checker.observability import logging as log
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +43,8 @@ def test_text_format_and_level_filter():
     log.event("loud", level="warn", reason="x")
     lines = stream.getvalue().splitlines()
     assert len(lines) == 1
-    assert "warn" in lines[0] and "loud reason=x" in lines[0]
+    assert "warn" in lines[0]
+    assert "loud reason=x" in lines[0]
 
 
 def test_secrets_are_masked():

@@ -14,7 +14,8 @@ def test_writes_run_and_calls(tmp_path):
     second = writer.write_call({"candidate_id": "c2"})
 
     assert (tmp_path / "trace" / "RUN1" / "run.json").is_file()
-    assert first is not None and second is not None
+    assert first is not None
+    assert second is not None
     assert first.name == "0000.json"
     assert second.name == "0001.json"
     assert json.loads(first.read_text(encoding="utf-8"))["candidate_id"] == "c1"

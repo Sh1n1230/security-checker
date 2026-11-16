@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from security_checker.models.report import Report
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.report import Report
 
 
 def write_json(report: Report, output_dir: Path) -> Path:

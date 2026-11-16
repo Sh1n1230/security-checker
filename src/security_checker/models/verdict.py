@@ -44,6 +44,7 @@ class Usage(BaseModel):
 
     @property
     def total_tokens(self) -> int:
+        """入力と出力のトークン数の合計."""
         return self.input_tokens + self.output_tokens
 
     def merge(self, other: Usage) -> Usage:

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
+from security_checker.config.schema import OutputConfig
 from security_checker.language import (
+    _tag_from_locale,
+    language_name,
     output_language_instruction,
     resolve_language,
 )
@@ -97,24 +101,25 @@ def test_explicit_c_locale_is_not_overridden_by_lang():
 )
 def test_output_language_is_normalized(raw, expected):
     """設定の値を正規化する (#220)."""
-    from security_checker.config.schema import OutputConfig
 
     assert OutputConfig(language=raw).language == expected
 
 
 @pytest.mark.parametrize("raw", ["", "   ", "日本語", "en US"])
 def test_broken_output_language_is_rejected(raw):
-    from pydantic import ValidationError
-
-    from security_checker.config.schema import OutputConfig
 
     with pytest.raises(ValidationError, match=r"output\.language"):
         OutputConfig(language=raw)
 
 
 def test_traditional_and_simplified_chinese_have_names():
-    from security_checker.language import language_name
-
     assert "Traditional" in language_name("zh-Hant")
     assert "Simplified" in language_name("zh-Hans")
     assert language_name("fr-CA") == "French"
+
+
+def test_empty_and_malformed_locale_values_are_unknown():
+    assert _tag_from_locale(None) is None
+    assert _tag_from_locale("") is None
+    assert _tag_from_locale(".UTF-8") is None
+    assert _tag_from_locale("_JP") is None

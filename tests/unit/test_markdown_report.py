@@ -19,7 +19,7 @@ from security_checker.models.enums import (
     ScanStatus,
     Severity,
 )
-from security_checker.models.finding import Finding
+from security_checker.models.finding import Finding, SuppressionReason
 from security_checker.models.report import (
     Coverage,
     Report,
@@ -27,6 +27,7 @@ from security_checker.models.report import (
     ReviewerRun,
     ScannerRun,
     Score,
+    SuppressedCandidate,
     TargetInfo,
     utcnow,
 )
@@ -37,7 +38,12 @@ from security_checker.models.verdict import (
     VerdictStatus,
 )
 from security_checker.policy.engine import PolicyDecision
-from security_checker.report.markdown import render_markdown, write_markdown
+from security_checker.report.markdown import (
+    MAX_CANDIDATE_ROWS,
+    MAX_FINDINGS_PER_SECTION,
+    render_markdown,
+    write_markdown,
+)
 
 
 @pytest.fixture
@@ -232,3 +238,44 @@ def test_write_markdown_creates_the_file(candidate, tmp_path):
     path = write_markdown(report, PolicyDecision(ExitCode.OK), tmp_path / "out")
     assert path.name == "report.md"
     assert path.read_text(encoding="utf-8").startswith("# セキュリティレビュー結果")
+
+
+# --- 上限と付帯情報 ---------------------------------------------------------------
+
+
+def test_summary_shows_suppressed_and_false_positive_counts(candidate):
+    report = make_report(
+        candidate,
+        [finding(candidate, FindingStatus.FALSE_POSITIVE)],
+        suppressed=[SuppressedCandidate(candidate=candidate, reason=SuppressionReason.BASELINE)],
+        finding_counts={FindingStatus.FALSE_POSITIVE.value: 1},
+    )
+    text = render_markdown(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]))
+    assert "| 抑制 | 1 件 (baseline 1) (レビュー・判定の対象外) |" in text
+    assert "| 判定 | 誤検出 1 |" in text
+
+
+def test_sections_and_candidate_table_are_capped_and_point_to_the_json(candidate):
+    findings = [
+        finding(candidate, FindingStatus.CONFIRMED) for _ in range(MAX_FINDINGS_PER_SECTION + 3)
+    ]
+    text = render_markdown(
+        make_report(candidate, findings), PolicyDecision(exit_code=ExitCode.OK, reasons=[])
+    )
+    assert "_ほか 3 件は `report.json` を参照_" in text
+
+    scan_only = make_report(candidate, [], candidates=[candidate] * (MAX_CANDIDATE_ROWS + 2))
+    text = render_markdown(scan_only, PolicyDecision(exit_code=ExitCode.OK, reasons=[]))
+    assert "_ほか 2 件は `report.json` を参照_" in text
+
+
+def test_footer_reports_an_early_stop_and_the_trace_location(candidate):
+    report = make_report(
+        candidate,
+        [finding(candidate, FindingStatus.CONFIRMED)],
+        stopped_reason="予算の上限に達しました",
+        trace_dir="trace/R1",
+    )
+    text = render_markdown(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]))
+    assert "⚠️ 途中で停止しました: 予算の上限に達しました" in text
+    assert "監査証跡: `trace/R1`" in text

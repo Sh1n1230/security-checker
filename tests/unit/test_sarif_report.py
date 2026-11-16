@@ -294,3 +294,24 @@ def test_reviewed_and_failed_reports_match_the_schema():
     )
     assert schema_errors(render_sarif(make_report([candidate], [finding]))) == []
     assert schema_errors(render_sarif(make_report([candidate], [finding], scanners=[failed]))) == []
+
+
+def test_results_without_a_location_are_dropped_and_counted():
+    # 位置もマニフェストも無い候補は Code Scanning が受け付けない. 黙って消さず件数を残す
+    located = make_candidate("c1")
+    nowhere = make_candidate("c2", location=None)
+    outside = make_candidate("c3", location=None)
+    report = make_report(
+        [located, nowhere],
+        [
+            make_finding(located, FindingStatus.CONFIRMED),
+            make_finding(nowhere, FindingStatus.CONFIRMED),
+        ],
+        outside_diff=[outside],
+    )
+    sarif = render_sarif(report)
+    assert [r["partialFingerprints"]["primary"] for r in results_of(sarif)] == ["c1"]
+    run = sarif["runs"][0]
+    assert run["properties"]["results_without_location"] == 2
+    notes = run["invocations"][0]["toolExecutionNotifications"]
+    assert any("位置を持たない候補 2 件" in note["message"]["text"] for note in notes)

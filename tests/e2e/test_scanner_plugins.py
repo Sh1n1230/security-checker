@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest import mock
 
 import pytest
@@ -16,6 +15,9 @@ from security_checker.models.enums import ScanStatus
 from security_checker.run import run_scan
 from security_checker.scanners import registry
 from security_checker.testing.fakes import FakeScanner
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # --- entry point で登録したスキャナを実行する (#174) ------------------------------------
 

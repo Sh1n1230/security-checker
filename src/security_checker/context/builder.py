@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import re
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from security_checker.config.schema import ContextConfig
 from security_checker.context.budget import (
     CHARS_PER_TOKEN,
     PROMPT_OVERHEAD_TOKENS,
@@ -17,7 +16,6 @@ from security_checker.context.budget import (
 )
 from security_checker.context.redact import mask_secret, redact_known_patterns, redact_text
 from security_checker.context.slicer import clip_lines, line_window, shrink
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category
 from security_checker.models.task import (
     CodeContext,
@@ -27,8 +25,16 @@ from security_checker.models.task import (
     TokenBudget,
 )
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.config.schema import ContextConfig
+    from security_checker.models.candidate import Candidate
+
 MIN_WINDOW_LINES = 6
 SECRET_MIN_LENGTH = 8
+#: 引用符で区切った断片がこの数以下なら、閉じた引用符の組は 1 つも無い
+_UNQUOTED_PARTS = 2
 
 
 class ContextBuilder:
@@ -52,6 +58,7 @@ class ContextBuilder:
         self.repo_facts = repo_facts if config.include_repo_facts else RepoFacts()
 
     def build(self, candidate: Candidate) -> ReviewTask:
+        """候補 1 件分の ReviewTask を作る. 文脈は予算に収め、検出した値は伏せる (§8・§19.2)."""
         notes: list[str] = []
         primary: CodeSlice | None = None
         truncated = False
@@ -181,10 +188,7 @@ def _mask_long_tokens_on_line(text: str, candidate: Candidate) -> str:
     """
     if candidate.location is None:
         return text
-    masked_lines: list[str] = []
-    for line in text.splitlines():
-        masked_lines.append(_mask_quoted(line))
-    return "\n".join(masked_lines)
+    return "\n".join(_mask_quoted(line) for line in text.splitlines())
 
 
 def _mask_detected_lines(text: str, first_line: int, candidate: Candidate) -> str:
@@ -264,7 +268,7 @@ def _mask_quoted(line: str) -> str:
     result = line
     for quote in ('"', "'"):
         parts = result.split(quote)
-        if len(parts) < 3:
+        if len(parts) <= _UNQUOTED_PARTS:
             continue
         for index in range(1, len(parts), 2):
             value = parts[index]

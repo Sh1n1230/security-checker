@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,18 +13,28 @@ from rich.console import Console
 from security_checker.config.schema import Config
 from security_checker.errors import ExitCode
 from security_checker.models.candidate import Candidate, Location
-from security_checker.models.enums import Category, ScanStatus, Severity
-from security_checker.models.report import Report
+from security_checker.models.enums import Category, FindingStatus, ScanStatus, Severity
+from security_checker.models.finding import SuppressionReason
+from security_checker.models.report import (
+    Report,
+    ReportWarning,
+    ReviewerRun,
+    ScannerRun,
+    SuppressedCandidate,
+    TargetInfo,
+)
+from security_checker.models.verdict import Usage
 from security_checker.policy.engine import PolicyDecision
 from security_checker.report import terminal
 from security_checker.run import run_scan
 from security_checker.testing.fakes import FakeScanner
+from tests.factories import make_candidate, make_finding, make_report, make_verdict
 
 
-def capture(report: Report, decision: PolicyDecision, output_dir: Path) -> str:
+def capture(report: Report, decision: PolicyDecision) -> str:
     console = Console(width=120, force_terminal=False, no_color=True)
     with console.capture() as captured:
-        terminal.render(report, decision, output_dir, console=console)
+        terminal.render(report, decision, console=console)
     return captured.get()
 
 
@@ -50,7 +59,7 @@ async def test_renders_candidates_and_score(tmp_path, candidate):
         base_dir=tmp_path,
         scanners=[FakeScanner("semgrep", candidates=[candidate])],
     )
-    output = capture(outcome.report, outcome.decision, outcome.output_dir)
+    output = capture(outcome.report, outcome.decision)
 
     assert "dangerous-eval" in output
     assert "src/app.py:42" in output
@@ -62,7 +71,7 @@ async def test_renders_candidates_and_score(tmp_path, candidate):
 async def test_failed_scanner_is_visible_and_score_is_marked_partial(tmp_path):
     scanners = [FakeScanner("semgrep", status=ScanStatus.FAILED, reason="exit 2", exit_code=2)]
     outcome = await run_scan(Config(), tmp_path, base_dir=tmp_path, scanners=scanners)
-    output = capture(outcome.report, outcome.decision, outcome.output_dir)
+    output = capture(outcome.report, outcome.decision)
 
     assert "failed" in output
     assert "partial" in output
@@ -72,7 +81,7 @@ async def test_failed_scanner_is_visible_and_score_is_marked_partial(tmp_path):
 async def test_skipped_scanner_is_distinguished_from_zero_findings(tmp_path):
     scanners = [FakeScanner("gitleaks", status=ScanStatus.SKIPPED, reason="未導入です")]
     outcome = await run_scan(Config(), tmp_path, base_dir=tmp_path, scanners=scanners)
-    output = capture(outcome.report, outcome.decision, outcome.output_dir)
+    output = capture(outcome.report, outcome.decision)
 
     assert "skipped" in output
     assert "未導入です" in output
@@ -98,14 +107,14 @@ async def test_many_candidates_are_truncated_with_notice(tmp_path):
         base_dir=tmp_path,
         scanners=[FakeScanner("semgrep", candidates=candidates)],
     )
-    output = capture(outcome.report, outcome.decision, outcome.output_dir)
+    output = capture(outcome.report, outcome.decision)
 
     assert "ほか 5 件" in output
 
 
 async def test_no_scanners_configured(tmp_path):
     outcome = await run_scan(Config(), tmp_path, base_dir=tmp_path, scanners=[])
-    output = capture(outcome.report, outcome.decision, outcome.output_dir)
+    output = capture(outcome.report, outcome.decision)
     assert "有効なスキャナがありません" in output
 
 
@@ -113,11 +122,6 @@ async def test_no_scanners_configured(tmp_path):
 
 
 def reviewed_report(**overrides: Any) -> Report:
-    from security_checker.models.enums import FindingStatus
-    from security_checker.models.finding import SuppressionReason
-    from security_checker.models.report import ReviewerRun, SuppressedCandidate
-    from security_checker.models.verdict import Usage
-    from tests.factories import make_candidate, make_finding, make_report, make_verdict
 
     confirmed = make_candidate("c1", path="a.py")
     split = make_candidate("c2", path="b.py")
@@ -153,62 +157,69 @@ def reviewed_report(**overrides: Any) -> Report:
 
 
 def test_review_required_comes_right_after_confirmed(tmp_path):
-    output = capture(reviewed_report(), PolicyDecision(exit_code=ExitCode.OK, reasons=[]), tmp_path)
+    output = capture(reviewed_report(), PolicyDecision(exit_code=ExitCode.OK, reasons=[]))
     assert output.index("CONFIRMED") < output.index("REVIEW REQUIRED")
-    assert "確定した問題" in output and "割れた問題" in output
-    assert "alpha: high (0.90)" in output and "beta: not vulnerable" in output
+    assert "確定した問題" in output
+    assert "割れた問題" in output
+    assert "alpha: high (0.90)" in output
+    assert "beta: not vulnerable" in output
     assert "Attack path: POST /upload" in output
     assert "未レビュー" in output
-    assert "Suppressed" in output and "baseline 1" in output
-    assert "無効化" in output and "error 1" in output
+    assert "Suppressed" in output
+    assert "baseline 1" in output
+    assert "無効化" in output
+    assert "error 1" in output
     assert "cost: $0.0010" in output
     assert "false_positive 1" in output
 
 
 def test_many_findings_are_truncated(tmp_path):
-    from security_checker.models.enums import FindingStatus
-    from tests.factories import make_candidate, make_finding, make_report
-
     candidates = [
         make_candidate(f"c{i}", path=f"f{i}.py") for i in range(terminal.MAX_FINDING_PANELS + 3)
     ]
     report = make_report(candidates, [make_finding(c, FindingStatus.CONFIRMED) for c in candidates])
-    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]), tmp_path)
+    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]))
     assert "ほか 3 件" in output
 
 
 def test_only_false_positives_says_nothing_to_report(tmp_path):
-    from security_checker.models.enums import FindingStatus
-    from tests.factories import make_candidate, make_finding, make_report
-
     c = make_candidate()
     output = capture(
         make_report([c], [make_finding(c, FindingStatus.FALSE_POSITIVE)]),
         PolicyDecision(exit_code=ExitCode.OK, reasons=[]),
-        tmp_path,
     )
     assert "報告対象なし" in output
 
 
 def test_unknown_cost_and_many_warnings(tmp_path):
-    from security_checker.models.report import ReportWarning
-    from security_checker.models.verdict import Usage
-
     report = reviewed_report(
         usage=Usage(cost_known=False),
         warnings=[ReportWarning(level="warn", source="x", message=f"w{i}") for i in range(7)],
     )
-    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]), tmp_path)
+    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]))
     assert "cost: unknown" in output
     assert "ほか 2 件の警告" in output
 
 
 def test_diff_mode_label(tmp_path):
-    from security_checker.models.report import TargetInfo
-    from tests.factories import make_report
 
     report = make_report(
         [], target=TargetInfo(root="/r", mode="diff", changed_files=3, base="origin/main")
     )
-    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]), tmp_path)
+    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]))
     assert "diff mode vs origin/main, 3 files" in output
+
+
+def test_scanners_are_separated_and_redacted_findings_are_marked(candidate):
+    masked = candidate.model_copy(update={"redacted": True})
+    report = make_report(
+        [masked],
+        [make_finding(masked, FindingStatus.CONFIRMED)],
+        scanners=[
+            ScannerRun(scanner="semgrep", category=Category.SAST, status=ScanStatus.OK),
+            ScannerRun(scanner="gitleaks", category=Category.SECRET, status=ScanStatus.OK),
+        ],
+    )
+    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]))
+    assert "semgrep ✓ 0  gitleaks ✓ 0" in output
+    assert "値はマスクして保存・送信" in output

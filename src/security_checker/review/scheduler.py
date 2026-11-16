@@ -10,13 +10,10 @@ import asyncio
 import random
 import time
 from collections import deque
-from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from security_checker.config.schema import BudgetConfig, ReviewerConfig
 from security_checker.context.budget import PROMPT_OVERHEAD_TOKENS, estimate_tokens
-from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import ReviewVerdict, Usage, VerdictStatus
 from security_checker.observability import logging as log
 from security_checker.observability.quota import QuotaStore, quota_key
@@ -26,14 +23,22 @@ from security_checker.providers.errors import (
     ProviderRateLimitError,
 )
 from security_checker.review import prompts
-from security_checker.review.prompts import PeerOpinion
 from security_checker.review.reviewer import Reviewer, ReviewOutcome, SendCancelledError
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
+
+    from security_checker.config.schema import BudgetConfig, ReviewerConfig
+    from security_checker.models.task import ReviewTask
+    from security_checker.review.prompts import PeerOpinion
 
 #: tpm の見積りでは user プロンプトを実測するので、残りは system の分
 SYSTEM_PROMPT_TOKENS = PROMPT_OVERHEAD_TOKENS
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 60.0
+#: rpm / tpm を数える窓 (秒)
+WINDOW_S = 60.0
 CIRCUIT_BREAKER_FAILURES = 5
 DEFAULT_DEADLINE_S = 1800.0
 #: rate_limit.rpm を書いていない Reviewer の初期値. 429 を受けるまでは絞らない
@@ -53,10 +58,11 @@ class RateLimiter:
         self._lock = asyncio.Lock()
 
     async def acquire(self, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep) -> None:
+        """直近 1 分の送信数が rpm を下回るまで待ち、1 リクエスト分を確保する."""
         while True:
             async with self._lock:
                 now = time.monotonic()
-                while self._events and now - self._events[0] >= 60.0:
+                while self._events and now - self._events[0] >= WINDOW_S:
                     self._events.popleft()
                 if len(self._events) < self.rpm:
                     self._events.append(now)
@@ -76,6 +82,7 @@ class RateLimiter:
         return self.rpm
 
     def recover(self) -> None:
+        """絞っていた実効 rpm を、元の値を上限に倍へ戻す."""
         self.rpm = min(self.base_rpm, self.rpm * 2)
 
 
@@ -91,10 +98,11 @@ class TokenLimiter:
         self._lock = asyncio.Lock()
 
     async def acquire(self, tokens: int) -> None:
+        """直近 1 分のトークン数が tpm に収まるまで待ち、見積り分を確保する."""
         while True:
             async with self._lock:
                 now = time.monotonic()
-                while self._events and now - self._events[0][0] >= 60.0:
+                while self._events and now - self._events[0][0] >= WINDOW_S:
                     self._events.popleft()
                 used = sum(count for _, count in self._events)
                 if not self._events or used + tokens <= self.tpm:
@@ -113,6 +121,7 @@ class DailyQuota:
     limit: int
 
     def remaining(self) -> int:
+        """今日あと何回送れるか."""
         return self.store.remaining(self.key, self.limit)
 
 
@@ -132,6 +141,7 @@ class ReviewerRuntime:
 
     @property
     def name(self) -> str:
+        """Reviewer の名前."""
         return self.reviewer.name
 
 

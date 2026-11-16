@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from security_checker.models.candidate import Candidate, Location
@@ -136,9 +138,16 @@ def test_evidence_within_context_is_kept():
 
 def test_schema_sent_to_the_llm_has_no_internal_descriptions():
     """pydantic の docstring (日本語の内部メモ) をプロンプトに送らない (#290)."""
-    import json
-
-    from security_checker.review.structured import verdict_schema
 
     text = json.dumps(verdict_schema(), ensure_ascii=False)
     assert '"description"' not in text
+
+
+def test_braces_and_escaped_quotes_inside_strings_do_not_end_the_object():
+    text = 'Here is my answer: {"reasoning": "the \\"}\\" is quoted", "vulnerable": true} Thanks.'
+    assert extract_json(text) == {"reasoning": 'the "}" is quoted', "vulnerable": True}
+
+
+def test_an_unparsable_object_is_skipped_and_the_next_one_is_used():
+    text = 'Example: {not json} Answer: {"vulnerable": false}'
+    assert extract_json(text) == {"vulnerable": False}

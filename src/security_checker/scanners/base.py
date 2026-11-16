@@ -13,15 +13,17 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
-from security_checker.config.schema import ScannerConfig
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category, ScanStatus
 from security_checker.processes import POSIX, terminate
-from security_checker.scanners.untrusted import UntrustedOverrides
+
+if TYPE_CHECKING:
+    from security_checker.config.schema import ScannerConfig
+    from security_checker.scanners.untrusted import UntrustedOverrides
 
 STDERR_EXCERPT_LIMIT = 2000
 
@@ -90,9 +92,11 @@ class Scanner(Protocol):
     category: Category
     requires: ClassVar[list[str]]
 
-    def probe(self) -> ToolStatus: ...
+    def probe(self) -> ToolStatus:
+        """ツールが使えるか (導入済みか・版) を返す. 例外は投げない."""
 
-    async def scan(self, target: Target, ctx: ScanContext) -> ScanResult: ...
+    async def scan(self, target: Target, ctx: ScanContext) -> ScanResult:
+        """スキャナを実行して結果を正規化する. 未導入 (skipped) と失敗 (failed) は区別して返す."""
 
 
 @dataclass
@@ -188,12 +192,14 @@ class BaseScanner:
         self.settings = settings
 
     def probe(self) -> ToolStatus:
+        """`requires` の先頭のコマンドが使えるかを確かめる."""
         status = probe_command(self.requires[0])
         if not status.available and self.install_hint:
             return status.model_copy(update={"reason": f"{status.reason}。{self.install_hint}"})
         return status
 
     async def scan(self, target: Target, ctx: ScanContext) -> ScanResult:  # pragma: no cover
+        """スキャナを実行して結果を正規化する. 未導入 (skipped) と失敗 (failed) は区別して返す."""
         raise NotImplementedError
 
     # --- 結果生成のヘルパ ---------------------------------------------------
@@ -201,6 +207,7 @@ class BaseScanner:
     def skipped(
         self, reason: str, *, version: str | None = None, unavailable: bool = False
     ) -> ScanResult:
+        """検査しなかった結果を作る. `unavailable` はツール未導入 (導入方法を案内する)."""
         return ScanResult(
             scanner=self.name,
             category=self.category,
@@ -220,6 +227,7 @@ class BaseScanner:
         version: str | None = None,
         raw_path: Path | None = None,
     ) -> ScanResult:
+        """異常終了の結果を作る. stderr は先頭だけを残す."""
         stderr_text = excerpt(stderr) if isinstance(stderr, bytes) else stderr
         return ScanResult(
             scanner=self.name,
@@ -244,6 +252,7 @@ class BaseScanner:
         parse_warnings: list[str] | None = None,
         stderr: bytes | str | None = None,
     ) -> ScanResult:
+        """正常終了の結果を作る. 壊れたエントリの警告も一緒に返す."""
         stderr_text = excerpt(stderr) if isinstance(stderr, bytes) else stderr
         return ScanResult(
             scanner=self.name,
@@ -260,6 +269,7 @@ class BaseScanner:
 
 
 def elapsed_ms(started: float) -> int:
+    """`started` (time.monotonic) からの経過ミリ秒."""
     return int((time.monotonic() - started) * 1000)
 
 
@@ -274,11 +284,10 @@ def relative_path(raw_path: str, root: Path) -> str:
             cleaned = candidate.resolve().relative_to(root.resolve()).as_posix()
         except ValueError:
             cleaned = candidate.name
-    if cleaned.startswith("./"):
-        cleaned = cleaned[2:]
+    cleaned = cleaned.removeprefix("./")
     return cleaned
 
 
-def as_dict(value: Any) -> dict[str, Any]:
+def as_dict(value: object) -> dict[str, Any]:
     """JSON の想定外構造を握り潰さないためのヘルパ."""
     return value if isinstance(value, dict) else {}

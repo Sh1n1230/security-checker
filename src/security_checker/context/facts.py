@@ -7,11 +7,14 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from security_checker.models.task import RepoFacts
 from security_checker.scanners.filters import is_excluded
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 LANGUAGE_BY_SUFFIX = {
     ".py": "Python",
@@ -97,6 +100,8 @@ AUTH_DEPENDENCIES = {
 }
 SKIP_DIRS = {".git", "node_modules", "vendor", "__pycache__", ".venv", "dist", "build"}
 MAX_FILES = 4000
+#: プロンプトに載せる入口ファイルの数
+MAX_ENTRYPOINTS = 10
 
 
 def _directory_excluded(relative: str, patterns: list[str]) -> bool:
@@ -115,56 +120,22 @@ def collect_repo_facts(root: Path, exclude: Sequence[str] = ()) -> RepoFacts:
     entrypoints: list[str] = []
     deployment: list[str] = []
     manifests: list[Path] = []
-    patterns = list(exclude)
-    seen = 0
-    truncated = False
+    files, truncated = _list_files(root, list(exclude))
 
-    for current, dirs, files in os.walk(root):
-        base = Path(current)
-        relative_dir = base.relative_to(root)
-        dirs[:] = sorted(
-            d
-            for d in dirs
-            if d not in SKIP_DIRS
-            and not (patterns and _directory_excluded((relative_dir / d).as_posix(), patterns))
-        )
-        for name in sorted(files):
-            relative = (relative_dir / name).as_posix()
-            if patterns and is_excluded(relative, patterns):
-                continue
-            if seen >= MAX_FILES:
-                truncated = True
-                break
-            path = base / name
-            if not path.is_file():
-                continue
-            seen += 1
-            language = LANGUAGE_BY_SUFFIX.get(path.suffix)
-            if language:
-                languages[language] = languages.get(language, 0) + 1
-            if name in ENTRYPOINT_NAMES and len(entrypoints) < 10:
-                entrypoints.append(relative)
-            if name in DEPLOYMENT_FILES:
-                hint = DEPLOYMENT_FILES[name]
-                if hint not in deployment:
-                    deployment.append(hint)
-            if name in FRAMEWORK_MARKERS:
-                manifests.append(path)
-        if truncated:
-            break
+    for path, relative in files:
+        name = path.name
+        language = LANGUAGE_BY_SUFFIX.get(path.suffix)
+        if language:
+            languages[language] = languages.get(language, 0) + 1
+        if name in ENTRYPOINT_NAMES and len(entrypoints) < MAX_ENTRYPOINTS:
+            entrypoints.append(relative)
+        hint = DEPLOYMENT_FILES.get(name)
+        if hint is not None and hint not in deployment:
+            deployment.append(hint)
+        if name in FRAMEWORK_MARKERS:
+            manifests.append(path)
 
-    frameworks: list[str] = []
-    auth_hit = False
-    for manifest in manifests:
-        try:
-            content = manifest.read_text(encoding="utf-8", errors="replace").lower()
-        except OSError:
-            continue
-        for marker in FRAMEWORK_MARKERS[manifest.name]:
-            if marker in content and marker not in frameworks:
-                frameworks.append(marker)
-        if any(dependency in content for dependency in AUTH_DEPENDENCIES[manifest.name]):
-            auth_hit = True
+    frameworks, auth_hit = _read_manifests(manifests)
 
     ordered_languages = [
         language for language, _ in sorted(languages.items(), key=lambda item: (-item[1], item[0]))
@@ -178,3 +149,47 @@ def collect_repo_facts(root: Path, exclude: Sequence[str] = ()) -> RepoFacts:
         deployment_hints=deployment,
         truncated=truncated,
     )
+
+
+def _list_files(root: Path, patterns: list[str]) -> tuple[list[tuple[Path, str]], bool]:
+    """検査対象のファイルを (パス, 対象からの相対パス) で名前順に返す.
+
+    MAX_FILES で打ち切ったら 2 つ目の戻り値が True。除外ディレクトリの中には降りない。
+    """
+    found: list[tuple[Path, str]] = []
+    for current, dirs, files in os.walk(root):
+        base = Path(current)
+        relative_dir = base.relative_to(root)
+        dirs[:] = sorted(
+            d
+            for d in dirs
+            if d not in SKIP_DIRS
+            and not (patterns and _directory_excluded((relative_dir / d).as_posix(), patterns))
+        )
+        for name in sorted(files):
+            relative = (relative_dir / name).as_posix()
+            if patterns and is_excluded(relative, patterns):
+                continue
+            if len(found) >= MAX_FILES:
+                return found, True
+            path = base / name
+            if path.is_file():
+                found.append((path, relative))
+    return found, False
+
+
+def _read_manifests(manifests: list[Path]) -> tuple[list[str], bool]:
+    """依存の宣言から、フレームワークの名前と、認証ライブラリがあるかを読む."""
+    frameworks: list[str] = []
+    auth_hit = False
+    for manifest in manifests:
+        try:
+            content = manifest.read_text(encoding="utf-8", errors="replace").lower()
+        except OSError:
+            continue
+        for marker in FRAMEWORK_MARKERS[manifest.name]:
+            if marker in content and marker not in frameworks:
+                frameworks.append(marker)
+        if any(dependency in content for dependency in AUTH_DEPENDENCIES[manifest.name]):
+            auth_hit = True
+    return frameworks, auth_hit

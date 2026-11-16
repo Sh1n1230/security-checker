@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from security_checker.aggregate.base import Aggregator
-from security_checker.config.schema import AggregationConfig, PolicyConfig
-from security_checker.models.candidate import Candidate
+from typing import TYPE_CHECKING
+
 from security_checker.models.enums import FindingStatus, Severity
 from security_checker.models.finding import AggregationDetail, Finding
 from security_checker.models.verdict import ReviewVerdict, VerdictStatus
+
+if TYPE_CHECKING:
+    from security_checker.aggregate.base import Aggregator
+    from security_checker.config.schema import AggregationConfig, PolicyConfig
+    from security_checker.models.candidate import Candidate
 
 
 def build_findings(

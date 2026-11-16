@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from security_checker.context.builder import mask_sensitive_values
 from security_checker.context.redact import mask_secret, redact_known_patterns, redact_text
 
 
@@ -75,7 +76,6 @@ def test_url_credentials_and_authorization_values_are_masked():
 
 def test_quoted_passwords_with_symbols_are_masked():
     """記号を含むパスワードの代入 (#434). 関数呼び出しや属性参照は伏せない."""
-    from security_checker.context.builder import mask_sensitive_values
 
     assert "p@ss!w0rd#" not in mask_sensitive_values('password = "p@ss!w0rd#"')
     assert mask_sensitive_values('password = "p@ss!w0rd#"').endswith('"')

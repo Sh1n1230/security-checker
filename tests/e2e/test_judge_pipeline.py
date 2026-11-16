@@ -8,8 +8,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -18,13 +17,17 @@ from security_checker.config.schema import AggregationConfig, Config, PolicyConf
 from security_checker.errors import ConfigError
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, FindingStatus, Severity
-from security_checker.models.finding import Finding
 from security_checker.providers.errors import ProviderBadRequestError
 from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import build_runtime
 from security_checker.run import ReviewerSetup, RunOutcome, run_review
 from security_checker.testing import FakeScanner, ScriptedProvider, verdict_payload
 from tests.factories import make_candidate, make_finding, make_verdict
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.finding import Finding
 
 
 def candidate(cid: str = "c1", line: int = 3) -> Candidate:
@@ -158,7 +161,8 @@ async def test_only_split_candidates_go_to_the_judge(tmp_path):
     judged = findings["c1"]
     assert judged.status is FindingStatus.CONFIRMED
     assert judged.severity is Severity.CRITICAL
-    assert judged.aggregation is not None and judged.aggregation.strategy == "judge"
+    assert judged.aggregation is not None
+    assert judged.aggregation.strategy == "judge"
     assert judged.aggregation.detail["fallback_status"] == "review_required"
     assert judged.aggregation.detail["judge"]["rationale"].startswith("Accepted")
     # Judge 自身の判定は Finding の verdicts (独立した Reviewer の意見) に混ぜない
@@ -182,12 +186,14 @@ async def test_judge_receives_anonymized_shuffled_opinions_and_the_code(tmp_path
         [candidate()],
     )
     request = providers["judge"].requests[0]
-    assert "alpha の論点" in request.user and "beta の論点" in request.user
+    assert "alpha の論点" in request.user
+    assert "beta の論点" in request.user
     # 名前もモデル名も渡さない
     for leaked in ("alpha", "beta", "model-alpha", "model-beta"):
         assert f"### {leaked}" not in request.user
         assert leaked not in request.user.replace("alpha の論点", "").replace("beta の論点", "")
-    assert "### Reviewer A" in request.user and "### Reviewer B" in request.user
+    assert "### Reviewer A" in request.user
+    assert "### Reviewer B" in request.user
     assert "<<<UNTRUSTED_CODE>>>" in request.user  # 元の文脈も渡す
     assert "final judge" in request.system
     # 一次レビューの Reviewer は Judge のプロンプトを受け取らない

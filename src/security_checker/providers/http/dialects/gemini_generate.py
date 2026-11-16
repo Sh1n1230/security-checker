@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from typing import Any
 
 from security_checker.models.verdict import Usage
@@ -51,9 +52,11 @@ class GeminiGenerateDialect:
         self.options = options or DialectOptions()
 
     def endpoint(self, base_url: str, model: str) -> str:
+        """リクエストを送る URL を返す."""
         return f"{base_url.rstrip('/')}/models/{model}:generateContent"
 
     def headers(self, api_key: str | None) -> dict[str, str]:
+        """認証を含む HTTP ヘッダを返す."""
         headers = {"Content-Type": "application/json"}
         if api_key:
             # クエリ文字列ではなくヘッダで渡す。URL はログや履歴に残りうるため
@@ -68,6 +71,7 @@ class GeminiGenerateDialect:
         capabilities: Capabilities,
         mode: StructuredMode,
     ) -> dict[str, Any]:
+        """CompletionRequest をこの方言のリクエスト本文にする."""
         generation: dict[str, Any] = {"maxOutputTokens": output_limit(req, capabilities)}
         if capabilities.supports_temperature:
             generation["temperature"] = req.temperature
@@ -95,6 +99,7 @@ class GeminiGenerateDialect:
         return payload
 
     def parse_response(self, payload: dict[str, Any]) -> DialectResponse:
+        """応答の本文から、テキスト・構造化出力・使用量を取り出す."""
         candidates = payload.get("candidates")
         if not isinstance(candidates, list) or not candidates:
             raise ProviderResponseError(_no_candidates_reason(payload))
@@ -130,26 +135,29 @@ class GeminiGenerateDialect:
         )
 
     def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]:
+        """疎通確認用の最小のリクエスト本文 (出力は 1 トークン)."""
         return {
             "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
             "generationConfig": {"maxOutputTokens": 1},
         }
 
     def is_auth_error(self, status: int, body: str) -> bool:
+        """鍵の不備を 400 で返す応答を、認証エラーとして扱う."""
         # この形は鍵の不備を 401 ではなく 400 で返す
-        return status == 400 and "api key" in body.lower()
+        return status == HTTPStatus.BAD_REQUEST and "api key" in body.lower()
 
     def explain_error(self, status: int, body: str) -> str | None:
+        """次に取れる行動が分かる場合だけ文章にする (§20.2)."""
         lowered = body.lower()
-        if status == 400 and "api key" in lowered:
+        if status == HTTPStatus.BAD_REQUEST and "api key" in lowered:
             # この形は鍵の不備を 401 ではなく 400 で返すため、認証エラーに見えない
             return "API キーが受け付けられませんでした。api_key_env の環境変数を確認してください"
-        if status == 404 and "model" in lowered:
+        if status == HTTPStatus.NOT_FOUND and "model" in lowered:
             return (
                 "model に指定した ID がこのエンドポイントに存在しません。"
                 "設定の model を確認してください"
             )
-        if status == 400 and "response_schema" in lowered.replace(
+        if status == HTTPStatus.BAD_REQUEST and "response_schema" in lowered.replace(
             "responseschema", "response_schema"
         ):
             return (
@@ -174,7 +182,7 @@ def _collect_defs(schema: dict[str, Any]) -> dict[str, Any]:
     return defs if isinstance(defs, dict) else {}
 
 
-def _convert(node: Any, *, defs: dict[str, Any]) -> dict[str, Any]:
+def _convert(node: object, *, defs: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(node, dict):
         return {}
 
@@ -224,7 +232,7 @@ def _convert_any_of(node: dict[str, Any], *, defs: dict[str, Any]) -> dict[str, 
     return converted
 
 
-def _convert_type(value: Any) -> dict[str, Any]:
+def _convert_type(value: object) -> dict[str, Any]:
     """`["string", "null"]` のような型の配列を nullable に畳み、大文字に揃える."""
     if isinstance(value, list):
         names = [str(name) for name in value]
@@ -255,5 +263,5 @@ def _no_candidates_reason(payload: dict[str, Any]) -> str:
     return "応答に candidates がありません"
 
 
-def _as_int(value: Any) -> int:
+def _as_int(value: object) -> int:
     return value if isinstance(value, int) else 0

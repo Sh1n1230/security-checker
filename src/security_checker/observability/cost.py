@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from security_checker.errors import ConfigError
-from security_checker.models.verdict import Usage
+
+if TYPE_CHECKING:
+    from security_checker.models.verdict import Usage
 
 PRICING_FILENAME = "pricing.yml"
 PER_TOKENS = 1_000_000
@@ -28,6 +31,7 @@ class ModelPrice(BaseModel):
     output_per_1m: float = Field(default=0.0, ge=0.0)
 
     def estimate(self, usage: Usage) -> float:
+        """この単価での使用量の金額 (USD)."""
         return (
             usage.input_tokens * self.input_per_1m + usage.output_tokens * self.output_per_1m
         ) / PER_TOKENS
@@ -41,16 +45,12 @@ class PriceTable(BaseModel):
     prices: dict[str, ModelPrice] = {}
 
     def lookup(self, model: str) -> ModelPrice | None:
+        """モデルの単価. 価格表に無ければ None (cost unknown)."""
         return self.prices.get(model)
-
-    def apply(self, usage: Usage, model: str) -> Usage:
-        price = self.lookup(model)
-        if price is None:
-            return usage.model_copy(update={"estimated_usd": None, "cost_known": False})
-        return usage.model_copy(update={"estimated_usd": price.estimate(usage), "cost_known": True})
 
 
 def default_pricing_paths(config_dir: Path | None) -> list[Path]:
+    """pricing.yml を探す場所 (設定ファイルの隣 → 利用者の設定ディレクトリ)."""
     base = os.environ.get("XDG_CONFIG_HOME")
     root = Path(base) if base else Path.home() / ".config"
     paths = [root / "security-checker" / PRICING_FILENAME]

@@ -7,10 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Sequence
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category, ScanStatus
 from security_checker.models.verdict import Usage
 from security_checker.providers.base import (
@@ -21,6 +19,11 @@ from security_checker.providers.base import (
     StructuredMode,
 )
 from security_checker.scanners.base import ScanContext, ScanResult, Target, ToolStatus
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from security_checker.models.candidate import Candidate
 
 
 class FakeScanner:
@@ -52,9 +55,11 @@ class FakeScanner:
         self.calls = 0
 
     def probe(self) -> ToolStatus:
+        """skipped を返す設定のときだけ「使えない」と答える."""
         return ToolStatus(available=self._status is not ScanStatus.SKIPPED, reason=self._reason)
 
     async def scan(self, target: Target, ctx: ScanContext) -> ScanResult:
+        """決められた結果を返し、呼ばれた回数を数える."""
         self.calls += 1
         if self._raises is not None:
             raise self._raises
@@ -100,9 +105,11 @@ class ScriptedProvider:
 
     @property
     def capabilities(self) -> Capabilities:
+        """この Provider が使える機能."""
         return self._capabilities
 
     async def complete(self, req: CompletionRequest) -> CompletionResponse:
+        """台本の先頭を 1 つ消費して返す. 例外ならそれを投げる."""
         self.requests.append(req)
         if not self._script:
             raise AssertionError("ScriptedProvider: 応答が尽きました")
@@ -121,13 +128,15 @@ class ScriptedProvider:
         )
 
     async def health_check(self) -> HealthStatus:
+        """常に ok."""
         return HealthStatus(ok=True)
 
     async def aclose(self) -> None:
+        """閉じられたことを記録する."""
         self.closed = True
 
 
-def verdict_payload(**overrides: Any) -> dict[str, Any]:
+def verdict_payload(**overrides: object) -> dict[str, Any]:
     """テスト用の妥当な ReviewJudgement ペイロード."""
     payload: dict[str, Any] = {
         "vulnerable": True,
@@ -159,5 +168,6 @@ class SlowProvider(ScriptedProvider):
     delay_s = 0.01
 
     async def complete(self, request: CompletionRequest) -> CompletionResponse:
+        """決めた秒数だけ待ってから、台本どおりに返す."""
         await asyncio.sleep(self.delay_s)
         return await super().complete(request)

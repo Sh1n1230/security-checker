@@ -124,10 +124,12 @@ class Dataset(BaseModel):
 
     @property
     def positives(self) -> int:
+        """正解が「脆弱」のケース数."""
         return sum(1 for case in self.cases if case.ground_truth.vulnerable)
 
     @property
     def negatives(self) -> int:
+        """正解が「脆弱ではない」のケース数."""
         return len(self.cases) - self.positives
 
 

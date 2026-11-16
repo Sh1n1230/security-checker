@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
 
+from security_checker.config.schema import Config
+from security_checker.errors import ConfigError
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, Severity
 from security_checker.models.task import CodeContext, CodeSlice, RepoFacts, ReviewTask, TokenBudget
 from security_checker.models.verdict import ReviewJudgement, VerdictStatus
-from security_checker.observability.cost import ModelPrice
-from security_checker.providers.base import Capabilities, StructuredMode
+from security_checker.observability.cost import ModelPrice, load_price_table
+from security_checker.observability.trace import sha256_text
+from security_checker.providers.base import Capabilities, CompletionResponse, StructuredMode
+from security_checker.review import prompts
 from security_checker.review.reviewer import Reviewer
-from security_checker.review.structured import drop_hallucinated_evidence
+from security_checker.review.structured import drop_hallucinated_evidence, verdict_schema
+from security_checker.run import build_reviewers
 from security_checker.testing import ScriptedProvider, verdict_payload
 
 
@@ -233,7 +239,6 @@ def test_evidence_for_a_candidate_without_code_is_dropped():
 
 async def test_truncated_output_is_not_repaired_with_the_same_limit():
     """上限で切れた出力に同じ上限で修復を送らない (#665)."""
-    from security_checker.providers.base import CompletionResponse
 
     cut = CompletionResponse(text='{"vulnerable": tr', finish_reason="length")
     provider = ScriptedProvider([cut, verdict_payload()])
@@ -245,8 +250,6 @@ async def test_truncated_output_is_not_repaired_with_the_same_limit():
 
 def test_max_output_tokens_is_clamped_to_the_model_limit():
     """モデルの出力上限を Reviewer の希望で引き上げない (#610)."""
-    from security_checker.config.schema import Config
-    from security_checker.run import build_reviewers
 
     config = Config.model_validate(
         {
@@ -270,11 +273,6 @@ def test_max_output_tokens_is_clamped_to_the_model_limit():
 
 async def test_concurrent_reviews_trace_their_own_prompts():
     """同じ Reviewer を並行して呼んでも、トレースには自分の候補のプロンプトが残る (#315)."""
-    import asyncio
-
-    from security_checker.observability.trace import sha256_text
-    from security_checker.review import prompts
-    from security_checker.review.structured import verdict_schema
 
     class SlowProvider(ScriptedProvider):
         async def complete(self, req):
@@ -297,8 +295,6 @@ async def test_concurrent_reviews_trace_their_own_prompts():
 
 def test_local_ollama_reviewers_cost_zero_and_unpriced_ones_are_warned():
     """ollama_chat は価格表に無ければ 0 (#313). 価格の無い Reviewer は予算の外と警告する (#311)."""
-    from security_checker.config.schema import Config
-    from security_checker.run import build_reviewers
 
     config = Config.model_validate(
         {
@@ -323,7 +319,8 @@ def test_local_ollama_reviewers_cost_zero_and_unpriced_ones_are_warned():
     )
     setup = build_reviewers(config, environ={})
     local, remote = (runtime.reviewer for runtime in setup.runtimes)
-    assert local.price is not None and local.price.input_per_1m == 0.0
+    assert local.price is not None
+    assert local.price.input_per_1m == 0.0
     assert remote.price is None
     assert any("'remote'" in w and "budget.max_usd" in w for w in setup.warnings)
     assert not any("'local'" in w for w in setup.warnings)
@@ -345,8 +342,6 @@ async def test_trace_keeps_only_a_hash_of_the_response_by_default():
 
 def test_pricing_must_be_a_mapping_with_non_negative_prices(tmp_path):
     """リストのトップレベル (#452) と負の単価 (#453) を設定エラーにする."""
-    from security_checker.errors import ConfigError
-    from security_checker.observability.cost import load_price_table
 
     path = tmp_path / "pricing.yml"
     path.write_text("- a\n- b\n", encoding="utf-8")

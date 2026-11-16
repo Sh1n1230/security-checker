@@ -10,7 +10,8 @@ from typing import Any
 
 import pytest
 
-from security_checker.eval.metrics import CaseOutcome, evaluate_outcomes
+from security_checker.eval.metrics import CaseOutcome, Metrics, evaluate_outcomes
+from security_checker.eval.runner import EvalResult, to_markdown
 from security_checker.models.enums import FindingStatus, Severity
 
 
@@ -228,3 +229,10 @@ def test_fp_reduction_counts_only_dismissed_negatives():
     )
     assert metrics.fp_reduction == 0.25
     assert metrics.deferred_negatives == 2
+
+
+def test_markdown_shows_the_measured_cost_in_usd():
+    result = EvalResult(dataset="d", cases=1, metrics=Metrics(cases=1, total_usd=0.12345))
+    assert "$0.1235" in to_markdown(result)
+    unknown = EvalResult(dataset="d", cases=1, metrics=Metrics(cases=1, cost_known=False))
+    assert "unknown" in to_markdown(unknown)
