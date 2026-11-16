@@ -123,11 +123,30 @@
 | `context.window_lines` / `max_tokens_per_task` | `40` / `8000` | LLM に渡す文脈。`max_tokens_per_task` はプロンプト全体の上限で、本文以外に約 1,500 トークン使います。Reviewer の `max_context_tokens − max_output_tokens` のほうが小さければ、そちらに合わせます |
 | `context.max_callers` | `3` | **未実装**。呼び出し元のコードはまだ文脈に含めない (既定値と `0` 以外を書くと警告) |
 
+### 相対パスの基準
+
+設定ファイルに書く相対パスは、**項目によって基準のディレクトリが違います。**
+
+| 書く場所 | 基準 | 理由 |
+|---|---|---|
+| `output.dir` | カレントディレクトリ | CLI の `-o` と同じ扱いにするため。`security-checker scan ../other-repo` のように別のディレクトリを検査すると、レポートは**呼び出し元**にできます |
+| `baseline` | 設定ファイルの場所 | baseline はリポジトリに同梱して配るものなので、どこから実行しても同じファイルを指す必要があります |
+| `pricing.yml` | 設定ファイルの場所 | |
+| reviewer の `command` | カレントディレクトリ | |
+
+`output.dir` だけ基準が違うのは意図的ですが、**検査対象の中にレポートを置きたければ絶対パスか `-o` を使ってください**:
+
+```bash
+security-checker scan ../other-repo -o ../other-repo/.security-checker
+```
+
+CI ではどのみちカレントディレクトリがリポジトリルートなので、既定値のままで問題ありません。
+
 ### output / github / logging
 
 | キー | 既定 | 説明 |
 |---|---|---|
-| `output.dir` | `.security-checker/` | |
+| `output.dir` | `.security-checker/` | 相対パスは**カレントディレクトリ**基準。下の「相対パスの基準」を参照 |
 | `output.formats` | `[terminal, json, markdown]` | `sarif` を足すと `report.sarif`。CLI の `-f` で置き換え |
 | `output.language` | `auto` | LLM に書かせる本文の言語 |
 | `output.save_prompts` | `false` | プロンプトと LLM の応答の全文をトレースに保存する (警告が出る)。既定はハッシュと長さだけ |
