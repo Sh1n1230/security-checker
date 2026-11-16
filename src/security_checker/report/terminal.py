@@ -228,6 +228,27 @@ def render(
     console.print(_header(report))
     console.print()
 
+    console.print(_overview(report))
+    _render_warnings(console, report)
+    _render_body(console, report)
+
+    console.print()
+    console.print(_summary_line(report))
+
+    score_text = Text(f"  score {report.score.value}/100  rank {report.score.rank}")
+    if report.score.partial:
+        score_text.append(f"  (partial: {report.score.partial_reason})", style="yellow")
+    console.print(score_text)
+    if details is not None:
+        console.print(Text(f"  詳細: {details}", style="dim"))
+
+    for reason in decision.reasons:
+        console.print(Text(f"  ✗ {reason}", style="bold red"))
+    console.print()
+
+
+def _overview(report: Report) -> Table:
+    """スキャナ・候補数・Reviewer・抑制の一覧."""
     grid = Table.grid(padding=(0, 2))
     grid.add_column(style="bold", width=11)
     grid.add_column()
@@ -245,8 +266,11 @@ def render(
         )
     if report.suppression_label:
         grid.add_row("Suppressed", f"{report.suppression_label} レビュー・判定の対象外")
-    console.print(grid)
+    return grid
 
+
+def _render_warnings(console: Console, report: Report) -> None:
+    """エラーはすべて、警告は先頭の数件だけ出す."""
     errors = [w for w in report.warnings if w.level == "error"]
     notices = [w for w in report.warnings if w.level == "warn"]
     for warning in errors:
@@ -258,39 +282,25 @@ def render(
             Text(f"  · ほか {len(notices) - MAX_NOTICES} 件の警告 (report.json 参照)", style="dim")
         )
 
+
+def _render_body(console: Console, report: Report) -> None:
+    """レビュー済みなら指摘、スキャンのみなら候補の表、何も無ければ「検出なし」."""
     if report.findings:
         _render_findings(console, report)
-    elif report.candidates:
-        console.print()
-        console.print(
-            Panel(
-                _candidate_table(report),
-                title="CANDIDATES (スキャナの報告 / LLM 判定前)",
-                title_align="left",
-                border_style="blue",
-            )
-        )
-        if len(report.candidates) > MAX_ROWS:
-            console.print(
-                Text(
-                    f"  … ほか {len(report.candidates) - MAX_ROWS} 件は report.json 参照",
-                    style="dim",
-                )
-            )
-    else:
-        console.print()
+        return
+    console.print()
+    if not report.candidates:
         console.print(Text("  検出なし", style="green"))
-
-    console.print()
-    console.print(_summary_line(report))
-
-    score_text = Text(f"  score {report.score.value}/100  rank {report.score.rank}")
-    if report.score.partial:
-        score_text.append(f"  (partial: {report.score.partial_reason})", style="yellow")
-    console.print(score_text)
-    if details is not None:
-        console.print(Text(f"  詳細: {details}", style="dim"))
-
-    for reason in decision.reasons:
-        console.print(Text(f"  ✗ {reason}", style="bold red"))
-    console.print()
+        return
+    console.print(
+        Panel(
+            _candidate_table(report),
+            title="CANDIDATES (スキャナの報告 / LLM 判定前)",
+            title_align="left",
+            border_style="blue",
+        )
+    )
+    if len(report.candidates) > MAX_ROWS:
+        console.print(
+            Text(f"  … ほか {len(report.candidates) - MAX_ROWS} 件は report.json 参照", style="dim")
+        )

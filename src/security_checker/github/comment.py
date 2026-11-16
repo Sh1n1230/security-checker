@@ -229,23 +229,7 @@ def _summary_block(finding: Finding) -> list[str]:
     cwe = f" · {finding.cwe[0]}" if finding.cwe else ""
     title = _one_line(finding.summary or candidate.title, 120)
     if finding.status is FindingStatus.REVIEW_REQUIRED:
-        lines = [
-            f"### ❓ REVIEW REQUIRED{cwe} · {title}",
-            f"{md.code_span(candidate.where)} · agreement **{finding.agreement.value}**",
-            "",
-            "判断が分かれました。人間による確認を推奨します。",
-        ]
-        for verdict in finding.verdicts:
-            if verdict.status.value != "ok":
-                continue
-            judgement = (
-                f"脆弱 ({verdict.severity.value}, {verdict.confidence:.2f})"
-                if verdict.vulnerable
-                else f"脆弱でない ({verdict.confidence:.2f})"
-            )
-            reason = _one_line(verdict.reasoning, 160)
-            lines.append(f"- {md.code_span(verdict.reviewer)}: {judgement} — 「{reason}」")
-        return [*lines, ""]
+        return _split_block(finding, f"{cwe} · {title}")
 
     mark = SEVERITY_MARK[finding.severity]
     label = finding.severity.value.upper()
@@ -275,24 +259,50 @@ def _summary_block(finding: Finding) -> list[str]:
     remediation = next((v.remediation for v in ok if v.remediation is not None), None)
     if remediation is not None and remediation.approach:
         lines += ["**Remediation**", _one_line(remediation.approach, 600), ""]
-    if finding.verdicts:
-        lines += [
-            "<details><summary>各 Reviewer の判定</summary>",
-            "",
-            "| Reviewer | vulnerable | severity | confidence | FP prob |",
-            "|---|---|---|---|---|",
-        ]
-        for verdict in finding.verdicts:
-            if verdict.status.value != "ok":
-                lines.append(f"| {_cell(verdict.reviewer)} | ⚠️ {verdict.status.value} | | | |")
-                continue
-            lines.append(
-                f"| {_cell(verdict.reviewer)} | {'✅' if verdict.vulnerable else '—'} | "
-                f"{verdict.severity.value} | {verdict.confidence:.2f} | "
-                f"{verdict.false_positive_probability:.2f} |"
-            )
-        lines += ["</details>", ""]
-    return lines
+    return [*lines, *_verdict_details(finding)]
+
+
+def _split_block(finding: Finding, heading: str) -> list[str]:
+    """判断が分かれた指摘. 結論を出さず、各 Reviewer の判定と理由を並べる."""
+    lines = [
+        f"### ❓ REVIEW REQUIRED{heading}",
+        f"{md.code_span(finding.candidate.where)} · agreement **{finding.agreement.value}**",
+        "",
+        "判断が分かれました。人間による確認を推奨します。",
+    ]
+    for verdict in finding.verdicts:
+        if verdict.status.value != "ok":
+            continue
+        judgement = (
+            f"脆弱 ({verdict.severity.value}, {verdict.confidence:.2f})"
+            if verdict.vulnerable
+            else f"脆弱でない ({verdict.confidence:.2f})"
+        )
+        reason = _one_line(verdict.reasoning, 160)
+        lines.append(f"- {md.code_span(verdict.reviewer)}: {judgement} — 「{reason}」")
+    return [*lines, ""]
+
+
+def _verdict_details(finding: Finding) -> list[str]:
+    """各 Reviewer の判定を折りたたみの表にする. 失敗した Reviewer も行として残す."""
+    if not finding.verdicts:
+        return []
+    lines = [
+        "<details><summary>各 Reviewer の判定</summary>",
+        "",
+        "| Reviewer | vulnerable | severity | confidence | FP prob |",
+        "|---|---|---|---|---|",
+    ]
+    for verdict in finding.verdicts:
+        if verdict.status.value != "ok":
+            lines.append(f"| {_cell(verdict.reviewer)} | ⚠️ {verdict.status.value} | | | |")
+            continue
+        lines.append(
+            f"| {_cell(verdict.reviewer)} | {'✅' if verdict.vulnerable else '—'} | "
+            f"{verdict.severity.value} | {verdict.confidence:.2f} | "
+            f"{verdict.false_positive_probability:.2f} |"
+        )
+    return [*lines, "</details>", ""]
 
 
 def _cell(value: str) -> str:
