@@ -95,6 +95,17 @@ async def test_prompt_file_is_not_counted_as_a_write():
 async def test_writes_are_detected_including_subdirectories():
     result = await run_sandboxed(python(WRITE_TREE), prompt="x", timeout_s=30)
     assert result.created_paths == ("sub/", "sub/out.txt")
+    assert result.created_paths_omitted == 0
+
+
+async def test_more_than_twenty_writes_preserve_exact_omitted_count():
+    script = (
+        "import pathlib,sys;sys.stdin.read();"
+        "[pathlib.Path(f'f{i:02}').touch() for i in range(25)];print('done')"
+    )
+    result = await run_sandboxed(python(script), prompt="x", timeout_s=30)
+    assert result.created_paths == tuple(f"f{i:02}" for i in range(20))
+    assert result.created_paths_omitted == 5
 
 
 async def test_timeout_marks_the_result_and_does_not_raise():
