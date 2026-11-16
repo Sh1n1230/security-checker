@@ -44,8 +44,7 @@ class AnthropicMessagesDialect:
         # base_url に /v1 を含めて書く人と含めない人の両方がいる。
         # どちらでも同じ URL になるよう正規化する (二重の /v1 を作らない)。
         trimmed = base_url.rstrip("/")
-        if trimmed.endswith("/v1"):
-            trimmed = trimmed[: -len("/v1")]
+        trimmed = trimmed.removesuffix("/v1")
         return f"{trimmed}/v1/messages"
 
     def headers(self, api_key: str | None) -> dict[str, str]:

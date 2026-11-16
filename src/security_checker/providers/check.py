@@ -106,7 +106,7 @@ async def check_reviewer(
     try:
         provider = build_provider(reviewer, environ=environ, warnings=warnings)
     except SecurityCheckerError as exc:
-        result.steps.append(Step("設定", False, str(exc)))
+        result.steps.append(Step("設定", ok=False, detail=str(exc)))
         result.suggestions.append(
             "設定を直して再実行してください (config show --explain で確認できます)"
         )
@@ -115,8 +115,8 @@ async def check_reviewer(
     result.steps.append(
         Step(
             "設定",
-            True,
-            f"dialect={provider.dialect} model={getattr(provider, 'model', '-')} "
+            ok=True,
+            detail=f"dialect={provider.dialect} model={getattr(provider, 'model', '-')} "
             f"structured={caps.structured_output.value}",
         )
     )
@@ -127,8 +127,8 @@ async def check_reviewer(
         result.steps.append(
             Step(
                 "疎通",
-                health.ok,
-                health.detail or (f"{health.latency_ms} ms" if health.latency_ms else ""),
+                ok=health.ok,
+                detail=health.detail or (f"{health.latency_ms} ms" if health.latency_ms else ""),
             )
         )
         if not health.ok:
@@ -148,8 +148,8 @@ async def check_reviewer(
             result.steps.append(
                 Step(
                     "構造化出力",
-                    True,
-                    f"vulnerable={verdict.vulnerable} confidence={verdict.confidence:.2f} "
+                    ok=True,
+                    detail=f"vulnerable={verdict.vulnerable} confidence={verdict.confidence:.2f} "
                     f"(attempt {verdict.attempt}, {verdict.latency_ms} ms)",
                 )
             )
@@ -160,13 +160,13 @@ async def check_reviewer(
                     "動作はしていますが、このモデルの判定の質は eval で確かめてください"
                 )
         else:
-            result.steps.append(Step("構造化出力", False, verdict.reasoning))
+            result.steps.append(Step("構造化出力", ok=False, detail=verdict.reasoning))
             result.suggestions.append(
                 "スキーマに沿った JSON が返りませんでした。"
                 "capabilities.structured_output を json_mode か prompt_only に下げて試してください"
             )
     except ProviderError as exc:
-        result.steps.append(Step("呼び出し", False, str(exc)))
+        result.steps.append(Step("呼び出し", ok=False, detail=str(exc)))
         result.suggestions.append(_suggest(exc, reviewer))
     finally:
         await provider.aclose()

@@ -209,7 +209,6 @@ def _summary_line(report: Report) -> Text:
 def render(
     report: Report,
     decision: PolicyDecision,
-    output_dir: Path,
     console: Console | None = None,
     *,
     details: Path | None = None,

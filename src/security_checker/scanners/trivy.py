@@ -80,8 +80,8 @@ def parse_trivy(
     if not isinstance(results, list):
         return [], ["trivy の出力の Results が配列ではありません"]
 
-    for result in results:
-        result = as_dict(result)
+    for raw_result in results:
+        result = as_dict(raw_result)
         target = result.get("Target")
         if not isinstance(target, str):
             warnings.append("trivy の結果に Target がありません")
@@ -90,8 +90,8 @@ def parse_trivy(
         if exclude and is_excluded(path, exclude):
             continue
 
-        for item in result.get("Misconfigurations") or []:
-            item = as_dict(item)
+        for raw_item in result.get("Misconfigurations") or []:
+            item = as_dict(raw_item)
             if item.get("Status") != "FAIL":
                 continue
             rule = item.get("ID") or item.get("AVDID")
@@ -128,8 +128,8 @@ def parse_trivy(
             )
 
         ecosystem = str(result.get("Type") or "unknown")
-        for item in result.get("Vulnerabilities") or []:
-            item = as_dict(item)
+        for raw_item in result.get("Vulnerabilities") or []:
+            item = as_dict(raw_item)
             vuln_id = item.get("VulnerabilityID")
             name = item.get("PkgName")
             if not isinstance(vuln_id, str) or not isinstance(name, str):

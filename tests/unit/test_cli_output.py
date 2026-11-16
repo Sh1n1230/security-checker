@@ -66,7 +66,7 @@ def test_dry_run_shows_code_with_brackets_verbatim(tmp_path, monkeypatch):
 def test_terminal_candidate_table_keeps_brackets_in_paths():
     console = Console(record=True, width=200)
     report = make_report([slug_candidate()])
-    render(report, PolicyDecision(exit_code=ExitCode.OK), Path("out"), console=console)
+    render(report, PolicyDecision(exit_code=ExitCode.OK), console=console)
     text = console.export_text()
     assert "app/[slug]/page.tsx:3" in text
 

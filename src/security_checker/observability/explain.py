@@ -102,8 +102,10 @@ def render(result: Explanation) -> str:
     finding = result.finding
     if finding is not None:
         lines += [
-            f"判定: {finding.status.value}  severity {finding.severity.value}  "
-            f"confidence {finding.confidence:.2f}  agreement {finding.agreement.value}",
+            (
+                f"判定: {finding.status.value}  severity {finding.severity.value}  "
+                f"confidence {finding.confidence:.2f}  agreement {finding.agreement.value}"
+            ),
             f"  {finding.summary}",
         ]
         if finding.aggregation is not None:

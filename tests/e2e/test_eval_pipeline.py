@@ -17,8 +17,10 @@ from security_checker.cli import app
 from security_checker.config.schema import Config, ReviewerConfig
 from security_checker.errors import ConfigError, ExitCode
 from security_checker.eval.dataset import load_dataset
-from security_checker.eval.runner import run_eval, to_markdown
-from security_checker.models.enums import FindingStatus
+from security_checker.eval.metrics import CaseOutcome, evaluate_outcomes
+from security_checker.eval.runner import EvalResult, run_eval, to_markdown
+from security_checker.eval.runner import run_eval as real
+from security_checker.models.enums import FindingStatus, Severity
 from security_checker.providers.errors import ProviderServerError
 from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import build_runtime
@@ -136,9 +138,6 @@ async def test_cwe_match_rate_only_counts_what_the_reviewer_answered(tmp_path):
 
 def test_markdown_neutralizes_llm_summaries():
     """比較表も report.md と同じ規則で無害化する (#328)."""
-    from security_checker.eval.metrics import CaseOutcome, evaluate_outcomes
-    from security_checker.eval.runner import EvalResult
-    from security_checker.models.enums import Severity
 
     outcome = CaseOutcome(
         case_id="0001",
@@ -201,7 +200,6 @@ async def test_markdown_puts_recall_first(tmp_path):
 
 async def test_provider_errors_do_not_count_as_misses(tmp_path):
     """壊れた呼び出しを「見逃し」に数えると、故障が精度の問題に化ける."""
-    from security_checker.providers.errors import ProviderServerError
 
     dataset = load_dataset(make_dataset(tmp_path))
     setup = setup_with([ProviderServerError("500")] * 10)
@@ -235,8 +233,6 @@ def test_cli_writes_json_and_markdown(tmp_path, monkeypatch):
     )
 
     async def fake_run_eval(dataset_arg, config_arg, **kwargs):
-        from security_checker.eval.runner import run_eval as real
-
         return await real(
             dataset_arg, config_arg, reviewer_setup=setup_with([verdict_payload()] * 2)
         )
@@ -281,8 +277,6 @@ def test_cli_keeps_config_warnings_out_of_stdout(tmp_path, monkeypatch):
     )
 
     async def fake_run_eval(dataset_arg, config_arg, **kwargs):
-        from security_checker.eval.runner import run_eval as real
-
         return await real(
             dataset_arg, config_arg, reviewer_setup=setup_with([verdict_payload()] * 2)
         )
@@ -324,8 +318,6 @@ def _invoke_eval(tmp_path: Path, monkeypatch: Any, script: list[Any], *extra: st
     )
 
     async def fake_run_eval(dataset_arg, config_arg, **kwargs):
-        from security_checker.eval.runner import run_eval as real
-
         return await real(dataset_arg, config_arg, reviewer_setup=setup_with(script))
 
     monkeypatch.setattr("security_checker.cli.run_eval", fake_run_eval)

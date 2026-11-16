@@ -94,7 +94,7 @@ def test_no_reviewer_is_enabled_by_default():
 def test_bundled_process_preset_builds_without_a_responsibility_warning():
     """申告済みプリセット経由なら、利用者責任の警告を出さない (§9.7 の 2)."""
     presets = bundled_process()
-    name = sorted(presets)[0]
+    name = min(presets)
     warnings: list[str] = []
     provider = build_process_provider(
         ReviewerConfig(name="r1", transport="process", preset=name),
@@ -119,7 +119,7 @@ def test_direct_command_still_warns_even_when_a_preset_exists():
 def test_bundled_http_preset_supplies_dialect_and_base_url():
     """preset を指定すると、設定に model だけ書けば動く (§9.3)."""
     presets = bundled_http()
-    name = sorted(presets)[0]
+    name = min(presets)
     preset = presets[name]
     assert preset.api_key_env is not None
     provider = build_http_provider(

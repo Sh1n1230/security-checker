@@ -113,10 +113,12 @@ def test_trivy_misconfig_and_vulns(raw_fixture):
     assert {c.location.path for c in configs if c.location} == {"Dockerfile", "k8s/pod.yaml"}
     root_user = next(c for c in configs if c.rule_id == "DS-0002")
     assert root_user.severity_reported is Severity.HIGH
-    assert root_user.location is not None and root_user.location.start_line == 3
+    assert root_user.location is not None
+    assert root_user.location.start_line == 3
     assert "対応:" in root_user.message
     assert deps[0].rule_id == "CVE-2018-18074"
-    assert deps[0].package is not None and deps[0].package.manifest == "requirements.txt"
+    assert deps[0].package is not None
+    assert deps[0].package.manifest == "requirements.txt"
     assert deps[0].fix_available == "2.20.0"
     assert deps[0].cve == ["CVE-2018-18074"]
 

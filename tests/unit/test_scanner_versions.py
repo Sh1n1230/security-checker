@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -156,8 +158,6 @@ def test_installer_refuses_non_linux(tmp_path, monkeypatch):
 
 def test_uv_lock_has_the_same_version_as_pyproject():
     """リリース PR で pyproject.toml だけが上がり、uv sync --locked が落ちるのを防ぐ (#244)."""
-    import json
-    import tomllib
 
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))

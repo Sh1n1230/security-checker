@@ -181,10 +181,7 @@ def _mask_long_tokens_on_line(text: str, candidate: Candidate) -> str:
     """
     if candidate.location is None:
         return text
-    masked_lines: list[str] = []
-    for line in text.splitlines():
-        masked_lines.append(_mask_quoted(line))
-    return "\n".join(masked_lines)
+    return "\n".join(_mask_quoted(line) for line in text.splitlines())
 
 
 def _mask_detected_lines(text: str, first_line: int, candidate: Candidate) -> str:

@@ -253,8 +253,10 @@ def _summary_block(finding: Finding) -> list[str]:
         label += " (likely)"
     lines = [
         f"### {mark} {label}{cwe} · {title}",
-        f"{md.code_span(candidate.where)} · confidence **{finding.confidence:.0%}** · "
-        f"agreement **{finding.agreement.value}**",
+        (
+            f"{md.code_span(candidate.where)} · confidence **{finding.confidence:.0%}** · "
+            f"agreement **{finding.agreement.value}**"
+        ),
         "",
     ]
     if candidate.redacted:
@@ -320,8 +322,10 @@ def _candidate_table(report: Report) -> list[str]:
 def _footer(report: Report, report_url: str | None) -> str:
     parts = [
         f"security-checker v{report.tool_version}",
-        f"{report.coverage.candidates_total} candidates → "
-        f"{report.coverage.candidates_reviewed} reviewed",
+        (
+            f"{report.coverage.candidates_total} candidates → "
+            f"{report.coverage.candidates_reviewed} reviewed"
+        ),
     ]
     usage = report.usage
     if usage.cost_known and usage.estimated_usd is not None:

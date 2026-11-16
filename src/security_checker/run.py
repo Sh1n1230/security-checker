@@ -205,8 +205,11 @@ def _location_warning(config: Config, root: Path) -> list[str]:
     """SARIF の位置はリポジトリルートからのパスなので、ルートが分からないなら伝える."""
     if "sarif" in config.output.formats and repo_prefix(root) is None:
         return [
-            "検査対象が git 管理外のため、SARIF のパスは検査対象からの相対になります。"
-            "リポジトリのサブディレクトリなら、Code Scanning の alert がファイルに結び付きません"
+            (
+                "検査対象が git 管理外のため、SARIF のパスは検査対象からの相対になります。"
+                "リポジトリのサブディレクトリなら、"
+                "Code Scanning の alert がファイルに結び付きません"
+            )
         ]
     return []
 

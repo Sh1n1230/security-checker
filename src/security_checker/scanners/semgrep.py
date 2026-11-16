@@ -78,8 +78,9 @@ def redact_semgrep_payload(payload: Any) -> Any:
         if isinstance(item, dict) and is_secret_result(item):
             extra = dict(as_dict(item.get("extra")))
             extra.pop("lines", None)
-            item = {**item, "extra": extra}
-        results.append(item)
+            results.append({**item, "extra": extra})
+        else:
+            results.append(item)
     return {**payload, "results": results}
 
 

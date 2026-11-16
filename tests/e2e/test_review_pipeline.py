@@ -16,6 +16,7 @@ from security_checker.config.schema import Config, ReviewerConfig
 from security_checker.errors import ConfigError, ExitCode
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, FindingStatus, Severity
+from security_checker.providers.errors import ProviderServerError
 from security_checker.report.json_writer import write_json
 from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import build_runtime
@@ -180,8 +181,6 @@ async def test_budget_limit_marks_remaining_as_not_reviewed(workspace, tmp_path)
 
 
 async def test_provider_errors_are_reported_as_error_findings(workspace, tmp_path):
-    from security_checker.providers.errors import ProviderServerError
-
     outcome = await run_review(
         make_config(tmp_path),
         workspace,
@@ -195,8 +194,6 @@ async def test_provider_errors_are_reported_as_error_findings(workspace, tmp_pat
 
 
 async def test_strict_makes_error_findings_exit_3(workspace, tmp_path):
-    from security_checker.providers.errors import ProviderServerError
-
     config = make_config(tmp_path, policy={"strict": True})
     outcome = await run_review(
         config,

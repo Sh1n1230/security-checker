@@ -80,9 +80,11 @@ def load_baseline(path: Path) -> Baseline:
     warnings: tuple[str, ...] = ()
     if version in LEGACY_VERSIONS:
         warnings = (
-            f"{path} は古い形式 (version {version}) です。"
-            "同じ場所で値を差し替えた秘密も抑制されます。"
-            "`security-checker baseline update` で更新してください",
+            (
+                f"{path} は古い形式 (version {version}) です。"
+                "同じ場所で値を差し替えた秘密も抑制されます。"
+                "`security-checker baseline update` で更新してください"
+            ),
         )
     return Baseline(
         ids=frozenset(ids),

@@ -92,6 +92,15 @@ def _console(*, stderr: bool = False) -> Console:
 err_console = _console(stderr=True)
 
 
+def _emit(text: str) -> None:
+    """機械可読な出力 (JSON・YAML・Markdown・Actions の注釈) を標準出力にそのまま書く.
+
+    人間向けの表示は rich の Console を使う。パイプやファイルに流す出力は、
+    折り返し・色・マークアップの解釈が入らないよう Console を通さない。
+    """
+    sys.stdout.write(text if text.endswith("\n") else text + "\n")
+
+
 def _fail(message: str, code: ExitCode) -> NoReturn:
     # メッセージはパスやスキャナの出力を含みうる. `[` を rich のマークアップとして読ませない
     err_console.print(f"[bold red]エラー:[/bold red] {escape(redact_known_patterns(message))}")
@@ -225,7 +234,7 @@ def _suppression(loaded: LoadedConfig, root: Path) -> SuppressionRules:
 
 
 def _diff_scope(
-    loaded: LoadedConfig, root: Path, base: str | None, full: bool
+    loaded: LoadedConfig, root: Path, base: str | None, *, full: bool
 ) -> tuple[DiffScope | None, list[str]]:
     """target.mode と --base / --full から検査範囲を決める (§7.4)."""
     mode = "full" if full else loaded.config.target.mode
@@ -255,12 +264,12 @@ def _write_reports(loaded: LoadedConfig, outcome: RunOutcome, *, quiet: bool) ->
             ),
             None,
         )
-        render(outcome.report, outcome.decision, outcome.output_dir, details=details)
+        render(outcome.report, outcome.decision, details=details)
 
 
 @app.command()
 def scan(
-    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path(),
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", help="設定ファイル (既定は自動探索)")
     ] = None,
@@ -309,7 +318,7 @@ def scan(
     overrides.update(_logging_overrides(log_format, log_level))
     loaded = _load(root, config_path, preset, overrides)
     _configure_logging(loaded)
-    diff, diff_warnings = _diff_scope(loaded, root, base, full)
+    diff, diff_warnings = _diff_scope(loaded, root, base, full=full)
 
     try:
         outcome = asyncio.run(
@@ -330,7 +339,7 @@ def scan(
 
 @app.command()
 def review(
-    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path(),
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", help="設定ファイル (既定は自動探索)")
     ] = None,
@@ -395,7 +404,7 @@ def review(
     overrides.update(_logging_overrides(log_format, log_level))
     loaded = _load(root, config_path, preset, overrides)
     _configure_logging(loaded)
-    diff, diff_warnings = _diff_scope(loaded, root, base, full)
+    diff, diff_warnings = _diff_scope(loaded, root, base, full=full)
 
     price_table = load_price_table(
         loaded.config_path.parent if loaded.config_path is not None else None
@@ -598,7 +607,7 @@ def _print_detections(console: Console, detections: list[Detection]) -> list[Det
 
 @app.command()
 def init(
-    path: Annotated[Path, typer.Argument(help="設定ファイルを置くディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Argument(help="設定ファイルを置くディレクトリ")] = Path(),
     command: Annotated[
         str | None,
         typer.Option(
@@ -712,7 +721,7 @@ def init(
             "(または --model で指定してください)"
         )
     if stdout:
-        print(document)
+        _emit(document)
         raise typer.Exit(code=int(ExitCode.OK))
 
     destination = root / (LOCAL_CONFIG_FILENAMES[0] if local else CONFIG_FILENAMES[0])
@@ -814,7 +823,7 @@ def _select(usable: list[Detection], answer: str, console: Console) -> list[Dete
 
 @config_app.command("show")
 def config_show(
-    path: Annotated[Path, typer.Argument(help="対象ディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Argument(help="対象ディレクトリ")] = Path(),
     config_path: Annotated[Path | None, typer.Option("--config", "-c")] = None,
     preset: Annotated[str | None, typer.Option("--preset", "-p")] = None,
     explain: Annotated[
@@ -841,7 +850,7 @@ def config_show(
             console.print(f"  {escape(key)} [dim]← {escape(str(loaded.origins[key]))}[/dim]")
         return
 
-    print(json.dumps(loaded.config.masked_dump(), ensure_ascii=False, indent=2))
+    _emit(json.dumps(loaded.config.masked_dump(), ensure_ascii=False, indent=2))
 
 
 baseline_app = typer.Typer(help="既知の候補の記録 (段階導入用)", no_args_is_help=True)
@@ -852,7 +861,7 @@ DEFAULT_BASELINE = ".security-checker-baseline.json"
 
 @baseline_app.command("update")
 def baseline_update(
-    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Argument(help="検査対象ディレクトリ")] = Path(),
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", help="設定ファイル (既定は自動探索)")
     ] = None,
@@ -1001,7 +1010,7 @@ def comment(
     if os.environ.get("GITHUB_ACTIONS") == "true":
         # ログを開かなくても Actions の画面に出るよう、注釈としても書く
         for message in result.warnings:
-            print(f"::warning title=security-checker comment::{' '.join(message.split())}")
+            _emit(f"::warning title=security-checker comment::{' '.join(message.split())}")
     console.print(
         f"summary: {result.summary_action}"
         + (f" ({result.summary_url})" if result.summary_url else "")
@@ -1045,7 +1054,7 @@ def providers_check(
     name: Annotated[
         str | None, typer.Argument(help="確認する Reviewer の name (省略で全部)")
     ] = None,
-    path: Annotated[Path, typer.Option("--path", help="設定を探すディレクトリ")] = Path("."),
+    path: Annotated[Path, typer.Option("--path", help="設定を探すディレクトリ")] = Path(),
     config_path: Annotated[
         Path | None, typer.Option("--config", "-c", help="設定ファイル (既定は自動探索)")
     ] = None,
@@ -1098,7 +1107,7 @@ def explain_command(
         result = explain_finding(report, finding_id, report_path=report_path)
     except SecurityCheckerError as exc:
         _fail(str(exc), exc.exit_code)
-    print(render_explanation(result), end="")
+    _emit(render_explanation(result))
 
 
 @app.command("eval")
@@ -1163,7 +1172,7 @@ def eval_command(
         markdown.parent.mkdir(parents=True, exist_ok=True)
         markdown.write_text(document, encoding="utf-8")
     if not quiet:
-        print(document)
+        _emit(document)
 
     metrics = result.metrics
     # 採点できなかった run の数字は信用できない。ツールの問題として先に落とす (§27.2)
@@ -1193,7 +1202,7 @@ def eval_command(
 @app.command()
 def version() -> None:
     """バージョンを表示する."""
-    print(f"security-checker {__version__}")
+    _emit(f"security-checker {__version__}")
 
 
 def main() -> None:

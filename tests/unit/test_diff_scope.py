@@ -222,7 +222,8 @@ def test_unknown_base_is_reported_with_a_hint(repo):
 def test_auto_falls_back_to_full_with_a_warning(tmp_path):
     scope, warnings = prepare_scope("auto", tmp_path, None, {"GITHUB_BASE_REF": "main"})
     assert scope is None
-    assert warnings and "全件" in warnings[0]
+    assert warnings
+    assert "全件" in warnings[0]
 
 
 def test_explicit_diff_failure_is_an_error(tmp_path):

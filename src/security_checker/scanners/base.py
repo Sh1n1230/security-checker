@@ -274,8 +274,7 @@ def relative_path(raw_path: str, root: Path) -> str:
             cleaned = candidate.resolve().relative_to(root.resolve()).as_posix()
         except ValueError:
             cleaned = candidate.name
-    if cleaned.startswith("./"):
-        cleaned = cleaned[2:]
+    cleaned = cleaned.removeprefix("./")
     return cleaned
 
 

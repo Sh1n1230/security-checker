@@ -6,10 +6,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from rich.console import Console
 
+from security_checker.config.schema import Config
 from security_checker.errors import ExitCode
 from security_checker.github.comment import render_inline, render_summary
 from security_checker.models.candidate import Candidate
@@ -21,8 +20,9 @@ from security_checker.report.markdown import render_markdown
 from security_checker.report.sanitize import text
 from security_checker.report.sarif import is_uploadable, render_sarif
 from security_checker.report.terminal import render
-from security_checker.run import output_relative
-from tests.factories import make_candidate, make_finding, make_report
+from security_checker.run import output_relative, run_scan
+from security_checker.testing import FakeScanner
+from tests.factories import make_candidate, make_finding, make_report, make_verdict
 
 OK = PolicyDecision(exit_code=ExitCode.OK)
 
@@ -70,7 +70,7 @@ def test_redacted_candidates_are_marked_in_markdown_and_comments():
 def test_redacted_candidates_are_marked_in_the_terminal_and_sarif():
     candidate = secret_candidate()
     console = Console(record=True, width=200)
-    render(make_report([candidate]), OK, Path("out"), console=console)
+    render(make_report([candidate]), OK, console=console)
     assert "値はマスク済み" in console.export_text()
     result = render_sarif(make_report([candidate]))["runs"][0]["results"][0]
     assert result["properties"]["redacted"] is True
@@ -129,10 +129,6 @@ def test_paths_inside_the_output_directory_are_made_relative(tmp_path):
 
 
 async def test_report_does_not_carry_absolute_paths(tmp_path):
-    from security_checker.config.schema import Config
-    from security_checker.run import run_scan
-    from security_checker.testing import FakeScanner
-
     outcome = await run_scan(
         Config(), tmp_path, base_dir=tmp_path, scanners=[FakeScanner("semgrep")]
     )
@@ -143,7 +139,6 @@ async def test_report_does_not_carry_absolute_paths(tmp_path):
 
 def test_markdown_names_go_through_code_span():
     """Reviewer 名・scanner・rule_id のバッククォートで表やコードスパンを壊させない (#266)."""
-    from tests.factories import make_verdict
 
     candidate = make_candidate("c1", scanner="sem`grep", rule_id="r`|x")
     finding = make_finding(

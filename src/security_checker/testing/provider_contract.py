@@ -91,7 +91,8 @@ class ProviderContractTests:
     def test_identity_fields(self) -> None:
         provider = self.make_provider()
         assert provider.transport in ("http", "process")
-        assert isinstance(provider.dialect, str) and provider.dialect
+        assert isinstance(provider.dialect, str)
+        assert provider.dialect
 
     @pytest.mark.asyncio
     async def test_complete_returns_response(self) -> None:

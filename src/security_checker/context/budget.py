@@ -18,6 +18,7 @@ PROMPT_OVERHEAD_TOKENS = 1500
 def _encode_fn() -> Callable[[str], list[int]] | None:
     """tiktoken があればその encode を返す. なければ None (概算にフォールバック)."""
     try:  # tiktoken は任意依存 (extras)
+        # 任意依存なので、入っているときだけ読み込む
         import tiktoken  # type: ignore[import-not-found]
     except ImportError:
         return None

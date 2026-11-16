@@ -277,7 +277,7 @@ def _headline(verdict: ReviewVerdict, limit: int = SUMMARY_LIMIT) -> str:
 
 def _first_sentence(text: str, limit: int) -> str:
     """先頭の 1 文を返す. 収まらなければ文・節の区切りまで戻して詰める."""
-    line = " ".join(text.split("\n")[0].split()).strip()
+    line = " ".join(text.split("\n", maxsplit=1)[0].split()).strip()
     if len(line) <= limit:
         return line
     window = line[:limit]

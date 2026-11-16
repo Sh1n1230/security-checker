@@ -86,8 +86,8 @@ def _fixed_version(
     matched: list[str] = []
     every: list[str] = []
     for vuln in vulns:
-        for affected in vuln.get("affected") or []:
-            affected = as_dict(affected)
+        for raw_affected in vuln.get("affected") or []:
+            affected = as_dict(raw_affected)
             package = as_dict(affected.get("package"))
             if package.get("name") != name:
                 continue
@@ -158,7 +158,7 @@ def parse_osv(
                     continue
                 vulns = [vulns_by_id[i] for i in group_ids if i in vulns_by_id]
                 aliases = [a for a in as_dict(group).get("aliases") or [] if isinstance(a, str)]
-                primary = sorted(group_ids)[0]
+                primary = min(group_ids)
                 key = (manifest, ecosystem, name.lower(), primary)
                 if key in seen:
                     continue

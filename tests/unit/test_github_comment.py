@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 from security_checker.cli import app
 from security_checker.config.schema import GithubConfig
 from security_checker.errors import ConfigError, ExitCode
+from security_checker.github import comment as module
 from security_checker.github.client import (
     GithubClient,
     GithubError,
@@ -37,7 +38,7 @@ from security_checker.github.comment import (
 from security_checker.models.candidate import Location
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
 from security_checker.models.finding import Finding
-from security_checker.models.report import ScannerRun
+from security_checker.models.report import Report, ScannerRun
 from security_checker.models.verdict import VerdictStatus
 from security_checker.policy.engine import PolicyDecision
 from security_checker.report.markdown import render_markdown
@@ -581,7 +582,6 @@ def test_cli_posts_from_a_saved_report(tmp_path, monkeypatch):
 
 def test_report_round_trips_through_json():
     """comment は report.json を読み直す. 書いた形がそのまま読めること."""
-    from security_checker.models.report import Report
 
     report = confirmed_report()
     again = Report.model_validate_json(json.dumps(report.dump()))
@@ -721,7 +721,6 @@ def test_a_long_summary_is_cut_between_findings_and_keeps_the_footer(monkeypatch
         for c in candidates
     ]
     report = make_report(candidates, findings)
-    from security_checker.github import comment as module
 
     full = render_summary(report)
     monkeypatch.setattr(module, "MAX_BODY_CHARS", 4_000)

@@ -61,7 +61,7 @@ STATUS_LABELS = {
 def render_markdown(report: Report, decision: PolicyDecision) -> str:
     """report.md の本文を組み立てる."""
     lines: list[str] = []
-    lines += _headline(report, decision)
+    lines += _headline(decision)
     lines += _summary(report)
     lines += _warnings(report)
     if report.findings:
@@ -82,7 +82,7 @@ def write_markdown(report: Report, decision: PolicyDecision, output_dir: Path) -
 # --- 各節 -------------------------------------------------------------------
 
 
-def _headline(report: Report, decision: PolicyDecision) -> list[str]:
+def _headline(decision: PolicyDecision) -> list[str]:
     """1 行目で結論が分かるようにする."""
     mark = "❌" if decision.failed else "✅"
     verdict = "ポリシー違反あり" if decision.failed else "ポリシー違反なし"
@@ -105,8 +105,10 @@ def _summary(report: Report) -> list[str]:
         "| 項目 | 値 |",
         "|---|---|",
         f"| スコア | **{score.value}/100** (rank {score.rank}){partial} |",
-        f"| 候補 | {report.coverage.candidates_total} 件 "
-        f"(レビュー済み {report.coverage.candidates_reviewed} 件) |",
+        (
+            f"| 候補 | {report.coverage.candidates_total} 件 "
+            f"(レビュー済み {report.coverage.candidates_reviewed} 件) |"
+        ),
     ]
     if report.suppression_label:
         lines.append(f"| 抑制 | {report.suppression_label} (レビュー・判定の対象外) |")
@@ -176,8 +178,10 @@ def _findings(report: Report) -> list[str]:
         lines += [f"## {title} ({len(group)} 件)", ""]
         if status is FindingStatus.NOT_REVIEWED:
             lines += [
-                "予算・上限・中断のためレビューされていません。"
-                "「問題なし」ではないことに注意してください。",
+                (
+                    "予算・上限・中断のためレビューされていません。"
+                    "「問題なし」ではないことに注意してください。"
+                ),
                 "",
             ]
             lines += [
@@ -293,8 +297,10 @@ def _footer(report: Report) -> list[str]:
     lines = [
         "---",
         "",
-        f"security-checker v{report.tool_version} / run `{report.run_id}` / "
-        f"target `{report.target.root}` ({report.target.label})",
+        (
+            f"security-checker v{report.tool_version} / run `{report.run_id}` / "
+            f"target `{report.target.root}` ({report.target.label})"
+        ),
     ]
     if report.stopped_reason:
         lines += ["", f"⚠️ 途中で停止しました: {report.stopped_reason}"]

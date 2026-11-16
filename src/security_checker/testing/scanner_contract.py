@@ -52,7 +52,8 @@ class ScannerContractTests:
 
     def test_identity(self) -> None:
         scanner = self.make_scanner()
-        assert isinstance(scanner.name, str) and scanner.name
+        assert isinstance(scanner.name, str)
+        assert scanner.name
         assert isinstance(scanner.category, Category)
 
     def test_probe_does_not_raise(self) -> None:
