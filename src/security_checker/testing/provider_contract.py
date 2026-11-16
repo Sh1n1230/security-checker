@@ -69,7 +69,7 @@ class ProviderContractTests:
             pytest.skip("make_http_provider が実装されていない (§25.2 の 3・4・6 番)")
         return provider
 
-    def make_request(self, **overrides: Any) -> CompletionRequest:
+    def make_request(self, **overrides: object) -> CompletionRequest:
         payload: dict[str, Any] = {
             "system": "system",
             "user": "user",

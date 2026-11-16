@@ -127,7 +127,7 @@ class ScriptedProvider:
         self.closed = True
 
 
-def verdict_payload(**overrides: Any) -> dict[str, Any]:
+def verdict_payload(**overrides: object) -> dict[str, Any]:
     """テスト用の妥当な ReviewJudgement ペイロード."""
     payload: dict[str, Any] = {
         "vulnerable": True,

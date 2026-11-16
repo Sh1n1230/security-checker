@@ -227,7 +227,7 @@ class ReviewerConfig(StrictModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _default_timeout(cls, data: Any) -> Any:
+    def _default_timeout(cls, data: object) -> object:
         """process の応答は数十秒〜数分かかるので、既定のタイムアウトを長くする (§9.7)."""
         if isinstance(data, dict) and data.get("transport") == "process":
             return {"timeout_s": PROCESS_TIMEOUT_S, **data}

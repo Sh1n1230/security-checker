@@ -57,7 +57,7 @@ def redact_raw_entry(entry: dict[str, Any], root: Path | None = None) -> dict[st
 
 
 def parse_gitleaks(
-    payload: Any,
+    payload: object,
     root: Path,
     *,
     exclude: list[str] | None = None,

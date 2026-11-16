@@ -16,7 +16,7 @@ import fnmatch
 import json
 import time
 from pathlib import Path, PurePosixPath
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from security_checker.config.schema import RepoHygieneConfig
 from security_checker.models.candidate import Candidate, IdFactory, Location
@@ -84,7 +84,7 @@ def key_file_severity(data: bytes) -> Severity:
     return Severity.MEDIUM
 
 
-def literal_mcp_keys(payload: Any) -> list[str]:
+def literal_mcp_keys(payload: object) -> list[str]:
     """`mcpServers.*.env` / `headers` のうち、値が直書きのキーを返す. 値は返さない.
 
     `${VAR}` を含む値と空文字は直書きとして扱わない。

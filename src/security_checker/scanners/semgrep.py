@@ -71,18 +71,21 @@ def is_secret_result(item: dict[str, Any]) -> bool:
     return bool(_SECRET_CWES & set(_extract_cwe(metadata)))
 
 
-def redact_semgrep_payload(payload: Any) -> Any:
+def _without_matched_lines(item: dict[str, Any]) -> dict[str, Any]:
+    """検出 1 件から、一致した行 (秘密の値を含みうる) を落とす."""
+    extra = dict(as_dict(item.get("extra")))
+    extra.pop("lines", None)
+    return {**item, "extra": extra}
+
+
+def redact_semgrep_payload(payload: object) -> object:
     """raw/semgrep.json に書く形. 秘密系ルールの検出では一致した行を落とす."""
     if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
         return payload
     results: list[Any] = []
     for item in payload["results"]:
-        if isinstance(item, dict) and is_secret_result(item):
-            extra = dict(as_dict(item.get("extra")))
-            extra.pop("lines", None)
-            results.append({**item, "extra": extra})
-        else:
-            results.append(item)
+        secret = isinstance(item, dict) and is_secret_result(item)
+        results.append(_without_matched_lines(item) if secret else item)
     return {**payload, "results": results}
 
 
@@ -94,7 +97,7 @@ def _extract_references(metadata: dict[str, Any]) -> list[str]:
 
 
 def parse_semgrep(
-    payload: Any,
+    payload: object,
     root: Path,
     *,
     exclude: list[str] | None = None,
@@ -187,7 +190,7 @@ def parse_semgrep(
                 references=_extract_references(metadata),
                 # 秘密系ルールの autofix は値を含みうる. 一致した行と一緒に落とす
                 fix_available=fix if isinstance(fix, str) and not secret else None,
-                raw=redact_semgrep_payload({"results": [item]})["results"][0] if secret else item,
+                raw=_without_matched_lines(item) if secret else item,
                 redacted=secret,
             )
         )

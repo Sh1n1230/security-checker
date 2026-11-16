@@ -113,7 +113,7 @@ def _fixed_version(
 
 
 def parse_osv(
-    payload: Any, root: Path, *, exclude: list[str] | None = None
+    payload: object, root: Path, *, exclude: list[str] | None = None
 ) -> tuple[list[Candidate], list[str]]:
     """osv-scanner の JSON を Candidate に正規化する."""
     warnings: list[str] = []

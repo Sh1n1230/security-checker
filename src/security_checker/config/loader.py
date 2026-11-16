@@ -172,7 +172,7 @@ def env_overrides(environ: dict[str, str] | None = None) -> dict[str, Any]:
     return overrides
 
 
-def _env_value(parts: list[str], raw: str) -> Any:
+def _env_value(parts: list[str], raw: str) -> object:
     """環境変数の値を解釈する. 文字列の項目には文字列のまま渡す.
 
     YAML として読むと `no` が false に、`12345` が int になり、言語コードや
@@ -199,7 +199,7 @@ def _expects_str(parts: list[str]) -> bool:
     return _is_str(annotation)
 
 
-def _model_in(annotation: Any) -> Any:
+def _model_in(annotation: object) -> object:
     """`X | None` の中の BaseModel を取り出す (無ければ None)."""
     candidates = typing.get_args(annotation) or (annotation,)
     for candidate in candidates:
@@ -208,7 +208,7 @@ def _model_in(annotation: Any) -> Any:
     return None
 
 
-def _is_str(annotation: Any) -> bool:
+def _is_str(annotation: object) -> bool:
     if annotation is str:
         return True
     args = [a for a in typing.get_args(annotation) if a is not type(None)]

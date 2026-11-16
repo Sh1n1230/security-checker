@@ -175,7 +175,7 @@ def _collect_defs(schema: dict[str, Any]) -> dict[str, Any]:
     return defs if isinstance(defs, dict) else {}
 
 
-def _convert(node: Any, *, defs: dict[str, Any]) -> dict[str, Any]:
+def _convert(node: object, *, defs: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(node, dict):
         return {}
 
@@ -225,7 +225,7 @@ def _convert_any_of(node: dict[str, Any], *, defs: dict[str, Any]) -> dict[str, 
     return converted
 
 
-def _convert_type(value: Any) -> dict[str, Any]:
+def _convert_type(value: object) -> dict[str, Any]:
     """`["string", "null"]` のような型の配列を nullable に畳み、大文字に揃える."""
     if isinstance(value, list):
         names = [str(name) for name in value]
@@ -256,5 +256,5 @@ def _no_candidates_reason(payload: dict[str, Any]) -> str:
     return "応答に candidates がありません"
 
 
-def _as_int(value: Any) -> int:
+def _as_int(value: object) -> int:
     return value if isinstance(value, int) else 0

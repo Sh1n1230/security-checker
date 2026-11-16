@@ -278,6 +278,6 @@ def relative_path(raw_path: str, root: Path) -> str:
     return cleaned
 
 
-def as_dict(value: Any) -> dict[str, Any]:
+def as_dict(value: object) -> dict[str, Any]:
     """JSON の想定外構造を握り潰さないためのヘルパ."""
     return value if isinstance(value, dict) else {}

@@ -130,5 +130,5 @@ class OllamaChatDialect:
         return None
 
 
-def _as_int(value: Any) -> int:
+def _as_int(value: object) -> int:
     return value if isinstance(value, int) else 0

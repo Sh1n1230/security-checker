@@ -123,13 +123,20 @@ class GithubClient:
     def __exit__(self, *_: object) -> None:
         self.close()
 
-    def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
-        response = self._send(method, url, **kwargs)
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Mapping[str, str] | None = None,
+        body: object | None = None,
+    ) -> httpx.Response:
+        response = self._send(method, url, params=params, body=body)
         wait = _rate_limit_wait(response)
         if wait is not None and wait <= MAX_RATE_LIMIT_WAIT_S:
             # 二次レート制限は短い待ちで解けることが多い. 1 回だけ待って送り直す
             self._sleep(wait)
-            response = self._send(method, url, **kwargs)
+            response = self._send(method, url, params=params, body=body)
             wait = _rate_limit_wait(response)
         if response.status_code >= HTTPStatus.BAD_REQUEST:
             message = _error_message(response)
@@ -146,9 +153,16 @@ class GithubClient:
             )
         return response
 
-    def _send(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+    def _send(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Mapping[str, str] | None,
+        body: object | None,
+    ) -> httpx.Response:
         try:
-            return self._client.request(method, url, **kwargs)
+            return self._client.request(method, url, params=params, json=body)
         except httpx.HTTPError as exc:
             raise GithubError(f"GitHub API に接続できません: {exc}") from exc
 
@@ -172,14 +186,14 @@ class GithubClient:
 
     def create_issue_comment(self, pr: PullRequestContext, body: str) -> dict[str, Any]:
         url = f"/repos/{pr.repository}/issues/{pr.number}/comments"
-        result: dict[str, Any] = self._request("POST", url, json={"body": body}).json()
+        result: dict[str, Any] = self._request("POST", url, body={"body": body}).json()
         return result
 
     def update_issue_comment(
         self, pr: PullRequestContext, comment_id: int, body: str
     ) -> dict[str, Any]:
         url = f"/repos/{pr.repository}/issues/comments/{comment_id}"
-        result: dict[str, Any] = self._request("PATCH", url, json={"body": body}).json()
+        result: dict[str, Any] = self._request("PATCH", url, body={"body": body}).json()
         return result
 
     def review_comments(self, pr: PullRequestContext) -> list[dict[str, Any]]:
@@ -202,7 +216,7 @@ class GithubClient:
             "event": "COMMENT",
             "comments": comments,
         }
-        result: dict[str, Any] = self._request("POST", url, json=payload).json()
+        result: dict[str, Any] = self._request("POST", url, body=payload).json()
         return result
 
 
