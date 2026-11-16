@@ -15,7 +15,7 @@ import pytest
 from security_checker.config.schema import GitleaksConfig, OsvConfig, SemgrepConfig, TrivyConfig
 from security_checker.errors import ConfigError
 from security_checker.models.enums import ScanStatus, Severity
-from security_checker.scanners import base, gitleaks, osv, registry, semgrep, trivy, untrusted
+from security_checker.scanners import gitleaks, osv, registry, semgrep, trivy, untrusted
 from security_checker.scanners.base import (
     CommandResult,
     ScanContext,
@@ -54,6 +54,10 @@ def stub_run(
     return calls
 
 
+def write_garbage(path: Path) -> None:
+    path.write_text("{truncated", encoding="utf-8")
+
+
 TIMED_OUT = CommandResult(exit_code=None, stdout=b"", stderr=b"", timed_out=True)
 SUCCEEDED = CommandResult(exit_code=0, stdout=b"", stderr=b"")
 
@@ -62,12 +66,12 @@ SUCCEEDED = CommandResult(exit_code=0, stdout=b"", stderr=b"")
 
 
 def test_version_probe_failure_keeps_the_tool_available(monkeypatch):
-    monkeypatch.setattr(base.shutil, "which", lambda name: "/fake/bin/tool")
+    monkeypatch.setattr("shutil.which", lambda name: "/fake/bin/tool")
 
     def boom(*args: Any, **kwargs: Any) -> None:
         raise subprocess.TimeoutExpired(cmd="tool", timeout=15)
 
-    monkeypatch.setattr(base.subprocess, "run", boom)
+    monkeypatch.setattr("subprocess.run", boom)
     status = probe_command("tool")
     assert status.available is True
     assert status.version is None
@@ -99,14 +103,11 @@ class _Entry:
         return self._loaded
 
 
-def test_broken_scanner_plugin_is_a_warning_and_the_rest_still_load(monkeypatch):
-    entries = [_Entry("good", GitleaksScanner), _Entry("broken", ImportError("missing dep"))]
-    monkeypatch.setattr(registry, "entry_points", lambda group: entries)
-    found, warnings = registry.discover_plugin_scanners()
-    assert found == {"good": GitleaksScanner}
-    assert len(warnings) == 1
-    assert "broken" in warnings[0]
-    assert "missing dep" in warnings[0]
+def test_a_plugin_that_fails_to_load_is_a_config_error_naming_the_plugin():
+    # 有効にしたプラグインが読めないのは設定の誤り. 黙って外さない
+    with pytest.raises(ConfigError, match="scanner プラグイン 'broken' を読み込めません: missing"):
+        registry._load_plugin(_Entry("broken", ImportError("missing dep")))  # type: ignore[arg-type]
+    assert registry._load_plugin(_Entry("good", GitleaksScanner)) is GitleaksScanner  # type: ignore[arg-type]
 
 
 # --- タイムアウト -----------------------------------------------------------------
@@ -145,7 +146,7 @@ async def test_osv_output_that_is_not_json_is_failed(monkeypatch, tmp_path):
     monkeypatch.setattr(OsvScanner, "probe", lambda self: AVAILABLE)
 
     async def garbage(argv: list[str], *, stdout_path: Path, **kwargs: Any) -> CommandResult:
-        stdout_path.write_text("{truncated", encoding="utf-8")
+        write_garbage(stdout_path)
         return SUCCEEDED
 
     monkeypatch.setattr(osv, "run_command", garbage)
@@ -159,7 +160,7 @@ async def test_gitleaks_report_that_is_not_json_is_failed(monkeypatch, tmp_path)
     monkeypatch.setattr(GitleaksScanner, "_supports_dir_subcommand", staticmethod(lambda: True))
 
     async def garbage(argv: list[str], **kwargs: Any) -> CommandResult:
-        Path(argv[argv.index("--report-path") + 1]).write_text("{truncated", encoding="utf-8")
+        write_garbage(Path(argv[argv.index("--report-path") + 1]))
         return SUCCEEDED
 
     monkeypatch.setattr(gitleaks, "run_command", garbage)
@@ -190,15 +191,15 @@ async def test_old_gitleaks_without_dir_uses_detect_no_git(monkeypatch, tmp_path
 
 
 def test_dir_subcommand_is_unsupported_when_gitleaks_is_missing_or_cannot_run(monkeypatch):
-    monkeypatch.setattr(gitleaks.shutil, "which", lambda name: None)
+    monkeypatch.setattr("shutil.which", lambda name: None)
     assert GitleaksScanner._supports_dir_subcommand() is False
 
-    monkeypatch.setattr(gitleaks.shutil, "which", lambda name: "/fake/bin/gitleaks")
+    monkeypatch.setattr("shutil.which", lambda name: "/fake/bin/gitleaks")
 
     def boom(*args: Any, **kwargs: Any) -> None:
         raise OSError("exec format error")
 
-    monkeypatch.setattr(gitleaks.subprocess, "run", boom)
+    monkeypatch.setattr("subprocess.run", boom)
     assert GitleaksScanner._supports_dir_subcommand() is False
 
 

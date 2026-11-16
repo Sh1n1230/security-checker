@@ -234,12 +234,12 @@ def test_broken_provider_plugin_is_a_warning_and_the_rest_still_load(monkeypatch
 
 
 def test_command_version_failure_keeps_the_command_available(monkeypatch):
-    monkeypatch.setattr(detect.shutil, "which", lambda name: "/fake/bin/cmd")
+    monkeypatch.setattr("shutil.which", lambda name: "/fake/bin/cmd")
 
     def boom(*args: Any, **kwargs: Any) -> None:
         raise subprocess.SubprocessError("simulated failure")
 
-    monkeypatch.setattr(detect.subprocess, "run", boom)
+    monkeypatch.setattr("subprocess.run", boom)
     status = detect.command_version("cmd")
     assert status.available is True
     assert status.version is None
@@ -247,9 +247,11 @@ def test_command_version_failure_keeps_the_command_available(monkeypatch):
 
 
 def test_detect_all_lists_process_before_http(monkeypatch):
-    monkeypatch.setattr(detect, "detect_process", lambda: ["p1", "p2"])
-    monkeypatch.setattr(detect, "detect_http", lambda environ=None: ["h1"])
-    assert detect.detect_all(environ={}) == ["p1", "p2", "h1"]
+    process: list[Any] = ["p1", "p2"]
+    http: list[Any] = ["h1"]
+    monkeypatch.setattr(detect, "detect_process", lambda: process)
+    monkeypatch.setattr(detect, "detect_http", lambda environ=None: http)
+    assert detect.detect_all(environ={}) == [*process, *http]
 
 
 def test_a_missing_base_url_is_not_local():
