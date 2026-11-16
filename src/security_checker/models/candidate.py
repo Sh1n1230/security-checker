@@ -10,13 +10,35 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from security_checker.models.enums import Category, Severity
 
-_COMMENT_RE = re.compile(r"(#|//|--).*$|/\*.*?\*/", re.MULTILINE | re.DOTALL)
+# `.` は re.DOTALL で改行にも当たる. そのまま `.*$` にすると、行コメント 1 つで
+# スニペットの残り全部が消える (ID はスニペット全体から作るので、後ろの行が
+# 別物でも同じ ID になっていた). 行コメントは行内で止め、ブロックコメントだけ
+# 改行をまたがせる.
+_COMMENT_RE = re.compile(r"(#|//|--)[^\n]*$|/\*[\s\S]*?\*/", re.MULTILINE)
 _WS_RE = re.compile(r"\s+")
+# 文字列リテラルの中の `//` `#` `--` はコメントではない. 除去の前に退避する
+# (URL の `https://` が消えると、URL だけが違う 2 件が同じ ID になっていた).
+_STRING_RE = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')
+
+_MASK = "\x00"
 
 
 def normalize_snippet(text: str) -> str:
-    """安定 ID 用の正規化: コメント除去 → 空白圧縮 → 小文字化."""
-    without_comments = _COMMENT_RE.sub(" ", text)
+    """安定 ID 用の正規化: 文字列退避 → コメント除去 → 空白圧縮 → 小文字化."""
+    literals: list[str] = []
+
+    def stash(m: re.Match[str]) -> str:
+        literals.append(m.group(0))
+        return f"{_MASK}{len(literals) - 1}{_MASK}"
+
+    protected = _STRING_RE.sub(stash, text)
+    without_comments = _COMMENT_RE.sub(" ", protected)
+    if literals:
+        without_comments = re.sub(
+            f"{_MASK}(\\d+){_MASK}",
+            lambda m: literals[int(m.group(1))],
+            without_comments,
+        )
     return _WS_RE.sub(" ", without_comments).strip().lower()
 
 
