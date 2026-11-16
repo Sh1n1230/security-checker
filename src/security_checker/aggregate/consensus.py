@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import statistics
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from security_checker.aggregate.agreement import compute_agreement
 from security_checker.aggregate.base import (
@@ -15,9 +15,13 @@ from security_checker.aggregate.base import (
     aggregate_severity,
 )
 from security_checker.config.schema import MAJORITY_RATIO, AggregationConfig
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Agreement, FindingStatus, Severity
 from security_checker.models.verdict import ReviewVerdict, VerdictStatus
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from security_checker.models.candidate import Candidate
 
 #: 見出しに使う長さ. reasoning から作る場合の上限 (文の区切りで詰める)。
 SUMMARY_LIMIT = 200

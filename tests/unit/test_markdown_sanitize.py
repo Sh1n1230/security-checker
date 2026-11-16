@@ -6,16 +6,18 @@ LLM の出力はレビュー対象のコードに誘導されうる。PR コメ�
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from security_checker.errors import ExitCode
 from security_checker.models.enums import FindingStatus
-from security_checker.models.report import Report
 from security_checker.models.verdict import Remediation
 from security_checker.policy.engine import PolicyDecision
 from security_checker.report import sanitize as md
 from security_checker.report.markdown import render_markdown
 from tests.factories import make_candidate, make_finding, make_report, make_verdict
+
+if TYPE_CHECKING:
+    from security_checker.models.report import Report
 
 INJECTION = (
     "<!-- hide --> <details><summary>✅ No issues</summary> "

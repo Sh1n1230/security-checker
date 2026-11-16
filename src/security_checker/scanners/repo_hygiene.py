@@ -16,9 +16,8 @@ import fnmatch
 import json
 import time
 from pathlib import Path, PurePosixPath
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
-from security_checker.config.schema import RepoHygieneConfig
 from security_checker.models.candidate import Candidate, IdFactory, Location
 from security_checker.models.enums import Category, Severity
 from security_checker.scanners.base import (
@@ -30,6 +29,9 @@ from security_checker.scanners.base import (
     run_command,
 )
 from security_checker.scanners.filters import is_excluded
+
+if TYPE_CHECKING:
+    from security_checker.config.schema import RepoHygieneConfig
 
 SCANNER_NAME = "repo-hygiene"
 RULE_TRACKED_IGNORED = "tracked-ignored-file"

@@ -15,14 +15,18 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from security_checker.config.schema import GithubConfig
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
-from security_checker.models.finding import Finding
-from security_checker.models.report import Report
 from security_checker.report import sanitize as md
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Mapping
+
+    from security_checker.config.schema import GithubConfig
+    from security_checker.models.finding import Finding
+    from security_checker.models.report import Report
 
 #: 重複したサマリの古いほうに書く本文. マーカーを含めないので、以後は更新の対象にならない
 STALE_SUMMARY = (

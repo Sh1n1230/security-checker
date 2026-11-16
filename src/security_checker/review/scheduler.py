@@ -10,13 +10,10 @@ import asyncio
 import random
 import time
 from collections import deque
-from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from security_checker.config.schema import BudgetConfig, ReviewerConfig
 from security_checker.context.budget import PROMPT_OVERHEAD_TOKENS, estimate_tokens
-from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import ReviewVerdict, Usage, VerdictStatus
 from security_checker.observability import logging as log
 from security_checker.observability.quota import QuotaStore, quota_key
@@ -26,8 +23,14 @@ from security_checker.providers.errors import (
     ProviderRateLimitError,
 )
 from security_checker.review import prompts
-from security_checker.review.prompts import PeerOpinion
 from security_checker.review.reviewer import Reviewer, ReviewOutcome, SendCancelledError
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
+
+    from security_checker.config.schema import BudgetConfig, ReviewerConfig
+    from security_checker.models.task import ReviewTask
+    from security_checker.review.prompts import PeerOpinion
 
 #: tpm の見積りでは user プロンプトを実測するので、残りは system の分
 SYSTEM_PROMPT_TOKENS = PROMPT_OVERHEAD_TOKENS

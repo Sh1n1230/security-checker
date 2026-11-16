@@ -16,8 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from security_checker.context.redact import redact_known_patterns
 from security_checker.providers.base import (
@@ -28,6 +27,9 @@ from security_checker.providers.base import (
     LLMProvider,
     StructuredMode,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 CASSETTE_VERSION = 1
 

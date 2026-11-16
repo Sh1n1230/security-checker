@@ -14,11 +14,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 import httpx
 
-from security_checker.config.schema import GithubConfig
 from security_checker.errors import ConfigError, SecurityCheckerError
 from security_checker.github.comment import (
     STALE_SUMMARY,
@@ -30,7 +29,10 @@ from security_checker.github.comment import (
     render_summary,
 )
 from security_checker.github.pr import DiffError, head_line_mapper
-from security_checker.models.report import Report
+
+if TYPE_CHECKING:
+    from security_checker.config.schema import GithubConfig
+    from security_checker.models.report import Report
 
 DEFAULT_API_URL = "https://api.github.com"
 TIMEOUT_S = 30.0

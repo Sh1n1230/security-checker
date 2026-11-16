@@ -14,9 +14,8 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from security_checker.config.schema import GitleaksConfig
 from security_checker.context.redact import mask_secret, redact_text
 from security_checker.models.candidate import Candidate, IdFactory, Location
 from security_checker.models.enums import Category, Severity
@@ -31,6 +30,9 @@ from security_checker.scanners.base import (
     run_command,
 )
 from security_checker.scanners.filters import is_excluded
+
+if TYPE_CHECKING:
+    from security_checker.config.schema import GitleaksConfig
 
 SECRET_FIELDS = ("Secret", "Match")
 

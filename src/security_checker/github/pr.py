@@ -18,11 +18,13 @@ import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from security_checker.errors import ConfigError, SecurityCheckerError
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category
+
+if TYPE_CHECKING:
+    from security_checker.models.candidate import Candidate
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 _BINARY_RE = re.compile(r"^Binary files .* differ$")

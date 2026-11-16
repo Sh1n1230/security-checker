@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -13,6 +13,9 @@ from security_checker.models.finding import AggregationDetail, SuppressionReason
 from security_checker.models.report import SuppressedCandidate
 from security_checker.observability.explain import explain, load_report, render
 from tests.factories import make_candidate, make_finding, make_report
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _write_call(trace: Path, name: str, payload: dict[str, object] | str) -> None:

@@ -20,15 +20,18 @@ from __future__ import annotations
 
 import random
 import string
-from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from security_checker.aggregate.base import DECISIVE_CONFIDENCE
-from security_checker.config.schema import AggregationConfig, PolicyConfig
 from security_checker.models.enums import FindingStatus, Severity
 from security_checker.models.finding import AggregationDetail, Finding
 from security_checker.models.verdict import ReviewVerdict, VerdictStatus
 from security_checker.review.prompts import PeerOpinion
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from security_checker.config.schema import AggregationConfig, PolicyConfig
 
 STRATEGY = "judge"
 

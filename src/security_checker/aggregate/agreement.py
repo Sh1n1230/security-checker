@@ -6,9 +6,13 @@ agreement は「正しさ」ではないため、confidence を **引き下げ�
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from security_checker.aggregate.base import SEVERITY_NUMBER
 from security_checker.models.enums import Agreement
-from security_checker.models.verdict import ReviewVerdict
+
+if TYPE_CHECKING:
+    from security_checker.models.verdict import ReviewVerdict
 
 # Minimum number of valid verdicts required to compute agreement (§13.2).
 _MIN_VERDICTS_FOR_AGREEMENT = 2

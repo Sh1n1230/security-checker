@@ -11,15 +11,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from security_checker.config.schema import Config
 from security_checker.context.budget import estimate_tokens
 from security_checker.language import resolve_language
-from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import Usage
-from security_checker.observability.cost import PriceTable
 from security_checker.review import prompts
 from security_checker.review.structured import verdict_schema
+
+if TYPE_CHECKING:
+    from security_checker.config.schema import Config
+    from security_checker.models.task import ReviewTask
+    from security_checker.observability.cost import PriceTable
 
 
 @dataclass

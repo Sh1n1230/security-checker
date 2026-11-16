@@ -22,13 +22,15 @@ import contextlib
 import os
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from security_checker.processes import POSIX, terminate
 from security_checker.processes import TERM_GRACE_S as TERM_GRACE_S
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
 
 # プロセスグループの後片付けはスキャナと共通 (security_checker.processes)
 CREATED_PATHS_LIMIT = 20

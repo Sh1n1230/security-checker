@@ -24,10 +24,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from security_checker.models.candidate import Candidate
 from security_checker.scanners.filters import is_excluded
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.candidate import Candidate
 
 IGNORE_FILENAME = ".security-checker-ignore"
 

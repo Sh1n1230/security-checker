@@ -8,8 +8,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -18,13 +17,17 @@ from security_checker.config.schema import AggregationConfig, Config, PolicyConf
 from security_checker.errors import ConfigError
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, FindingStatus, Severity
-from security_checker.models.finding import Finding
 from security_checker.providers.errors import ProviderBadRequestError
 from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import build_runtime
 from security_checker.run import ReviewerSetup, RunOutcome, run_review
 from security_checker.testing import FakeScanner, ScriptedProvider, verdict_payload
 from tests.factories import make_candidate, make_finding, make_verdict
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.finding import Finding
 
 
 def candidate(cid: str = "c1", line: int = 3) -> Candidate:

@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import re
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from security_checker.config.schema import ContextConfig
 from security_checker.context.budget import (
     CHARS_PER_TOKEN,
     PROMPT_OVERHEAD_TOKENS,
@@ -17,7 +16,6 @@ from security_checker.context.budget import (
 )
 from security_checker.context.redact import mask_secret, redact_known_patterns, redact_text
 from security_checker.context.slicer import clip_lines, line_window, shrink
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category
 from security_checker.models.task import (
     CodeContext,
@@ -26,6 +24,12 @@ from security_checker.models.task import (
     ReviewTask,
     TokenBudget,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.config.schema import ContextConfig
+    from security_checker.models.candidate import Candidate
 
 MIN_WINDOW_LINES = 6
 SECRET_MIN_LENGTH = 8

@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from security_checker.config.schema import OutputConfig
 from security_checker.language import (
+    _tag_from_locale,
     language_name,
     output_language_instruction,
     resolve_language,
@@ -118,8 +119,6 @@ def test_traditional_and_simplified_chinese_have_names():
 
 
 def test_empty_and_malformed_locale_values_are_unknown():
-    from security_checker.language import _tag_from_locale
-
     assert _tag_from_locale(None) is None
     assert _tag_from_locale("") is None
     assert _tag_from_locale(".UTF-8") is None

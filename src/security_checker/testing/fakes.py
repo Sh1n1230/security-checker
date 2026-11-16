@@ -7,10 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Sequence
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category, ScanStatus
 from security_checker.models.verdict import Usage
 from security_checker.providers.base import (
@@ -21,6 +19,11 @@ from security_checker.providers.base import (
     StructuredMode,
 )
 from security_checker.scanners.base import ScanContext, ScanResult, Target, ToolStatus
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from security_checker.models.candidate import Candidate
 
 
 class FakeScanner:

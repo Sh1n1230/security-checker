@@ -14,11 +14,14 @@ import json
 import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from security_checker.errors import ConfigError
-from security_checker.models.candidate import Candidate
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.candidate import Candidate
 
 BASELINE_VERSION = 2
 #: 読めるが、秘密の値までは照合できない形式

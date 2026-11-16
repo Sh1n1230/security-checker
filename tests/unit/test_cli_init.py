@@ -24,7 +24,7 @@ runner = CliRunner()
 @pytest.fixture(autouse=True)
 def no_detection(monkeypatch):
     """検出結果は実行環境 (PATH・環境変数) で変わる. テストは環境に依存させない."""
-    monkeypatch.setattr("security_checker.cli.detect_all", lambda: [])
+    monkeypatch.setattr("security_checker.cli.detect_all", list)
 
 
 @pytest.fixture

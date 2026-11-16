@@ -13,14 +13,18 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
-from security_checker.models.finding import Finding
-from security_checker.models.report import Report
-from security_checker.models.verdict import ReviewVerdict
-from security_checker.policy.engine import PolicyDecision
 from security_checker.report import sanitize as md
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.finding import Finding
+    from security_checker.models.report import Report
+    from security_checker.models.verdict import ReviewVerdict
+    from security_checker.policy.engine import PolicyDecision
 
 MAX_FINDINGS_PER_SECTION = 20
 MAX_CANDIDATE_ROWS = 50

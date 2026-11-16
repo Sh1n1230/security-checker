@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import io
 import json
-from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import pytest
 from typer.testing import CliRunner
 
 from security_checker.cli import app
 from security_checker.observability import logging as log
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 @pytest.fixture(autouse=True)

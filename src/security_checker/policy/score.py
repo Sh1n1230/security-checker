@@ -7,12 +7,14 @@ v1 の「100 点満点・A〜D ランク」は残すが、補助指標に格下�
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
-from security_checker.models.finding import Finding
 from security_checker.models.report import ScannerRun, Score
+
+if TYPE_CHECKING:
+    from security_checker.models.candidate import Candidate
+    from security_checker.models.finding import Finding
 
 SCORED_STATUSES = (FindingStatus.CONFIRMED, FindingStatus.LIKELY)
 

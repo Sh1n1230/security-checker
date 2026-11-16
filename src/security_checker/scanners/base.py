@@ -13,15 +13,17 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
-from security_checker.config.schema import ScannerConfig
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category, ScanStatus
 from security_checker.processes import POSIX, terminate
-from security_checker.scanners.untrusted import UntrustedOverrides
+
+if TYPE_CHECKING:
+    from security_checker.config.schema import ScannerConfig
+    from security_checker.scanners.untrusted import UntrustedOverrides
 
 STDERR_EXCERPT_LIMIT = 2000
 

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -15,6 +14,9 @@ from security_checker.context.slicer import TRUNCATED_LINE_MARK, line_window, sh
 from security_checker.models.candidate import Candidate, Location, PackageRef
 from security_checker.models.enums import Category, Severity
 from security_checker.models.task import CodeSlice, RepoFacts
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 SECRET = "xoxb-TESTONLY-DUMMY-NOT-A-REAL-SECRET"  # noqa: S105  gitleaks:allow
 

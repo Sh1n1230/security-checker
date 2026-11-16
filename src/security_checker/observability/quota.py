@@ -15,10 +15,12 @@ import json
 import os
 import sys
 import tempfile
-from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 QUOTA_FILENAME = "quota.json"
 #: 古い日付の記録は残しても役に立たない. 直近の数日分だけ持つ

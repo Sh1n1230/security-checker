@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -20,6 +20,9 @@ from security_checker.models.candidate import Location, PackageRef
 from security_checker.models.enums import Category
 from security_checker.report.sarif import render_sarif
 from tests.factories import make_candidate, make_report
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 DIFF = """\
 diff --git a/src/app.py b/src/app.py

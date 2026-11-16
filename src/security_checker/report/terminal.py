@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.panel import Panel
@@ -13,9 +13,13 @@ from rich.table import Table
 from rich.text import Text
 
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
-from security_checker.models.finding import Finding
-from security_checker.models.report import Report
-from security_checker.policy.engine import PolicyDecision
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.finding import Finding
+    from security_checker.models.report import Report
+    from security_checker.policy.engine import PolicyDecision
 
 SEVERITY_STYLE = {
     Severity.CRITICAL: "bold red",

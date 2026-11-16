@@ -8,16 +8,19 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from security_checker.language import DEFAULT_LANGUAGE, output_language_instruction
-from security_checker.models.task import ReviewTask
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from security_checker.models.task import ReviewTask
 
 PROMPT_DIR = Path(__file__).parent
 PROMPT_VERSION = "v2"

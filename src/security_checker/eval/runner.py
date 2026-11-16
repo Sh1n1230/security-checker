@@ -11,24 +11,18 @@
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from security_checker.config.schema import Config
 from security_checker.context.builder import ContextBuilder
 from security_checker.context.facts import collect_repo_facts
 from security_checker.context.slicer import resolve_inside
 from security_checker.errors import ConfigError
-from security_checker.eval.dataset import Dataset, EvalCase
 from security_checker.eval.metrics import CaseOutcome, Metrics, evaluate_outcomes
-from security_checker.models.candidate import Candidate
-from security_checker.models.finding import Finding
-from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import VerdictStatus
-from security_checker.observability.cost import PriceTable
 from security_checker.report import sanitize as md
 from security_checker.run import (
     ReviewerSetup,
@@ -37,6 +31,16 @@ from security_checker.run import (
     review_and_aggregate,
     smallest_input_limit,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from security_checker.config.schema import Config
+    from security_checker.eval.dataset import Dataset, EvalCase
+    from security_checker.models.candidate import Candidate
+    from security_checker.models.finding import Finding
+    from security_checker.models.task import ReviewTask
+    from security_checker.observability.cost import PriceTable
 
 
 class EvalResult(BaseModel):

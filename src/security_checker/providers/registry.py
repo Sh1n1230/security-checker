@@ -6,14 +6,11 @@ capability の決定順序: 利用者の明示指定 → プリセットデー�
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
 from importlib.metadata import entry_points
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
 from pydantic import ValidationError
 
-from security_checker.config.schema import ReviewerConfig
 from security_checker.errors import ConfigError
 from security_checker.providers.base import (
     Capabilities,
@@ -34,6 +31,13 @@ from security_checker.providers.presets.loader import (
     resolve_process_preset,
 )
 from security_checker.providers.process.runner import ProcessProvider
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import httpx
+
+    from security_checker.config.schema import ReviewerConfig
 
 ENTRY_POINT_GROUP = "security_checker.providers"
 

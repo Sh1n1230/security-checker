@@ -11,9 +11,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from security_checker.config.schema import MAJORITY_RATIO, Config, ContextConfig, ReviewerConfig
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = None) -> list[str]:

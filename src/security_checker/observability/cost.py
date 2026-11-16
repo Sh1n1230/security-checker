@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from security_checker.errors import ConfigError
-from security_checker.models.verdict import Usage
+
+if TYPE_CHECKING:
+    from security_checker.models.verdict import Usage
 
 PRICING_FILENAME = "pricing.yml"
 PER_TOKENS = 1_000_000

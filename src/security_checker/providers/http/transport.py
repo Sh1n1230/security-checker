@@ -10,7 +10,7 @@ import time
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 
@@ -30,7 +30,9 @@ from security_checker.providers.errors import (
     ProviderServerError,
     ProviderTimeoutError,
 )
-from security_checker.providers.http.dialects import Dialect
+
+if TYPE_CHECKING:
+    from security_checker.providers.http.dialects import Dialect
 
 ERROR_BODY_LIMIT = 500
 

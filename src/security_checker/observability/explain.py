@@ -9,12 +9,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from security_checker.errors import ConfigError
-from security_checker.models.candidate import Candidate
-from security_checker.models.finding import Finding
 from security_checker.models.report import Report, SuppressedCandidate
+
+if TYPE_CHECKING:
+    from security_checker.models.candidate import Candidate
+    from security_checker.models.finding import Finding
 
 
 @dataclass

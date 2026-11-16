@@ -7,8 +7,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typer.testing import CliRunner
@@ -26,6 +25,9 @@ from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import build_runtime
 from security_checker.run import ReviewerSetup
 from security_checker.testing import ScriptedProvider, verdict_payload
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 runner = CliRunner()
 

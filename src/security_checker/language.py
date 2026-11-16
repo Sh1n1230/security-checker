@@ -12,7 +12,10 @@ LLM が返す自然言語フィールド (`reasoning` / `impact` / `remediation.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 AUTO = "auto"
 DEFAULT_LANGUAGE = "en"

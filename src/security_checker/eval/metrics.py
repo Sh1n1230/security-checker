@@ -14,12 +14,15 @@ FP 削減の分子には入れない。どちらかを緩めると、判断を�
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from security_checker.aggregate.base import SEVERITY_NUMBER
 from security_checker.models.enums import FindingStatus, Severity
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 #: review_required の割合の既定の上限. 半分以上を人間に渡す構成は自動レビューとして評価しない
 DEFAULT_MAX_DEFERRED_RATE = 0.5

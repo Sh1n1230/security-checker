@@ -122,8 +122,6 @@ async def test_no_scanners_configured(tmp_path):
 
 
 def reviewed_report(**overrides: Any) -> Report:
-    from security_checker.models.enums import FindingStatus
-    from security_checker.models.verdict import Usage
 
     confirmed = make_candidate("c1", path="a.py")
     split = make_candidate("c2", path="b.py")
@@ -176,8 +174,6 @@ def test_review_required_comes_right_after_confirmed(tmp_path):
 
 
 def test_many_findings_are_truncated(tmp_path):
-    from security_checker.models.enums import FindingStatus
-
     candidates = [
         make_candidate(f"c{i}", path=f"f{i}.py") for i in range(terminal.MAX_FINDING_PANELS + 3)
     ]
@@ -187,8 +183,6 @@ def test_many_findings_are_truncated(tmp_path):
 
 
 def test_only_false_positives_says_nothing_to_report(tmp_path):
-    from security_checker.models.enums import FindingStatus
-
     c = make_candidate()
     output = capture(
         make_report([c], [make_finding(c, FindingStatus.FALSE_POSITIVE)]),

@@ -12,10 +12,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from security_checker.config.schema import ReviewerConfig
 from security_checker.errors import SecurityCheckerError
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, Severity
@@ -32,6 +31,11 @@ from security_checker.providers.http.dialects import DIALECTS
 from security_checker.providers.presets.loader import load_http_presets, load_process_presets
 from security_checker.providers.registry import build_provider, discover_plugin_providers
 from security_checker.review.reviewer import Reviewer
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from security_checker.config.schema import ReviewerConfig
 
 #: 疎通確認に使う合成コード. 実在のリポジトリのコードは送らない
 PROBE_CODE = "import subprocess\n\ndef run(cmd):\n    return subprocess.run(cmd, shell=True)\n"

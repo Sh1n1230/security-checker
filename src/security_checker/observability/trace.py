@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from security_checker.context.redact import redact_known_patterns
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def sha256_text(text: str) -> str:

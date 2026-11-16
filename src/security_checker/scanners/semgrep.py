@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 import re
 import time
-from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from security_checker.config.schema import SemgrepConfig
 from security_checker.errors import ConfigError
 from security_checker.models.candidate import Candidate, IdFactory, Location
 from security_checker.models.enums import Category, Severity
@@ -25,6 +23,11 @@ from security_checker.scanners.base import (
     run_command,
 )
 from security_checker.scanners.filters import is_excluded
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.config.schema import SemgrepConfig
 
 CWE_RE = re.compile(r"CWE-\d+")
 

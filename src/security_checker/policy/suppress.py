@@ -12,13 +12,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from security_checker.config.schema import Config
-from security_checker.models.candidate import Candidate
 from security_checker.models.finding import SuppressionReason
 from security_checker.models.report import SuppressedCandidate
 from security_checker.policy.baseline import Baseline, load_baseline
 from security_checker.policy.ignore import AnnotationReader, IgnoreFile, load_ignore_file
+
+if TYPE_CHECKING:
+    from security_checker.config.schema import Config
+    from security_checker.models.candidate import Candidate
 
 
 @dataclass

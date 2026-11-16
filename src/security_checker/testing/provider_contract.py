@@ -16,9 +16,8 @@ import asyncio
 import os
 import sys
 import time
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
@@ -38,6 +37,9 @@ from security_checker.providers.errors import (
     ProviderTimeoutError,
 )
 from security_checker.providers.process.runner import ProcessProvider
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class ProviderContractTests:

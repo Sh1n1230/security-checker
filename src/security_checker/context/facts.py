@@ -7,11 +7,14 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from security_checker.models.task import RepoFacts
 from security_checker.scanners.filters import is_excluded
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 LANGUAGE_BY_SUFFIX = {
     ".py": "Python",

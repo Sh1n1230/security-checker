@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from importlib.metadata import EntryPoint, entry_points
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from security_checker.config.schema import Config, ScannerConfig
 from security_checker.errors import ConfigError
-from security_checker.scanners.base import Scanner
 from security_checker.scanners.gitleaks import GitleaksScanner
 from security_checker.scanners.osv import OsvScanner
 from security_checker.scanners.repo_hygiene import RepoHygieneScanner
 from security_checker.scanners.semgrep import SemgrepScanner
 from security_checker.scanners.trivy import TrivyScanner
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from security_checker.config.schema import Config, ScannerConfig
+    from security_checker.scanners.base import Scanner
 
 ENTRY_POINT_GROUP = "security_checker.scanners"
 

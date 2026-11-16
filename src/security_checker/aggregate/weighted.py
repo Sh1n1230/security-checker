@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from security_checker.aggregate.agreement import compute_agreement
 from security_checker.aggregate.base import AggregationOutcome, aggregate_severity
@@ -21,10 +21,14 @@ from security_checker.aggregate.consensus import (
     partial_outcome,
     single_outcome,
 )
-from security_checker.config.schema import AggregationConfig
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Agreement, FindingStatus, Severity
 from security_checker.models.verdict import ReviewVerdict, VerdictStatus
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from security_checker.config.schema import AggregationConfig
+    from security_checker.models.candidate import Candidate
 
 #: threshold をどれだけ上回れば confirmed とするか (§14.2)
 CONFIRMED_MARGIN = 0.2

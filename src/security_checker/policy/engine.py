@@ -7,11 +7,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from security_checker.config.schema import PolicyConfig
 from security_checker.errors import ExitCode
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
-from security_checker.models.report import Report
+
+if TYPE_CHECKING:
+    from security_checker.config.schema import PolicyConfig
+    from security_checker.models.report import Report
 
 
 @dataclass

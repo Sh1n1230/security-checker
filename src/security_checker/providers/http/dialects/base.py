@@ -6,12 +6,14 @@ transport.py が持ち、認証やリトライの都合が方言側に漏れな�
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
 from security_checker.models.verdict import Usage
-from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
+
+if TYPE_CHECKING:
+    from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 
 #: 思考トークンを持つモデルでは、出力の上限を思考で使い切って本文が切れる。
 #: reasoning を宣言している場合だけ、その分の余裕を足す (§9.6)

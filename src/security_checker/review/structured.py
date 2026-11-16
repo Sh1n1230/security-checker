@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import ReviewJudgement
+
+if TYPE_CHECKING:
+    from security_checker.models.task import ReviewTask
 
 FENCE_MARKERS = ("```json", "```JSON", "```")
 

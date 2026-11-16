@@ -6,12 +6,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from rich.console import Console
 
 from security_checker.config.schema import Config
 from security_checker.errors import ExitCode
 from security_checker.github.comment import render_inline, render_summary
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category, FindingStatus, ScanStatus
 from security_checker.models.report import ReportWarning, ScannerRun
 from security_checker.policy.engine import PolicyDecision
@@ -23,6 +24,9 @@ from security_checker.report.terminal import render
 from security_checker.run import output_relative, run_scan
 from security_checker.testing import FakeScanner
 from tests.factories import make_candidate, make_finding, make_report, make_verdict
+
+if TYPE_CHECKING:
+    from security_checker.models.candidate import Candidate
 
 OK = PolicyDecision(exit_code=ExitCode.OK)
 

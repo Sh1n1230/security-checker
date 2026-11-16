@@ -6,8 +6,11 @@ tiktoken があれば使い、なければ文字数からの概算にフォー�
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from functools import lru_cache
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 CHARS_PER_TOKEN = 4
 #: プロンプトのうちコード本文以外 (system・Finding の欄・facts・Notes・Schema) の見積り
@@ -17,9 +20,8 @@ PROMPT_OVERHEAD_TOKENS = 1500
 @lru_cache(maxsize=1)
 def _encode_fn() -> Callable[[str], list[int]] | None:
     """tiktoken があればその encode を返す. なければ None (概算にフォールバック)."""
-    try:  # tiktoken は任意依存 (extras)
-        # 任意依存なので、入っているときだけ読み込む
-        import tiktoken  # type: ignore[import-not-found]
+    try:  # tiktoken は任意依存 (extras). 入っているときだけ読み込む
+        import tiktoken  # type: ignore[import-not-found]  # noqa: PLC0415
     except ImportError:
         return None
     try:
