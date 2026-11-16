@@ -107,6 +107,12 @@ class TargetInfo(BaseModel):
     changed_files: int | None = None
     #: diff モードの比較基準 (例: origin/main)
     base: str | None = None
+    #: リポジトリルートから検査対象までの接頭辞 (例: `services/api/`)。
+    #: Location.path は検査対象からの相対なので、SARIF と inline コメントでだけ前に付ける
+    repo_prefix: str = ""
+    #: 検査した作業ツリーの HEAD. PR の head と違うとき (merge コミットを検査した場合) に
+    #: inline コメントの行を対応づけるのに使う。git 管理外なら None
+    commit: str | None = None
 
     @property
     def label(self) -> str:

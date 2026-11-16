@@ -20,6 +20,7 @@ import httpx
 from security_checker.config.schema import GithubConfig
 from security_checker.errors import ConfigError, SecurityCheckerError
 from security_checker.github.comment import (
+    STALE_SUMMARY,
     SUMMARY_MARKER,
     commentable_ranges,
     existing_finding_ids,
@@ -27,6 +28,7 @@ from security_checker.github.comment import (
     plan_inline,
     render_summary,
 )
+from security_checker.github.pr import DiffError, head_line_mapper
 from security_checker.models.report import Report
 
 DEFAULT_API_URL = "https://api.github.com"
@@ -243,6 +245,7 @@ class CommentResult:
     inline_already_posted: int = 0
     inline_outside_diff: int = 0
     inline_over_limit: int = 0
+    inline_unmapped: int = 0
     #: GitHub が 422 で受け付けなかった inline コメント (行が diff に無いなど)
     inline_rejected: int = 0
     warnings: list[str] = field(default_factory=list)
@@ -287,8 +290,13 @@ def post_comments(
     *,
     report_url: str | None = None,
     allow_readonly: bool = False,
+    repo_dir: Path | None = None,
 ) -> CommentResult:
     """sticky サマリと inline コメントを投稿する.
+
+    `repo_dir` は検査したコミットと PR の head の両方を持つ git の作業ツリー (既定は
+    カレントディレクトリ)。両者が違うとき (pull_request の merge コミットを検査した場合) に
+    行番号を対応づけるためだけに使う。
 
     403 / 404 (権限不足・PR 番号の誤り) は既定でエラーにする。`pull-requests: write` の
     付け忘れが緑のまま気づかれないため。投稿できないと分かっている呼び出し元 (fork PR の
@@ -302,7 +310,7 @@ def post_comments(
 
     try:
         _post_summary(client, pr, report, settings, report_url, result)
-        _post_inline(client, pr, report, settings, result)
+        _post_inline(client, pr, report, settings, result, repo_dir or Path.cwd())
     except GithubError as exc:
         if allow_readonly and not exc.rate_limited and exc.status_code in (403, 404):
             # fork PR の read-only トークンなど. ツールの故障ではない (§21.2)
@@ -344,7 +352,16 @@ def _post_summary(
             settings.comment_author,
             lambda body: body.startswith(SUMMARY_MARKER),
         )
-        existing = next(iter(ours), None)
+        # 実行が重なると複数できる。最新を更新し、残りは古い結果だと書く。
+        # 人の返信がぶら下がっている可能性があるので消さない
+        existing = ours[-1] if ours else None
+        for stale in ours[:-1]:
+            client.update_issue_comment(pr, int(stale["id"]), STALE_SUMMARY)
+        if len(ours) > 1:
+            result.warnings.append(
+                f"サマリコメントが {len(ours)} 件ありました。実行が重なった可能性があります。"
+                "workflow に concurrency を設定してください (docs/github-actions.md)"
+            )
         if foreign:
             result.warnings.append(_foreign_warning(foreign, "サマリ", settings.comment_author))
 
@@ -368,6 +385,7 @@ def _post_inline(
     report: Report,
     settings: GithubConfig,
     result: CommentResult,
+    repo_dir: Path,
 ) -> None:
     if not settings.inline_comments or not report.findings:
         return
@@ -385,13 +403,28 @@ def _post_inline(
             _foreign_warning(foreign, "inline コメント", settings.comment_author)
         )
     posted = existing_finding_ids(_body(c) for c in ours)
-    plan = plan_inline(report, settings, commentable, posted)
+    sha = pr.head_sha or client.head_sha(pr)
+    try:
+        to_head = head_line_mapper(repo_dir, report.target.commit, sha)
+        plan = plan_inline(report, settings, commentable, posted, to_head=to_head)
+    except DiffError as exc:
+        # 行番号を確かめられないまま付けると、無関係な行に指摘が載る
+        result.warnings.append(
+            "PR の head と検査したコミットの行を対応づけられないため、"
+            f"inline コメントを省きます: {exc}"
+        )
+        return
+    result.inline_unmapped = plan.unmapped
+    if plan.unmapped:
+        result.warnings.append(
+            f"base 側の変更と重なる {plan.unmapped} 件は、"
+            "行を対応づけられないので inline を省きました"
+        )
     result.inline_already_posted = plan.already_posted
     result.inline_outside_diff = plan.outside_diff
     result.inline_over_limit = plan.over_limit
     if not plan.comments:
         return
-    sha = pr.head_sha or client.head_sha(pr)
     payload = [
         {"path": c.path, "line": c.line, "side": "RIGHT", "body": c.body} for c in plan.comments
     ]

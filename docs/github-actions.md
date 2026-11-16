@@ -20,6 +20,12 @@ security-checker を PR ごとに動かし、結果を 3 か所に出す方法�
 複数のリポジトリに入れて必須チェックにするまでの手順は [adoption.md](adoption.md) にあります。
 
 ```yaml
+# 同じ PR の実行を重ねない。重なるとサマリコメントと inline コメントが二重にできる。
+# main への push は取り消さない (前のコミットの結果が残らなくなる)
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -51,7 +57,7 @@ jobs:
 |---|---|---|
 | `config` | (自動探索) | 設定ファイルのパス |
 | `preset` | | `minimal` / `frugal` / `thorough` / `ci` |
-| `target` | `.` | 検査対象ディレクトリ。inline コメントを使うならリポジトリ直下のままにする |
+| `target` | `.` | 検査対象ディレクトリ。サブディレクトリでも、SARIF と inline コメントはリポジトリルートからのパスで出ます |
 | `mode` | `auto` | `auto` (PR は差分のみ・push は全件) / `full` / `diff` |
 | `review` | `auto` | `auto` / `true` / `false`。fork PR では常にスキャンのみ |
 | `fail-on` | (設定の値) | この重大度以上の `confirmed` / `likely` で失敗 (`none` で判定しない)。空なら設定ファイル・プリセットの `policy.fail_on` (既定 `high`) に従う。fork PR のスキャンのみの run では判定しない (§5) |

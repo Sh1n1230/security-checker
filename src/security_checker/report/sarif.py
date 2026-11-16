@@ -77,7 +77,7 @@ def render_sarif(report: Report) -> dict[str, Any]:
         for finding in report.findings:
             if finding.status in _EXCLUDED or finding.suppressed is not None:
                 continue
-            result = _finding_result(finding)
+            result = _finding_result(finding, report.target.repo_prefix)
             if result is None:
                 dropped += 1
                 continue
@@ -86,7 +86,7 @@ def render_sarif(report: Report) -> dict[str, Any]:
     else:
         # scan (LLM なし): スキャナの検出をそのまま出す
         for candidate in report.candidates:
-            result = _candidate_result(candidate)
+            result = _candidate_result(candidate, report.target.repo_prefix)
             if result is None:
                 dropped += 1
                 continue
@@ -100,6 +100,7 @@ def render_sarif(report: Report) -> dict[str, Any]:
             candidate,
             level="note",
             text=f"[outside diff] {candidate.message or candidate.title}",
+            prefix=report.target.repo_prefix,
         )
         if result is None:
             dropped += 1
@@ -203,14 +204,14 @@ def artifact_uri(path: str) -> str:
     return "/".join(quote(segment, safe="") for segment in path.replace("\\", "/").split("/"))
 
 
-def _location(candidate: Candidate) -> dict[str, Any] | None:
+def _location(candidate: Candidate, prefix: str = "") -> dict[str, Any] | None:
     if candidate.location is not None:
         start = max(candidate.location.start_line, 1)
         end = max(candidate.location.end_line, start)
         return {
             "physicalLocation": {
                 "artifactLocation": {
-                    "uri": artifact_uri(candidate.location.path),
+                    "uri": artifact_uri(prefix + candidate.location.path),
                     "uriBaseId": "%SRCROOT%",
                 },
                 "region": {"startLine": start, "endLine": end},
@@ -221,7 +222,7 @@ def _location(candidate: Candidate) -> dict[str, Any] | None:
         return {
             "physicalLocation": {
                 "artifactLocation": {
-                    "uri": artifact_uri(candidate.package.manifest),
+                    "uri": artifact_uri(prefix + candidate.package.manifest),
                     "uriBaseId": "%SRCROOT%",
                 },
                 "region": {"startLine": 1},
@@ -230,8 +231,10 @@ def _location(candidate: Candidate) -> dict[str, Any] | None:
     return None
 
 
-def _base_result(candidate: Candidate, *, level: str, text: str) -> dict[str, Any] | None:
-    location = _location(candidate)
+def _base_result(
+    candidate: Candidate, *, level: str, text: str, prefix: str = ""
+) -> dict[str, Any] | None:
+    location = _location(candidate, prefix)
     if location is None:
         return None
     return {
@@ -252,16 +255,17 @@ def _base_result(candidate: Candidate, *, level: str, text: str) -> dict[str, An
     }
 
 
-def _candidate_result(candidate: Candidate) -> dict[str, Any] | None:
+def _candidate_result(candidate: Candidate, prefix: str = "") -> dict[str, Any] | None:
     severity = _scanner_severity(candidate)
     return _base_result(
         candidate,
         level=_LEVEL_BY_SEVERITY[severity],
         text=candidate.message or candidate.title,
+        prefix=prefix,
     )
 
 
-def _finding_result(finding: Finding) -> dict[str, Any] | None:
+def _finding_result(finding: Finding, prefix: str = "") -> dict[str, Any] | None:
     candidate = finding.candidate
     severity = _scanner_severity(candidate)
     level = _LEVEL_BY_SEVERITY[severity]
@@ -274,6 +278,7 @@ def _finding_result(finding: Finding) -> dict[str, Any] | None:
         candidate,
         level=level,
         text=_finding_message(finding),
+        prefix=prefix,
     )
     if result is None:
         return None
