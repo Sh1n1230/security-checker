@@ -285,7 +285,7 @@ def load_config(
         preset=preset,
         local_config_path=local_path,
         untrusted_target=untrusted,
-        warnings=unimplemented_warnings(config, origins),
+        warnings=unimplemented_warnings(config),
     )
 
 

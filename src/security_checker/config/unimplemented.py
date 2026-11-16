@@ -15,17 +15,14 @@ from typing import TYPE_CHECKING
 
 from security_checker.config.schema import MAJORITY_RATIO, Config, ContextConfig, ReviewerConfig
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping
 
-
-def unimplemented_warnings(config: Config, origins: Mapping[str, str] | None = None) -> list[str]:
+def unimplemented_warnings(config: Config) -> list[str]:
     """受け付けたが効かない設定の一覧を返す. 呼び出し側は必ず警告として残すこと.
 
-    `origins` (どの層で値が決まったか) は、既定値のままの項目を警告しないために受け取る。
-    P5 時点で残っているのは方言の組み合わせの検査だけで、使っていない。
+    見ているのは、未実装の項目 (target.root・context.max_callers)、過半数に満たない
+    min_ratio、transport や方言と合わない項目 (process に base_url、ollama_chat 以外に
+    num_ctx など)、出力先や形式を変えてしまう extra_args。
     """
-    del origins
     warnings: list[str] = []
 
     # 検査対象は CLI の引数 (PATH) で決まる。target.root はどこからも読まれない。
