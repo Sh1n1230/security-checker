@@ -446,6 +446,17 @@ def _post_inline(
     payload = [
         {"path": c.path, "line": c.line, "side": "RIGHT", "body": c.body} for c in plan.comments
     ]
+    _send_inline(client, pr, sha, payload, result)
+
+
+def _send_inline(
+    client: GithubClient,
+    pr: PullRequestContext,
+    sha: str,
+    payload: list[dict[str, Any]],
+    result: CommentResult,
+) -> None:
+    """inline コメントを 1 つの review として送る. 422 なら 1 件ずつ送り直す."""
     try:
         client.create_review(pr, sha, payload)
         result.inline_posted = len(payload)
