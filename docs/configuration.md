@@ -51,7 +51,7 @@
 | キー | 既定 | 説明 |
 |---|---|---|
 | `mode` | `auto` | `auto` (PR の文脈なら差分のみ) / `full` / `diff`。CLI の `--base` / `--full` で上書き |
-| `exclude` | vendor・node_modules など | 除外する glob。gitignore と同じ解釈 (`tests` はどの階層の tests にも一致、先頭か途中に `/` があればルート起点、一致したディレクトリの配下も除外)。全スキャナと `.security-checker-ignore` で共通。設定ファイルに書いても CLI の `--exclude` でも既定の一覧を**置き換え** (追加ではない) ます。既定に足したいときは既定の項目も書き写してください。`**/.git/**` と `**/.security-checker/**` だけは常に除外します |
+| `exclude` | vendor・node_modules・.venv・ツールのキャッシュなど | 除外する glob。gitignore と同じ解釈 (`tests` はどの階層の tests にも一致、先頭か途中に `/` があればルート起点、一致したディレクトリの配下も除外)。全スキャナと `.security-checker-ignore` で共通。設定ファイルに書いても CLI の `--exclude` でも既定の一覧を**置き換え** (追加ではない) ます。既定に足したいときは既定の項目も書き写してください。`**/.git/**` と `**/.security-checker/**` だけは常に除外します |
 
 ### scanners
 
@@ -63,7 +63,6 @@
 | `osv.enabled` | `true` | 依存の既知脆弱性 (別名をまとめて 1 件にする)。osv-scanner が未導入なら `skipped` |
 | `trivy.enabled` / `scanners` | `false` / `[config]` | `config` (誤設定) / `vuln` (依存)。`secret` は受け付けない |
 | `scanners.plugins.<名前>` | | entry point で登録した自作スキャナを有効にする ([scanners.md](scanners.md)) |
-| `*.timeout_s` / `extra_args` | | タイムアウトと追加引数 |
 | `*.timeout_s` / `extra_args` | | スキャナのプロセス全体の上限 (秒) と追加引数。出力の先や形式を変えるフラグは使えません (警告します) |
 
 詳細は [scanners.md](scanners.md)。
