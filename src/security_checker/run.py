@@ -27,7 +27,7 @@ from security_checker.github.pr import DiffScope
 from security_checker.ids import new_run_id
 from security_checker.language import resolve_language
 from security_checker.models.candidate import Candidate
-from security_checker.models.enums import ScanStatus, Severity
+from security_checker.models.enums import Category, ScanStatus, Severity
 from security_checker.models.finding import Finding
 from security_checker.models.report import (
     Coverage,
@@ -44,7 +44,7 @@ from security_checker.models.report import (
 from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import Usage, VerdictStatus
 from security_checker.observability import logging as log
-from security_checker.observability.cost import PriceTable
+from security_checker.observability.cost import ModelPrice, PriceTable
 from security_checker.observability.trace import TraceWriter
 from security_checker.policy.engine import PolicyDecision, evaluate
 from security_checker.policy.score import compute_score
@@ -120,7 +120,11 @@ def _sort_key(candidate: Candidate) -> tuple[int, str, str, int]:
 
 
 def dedupe_and_sort(results: list[ScanResult]) -> list[Candidate]:
-    """スキャナ横断で重複 ID を落とし、重大度順に並べる."""
+    """スキャナ横断で同じ指摘を 1 件にまとめ、重大度順に並べる.
+
+    候補 ID はスキャナ名を含むので、ID では重複を見つけられない。文字どおり同じ ID のほかに、
+    依存の脆弱性だけは内容で突き合わせる (osv と trivy の vuln は同じものを報告する)。
+    """
     seen: set[str] = set()
     merged: list[Candidate] = []
     for result in results:
@@ -129,7 +133,56 @@ def dedupe_and_sort(results: list[ScanResult]) -> list[Candidate]:
                 continue
             seen.add(candidate.id)
             merged.append(candidate)
-    return sorted(merged, key=_sort_key)
+    return sorted(_merge_dependency_duplicates(merged), key=_sort_key)
+
+
+def _advisory_ids(candidate: Candidate) -> set[str]:
+    return {candidate.rule_id.upper(), *(cve.upper() for cve in candidate.cve)}
+
+
+def _merge_dependency_duplicates(candidates: list[Candidate]) -> list[Candidate]:
+    """同じ manifest の同じ版で、CVE か別名が重なる依存の候補を 1 件にまとめる.
+
+    ecosystem は比べない。スキャナごとに表記が違う (PyPI と pip など) うえ、manifest で決まる。
+    先に報告したスキャナの候補を残し、ID を保つ。重大度は厳しいほうを採る。
+    """
+    kept: list[Candidate] = []
+    groups: dict[tuple[str, str | None, str | None], list[int]] = {}
+    for candidate in candidates:
+        package = candidate.package
+        if candidate.category is not Category.DEPENDENCY or package is None:
+            kept.append(candidate)
+            continue
+        key = (package.name.lower(), package.version, package.manifest)
+        duplicate = next(
+            (
+                index
+                for index in groups.get(key, [])
+                if kept[index].scanner != candidate.scanner
+                and _advisory_ids(kept[index]) & _advisory_ids(candidate)
+            ),
+            None,
+        )
+        if duplicate is None:
+            groups.setdefault(key, []).append(len(kept))
+            kept.append(candidate)
+        else:
+            kept[duplicate] = _merge_candidates(kept[duplicate], candidate)
+    return kept
+
+
+def _merge_candidates(first: Candidate, other: Candidate) -> Candidate:
+    severities = [c.severity_reported for c in (first, other) if c.severity_reported is not None]
+    return first.model_copy(
+        update={
+            "severity_reported": max(severities, default=None),
+            "cve": list(dict.fromkeys([*first.cve, *other.cve])),
+            "cwe": list(dict.fromkeys([*first.cwe, *other.cwe])),
+            "references": list(dict.fromkeys([*first.references, *other.references])),
+            "fix_available": first.fix_available or other.fix_available,
+            "also_reported_by": [*first.also_reported_by, other.scanner],
+        }
+    )
 
 
 def _suppress(
@@ -148,15 +201,31 @@ def _suppress(
     return kept, suppressed
 
 
+def _target_label(root: Path) -> str:
+    """レポートに載せる検査対象の名前. 絶対パス (ユーザー名・構成) を残さない (§6.1)."""
+    return root.name or root.anchor or "."
+
+
+def output_relative(path: Path, output_dir: Path) -> str:
+    """出力先からの相対パス. 外にあるもの (指定で出力先を分けた場合) はそのまま."""
+    try:
+        return path.resolve().relative_to(output_dir.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def _scope(
     candidates: list[Candidate], root: Path, diff: DiffScope | None
 ) -> tuple[list[Candidate], list[Candidate], TargetInfo]:
     """diff モードなら変更に関係する候補だけに絞る (§7.4)."""
     if diff is None:
-        return candidates, [], TargetInfo(root=str(root), mode="full")
+        return candidates, [], TargetInfo(root=_target_label(root), mode="full")
     inside, outside = diff.split(candidates)
     target = TargetInfo(
-        root=str(root), mode="diff", changed_files=len(diff.changed_files), base=diff.base
+        root=_target_label(root),
+        mode="diff",
+        changed_files=len(diff.changed_files),
+        base=diff.base,
     )
     return inside, outside, target
 
@@ -244,8 +313,11 @@ async def _execute_scanners(
                 version=result.version,
                 reason=result.reason,
                 stderr_excerpt=result.stderr_excerpt,
-                raw_path=str(result.raw_path) if result.raw_path else None,
+                raw_path=output_relative(result.raw_path, raw_dir.parent)
+                if result.raw_path
+                else None,
                 parse_warnings=result.parse_warnings,
+                unavailable=result.unavailable,
             )
         )
         if result.status is ScanStatus.FAILED:
@@ -348,6 +420,21 @@ def smallest_input_limit(setup: ReviewerSetup) -> int | None:
     return min(limits, default=None)
 
 
+def _reviewer_price(reviewer: ReviewerConfig, table: PriceTable) -> ModelPrice | None:
+    """Reviewer の単価. 価格表の明示を優先する.
+
+    - process transport はトークンを実測できないため、価格表があっても金額を出さない。
+      推測した数字を出すより cost: unknown が正しい (§9.7)。
+    - ollama_chat は手元で動くモデルなので、価格表に無ければ 0 とする (設計書の cost: 0) (#313)。
+    """
+    if reviewer.transport == "process":
+        return None
+    price = table.lookup(reviewer.model or "")
+    if price is None and reviewer.dialect == "ollama_chat":
+        return ModelPrice(input_per_1m=0.0, output_per_1m=0.0)
+    return price
+
+
 def build_reviewers(
     config: Config,
     *,
@@ -360,21 +447,34 @@ def build_reviewers(
     language = resolve_language(config.output.language, environ)
     for reviewer_config in config.reviewers:
         provider = build_provider(reviewer_config, environ=environ, warnings=setup.warnings)
+        output_limit = provider.capabilities.max_output_tokens
+        max_output_tokens = min(reviewer_config.max_output_tokens, output_limit)
+        if max_output_tokens < reviewer_config.max_output_tokens:
+            setup.warnings.append(
+                f"reviewer '{reviewer_config.name}': max_output_tokens "
+                f"({reviewer_config.max_output_tokens}) がモデルの出力上限 ({output_limit}) を"
+                f"超えるため {output_limit} で送ります。上限が違うなら "
+                "capabilities.max_output_tokens を指定してください"
+            )
         reviewer = Reviewer(
             reviewer_config.name,
             provider,
             weight=reviewer_config.weight,
-            max_output_tokens=reviewer_config.max_output_tokens,
+            max_output_tokens=max_output_tokens,
             timeout_s=float(reviewer_config.timeout_s),
             seed=reviewer_config.seed,
-            # process transport はトークンを実測できないため、価格表があっても
-            # 金額を出さない。推測した数字を出すより cost: unknown が正しい (§9.7)。
-            price=None
-            if reviewer_config.transport == "process"
-            else table.lookup(reviewer_config.model or ""),
+            price=_reviewer_price(reviewer_config, table),
             save_prompts=config.output.save_prompts,
             language=language,
         )
+        if config.budget.max_usd is not None and reviewer.price is None:
+            # 金額の分からない呼び出しは予算に数えられない. 黙って上限の外に置かない (#311)
+            setup.warnings.append(
+                f"reviewer '{reviewer_config.name}': 価格が分からないため、この Reviewer の支出は "
+                f"budget.max_usd (${config.budget.max_usd}) で止まりません。"
+                "pricing.yml に model の単価を書くか、"
+                "budget.max_total_tokens で上限を掛けてください"
+            )
         setup.runtimes.append(
             build_runtime(
                 reviewer,
@@ -403,7 +503,7 @@ def build_tasks(
     builder = ContextBuilder(
         root,
         config.context,
-        collect_repo_facts(root),
+        collect_repo_facts(root, config.target.exclude),
         max_input_tokens=smallest_input_limit(setup) if setup is not None else None,
     )
     return [builder.build(candidate) for candidate in selected], overflow
@@ -537,7 +637,7 @@ async def run_review(
         finding_counts=count_by_status(findings),
         usage=schedule.usage,
         stopped_reason=schedule.stopped_reason,
-        trace_dir=str(trace.root),
+        trace_dir=output_relative(trace.root, output_dir),
     )
     decision = evaluate(report, config.policy)
     _log_finish(report, decision)

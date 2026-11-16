@@ -162,14 +162,20 @@ async def test_trace_records_argv_stderr_and_exit_code(tmp_path):
         scanners=[FakeScanner("semgrep", candidates=[candidate()])],
     )
 
-    trace_dir = Path(outcome.report.trace_dir or "")
+    # trace_dir は出力先からの相対 (レポートに絶対パスを残さない)
+    assert outcome.report.trace_dir is not None
+    assert not Path(outcome.report.trace_dir).is_absolute()
+    trace_dir = outcome.output_dir / outcome.report.trace_dir
     call = json.loads((trace_dir / "calls" / "0000.json").read_text(encoding="utf-8"))
     assert call["params"]["transport"] == "process"
     assert call["params"]["argv"][0] == sys.executable
     assert call["params"]["cwd"] == "isolated-temp-dir"
     assert call["response"]["exit_code"] == 0
     assert "reviewed" in call["response"]["stderr"]
-    assert call["response"]["raw"]
+    # 応答はコードを引用しうる. 既定 (save_prompts: false) では全文を残さない (#447)
+    assert call["response"]["raw"] is None
+    assert call["response"]["raw_sha256"]
+    assert call["response"]["raw_chars"] > 0
 
 
 async def test_a_failing_command_becomes_an_error_finding(tmp_path):

@@ -26,7 +26,7 @@ GitHub Action（`action.yml`）・Docker イメージ・このリポジトリの
 |---|---|---|
 | `ok` | 実行できた (0 件を含む) | |
 | `skipped` | 導入されていない・対象が無い | 警告。スコアは `partial` |
-| `failed` | 異常終了・タイムアウト・出力が壊れている | **エラー**。`strict` なら exit 3。SARIF はアップロードしない |
+| `failed` | 異常終了・タイムアウト・出力が壊れている | **エラー**。`strict` なら exit 3 ([exit-codes.md](exit-codes.md))。SARIF はアップロードしない |
 
 v1 には「スキャナが失敗しても 0 件の成功として扱われ、満点に見える」欠陥がありました。
 v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒頭に出します。
@@ -38,7 +38,10 @@ v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒�
 - `scanners.semgrep.config` は `p/default` のようなルールセットか、ルールファイルのパス。
   複数ならリストで書きます。既定は `[p/default, bundled:llm, bundled:ci-lock]`。
 - `bundled:<名前>` は security-checker が同梱するルールです。解決先は常にパッケージ内で、
-  検査対象のツリーからは読みません。
+  検査対象のツリーからは読みません。同梱ルールの `rule_id` は `bundled.<ルールの id>` です
+  (semgrep がインストール先のパスから付ける接頭辞は外すので、環境が変わっても ID と ignore の指定は変わりません)。
+- semgrep の重大度は `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` と、古い表記の `ERROR` (= high) /
+  `WARNING` (= medium) / `INFO` (= low) を読みます。
 
   | 名前 | 内容 |
   |---|---|
@@ -77,7 +80,7 @@ v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒�
 
 ### trivy
 
-- `scanners: [config]` で誤設定、`[vuln]` で依存の脆弱性を見ます (osv と重なるので、どちらかで足ります)。
+- `scanners: [config]` で誤設定、`[vuln]` で依存の脆弱性を見ます (osv と重なるので、どちらかで足ります。両方を有効にした場合、同じ manifest の同じ版で CVE か別名が重なる候補は 1 件にまとめ、もう一方のスキャナ名を `also_reported_by` に残します)。
 - **`secret` は受け付けません。** trivy のシークレット検出は検出値を出力に含めるため、生出力に値が残ります。
   シークレットはマスク処理のある gitleaks で見てください。
 - オフライン環境では `extra_args: ["--offline-scan", "--skip-check-update"]` などを渡します。
@@ -96,6 +99,8 @@ scanners:
 **入れただけでは動きません。** 依存に入ったパッケージが黙ってスキャナとして動かないようにするためです。
 登録されているのに設定に無いプラグインは警告を出し、設定にあるのに登録されていない名前は設定エラー (exit 2) にします。
 プラグインのファクトリは `ScannerConfig` を 1 つ受け取ります。
+`security_checker.scanners` の entry point に登録すると、内蔵と同じように使えます。
+適合性は公開の契約テストで確かめられます (`pip install "security-checker[testing]"` で pytest も入ります)。
 
 ```python
 from security_checker.testing import ScannerContractTests
