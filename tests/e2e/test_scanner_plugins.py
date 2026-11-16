@@ -38,6 +38,7 @@ def _no_builtins(**overrides: Any) -> dict[str, Any]:
         "scanners": {
             "semgrep": {"enabled": False},
             "gitleaks": {"enabled": False},
+            "repo_hygiene": {"enabled": False},
             "osv": {"enabled": False},
             **overrides,
         }
