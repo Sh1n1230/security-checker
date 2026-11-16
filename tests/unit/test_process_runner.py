@@ -118,6 +118,19 @@ async def test_write_detection_becomes_a_warning():
     assert any("notes.md" in warning for warning in response.warnings)
 
 
+async def test_write_detection_reports_paths_beyond_the_display_limit():
+    result = sandbox(
+        created_paths=tuple(f"f{index:02}" for index in range(20)),
+        created_paths_omitted=5,
+    )
+    response = await provider(result).complete(request())
+    assert "ほか 5 件" in response.warnings[0]
+    assert "f00" in response.warnings[0]
+    assert "f19" in response.warnings[0]
+    assert response.trace_response["created_paths_total"] == 25
+    assert len(response.trace_response["created_paths"]) == 20
+
+
 async def test_timeout_is_normalized():
     with pytest.raises(ProviderTimeoutError):
         await provider(sandbox(timed_out=True, exit_code=None)).complete(request())

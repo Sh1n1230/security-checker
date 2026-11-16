@@ -18,6 +18,27 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  actions-lint:
+    # actionlint validates workflow expressions and runs ShellCheck on embedded Bash.
+    # Composite action run blocks live in action.yml, outside actionlint's scope (#651).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.12"
+
+      - name: Lint composite action Bash scripts
+        run: |
+          uv sync --group dev --locked
+          uv run python scripts/lint-composite-action.py action.yml
+
   # squash merge 後のコミットメッセージは PR タイトルになる (設計書 §31.1)。
   # release-please が CHANGELOG を生成できるよう、タイトルの形式をここで強制する。
   quality:
