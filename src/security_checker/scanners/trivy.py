@@ -144,6 +144,11 @@ def parse_trivy(
             )
             title = str(item.get("Title") or vuln_id)
             fixed = item.get("FixedVersion")
+            severity = SEVERITY_MAP.get(str(item.get("Severity")).upper())
+            message = f"{name} {ref.version or ''} に既知の脆弱性があります: {title}"
+            if severity is None:
+                # 誤設定・osv と同じく、medium に丸めたことを隠さない
+                message += " (重大度不明のため medium として扱います)"
             candidates.append(
                 Candidate(
                     id=ids.make("trivy", vuln_id, path, ref.as_key()),
@@ -151,10 +156,9 @@ def parse_trivy(
                     category=Category.DEPENDENCY,
                     rule_id=vuln_id,
                     title=title,
-                    message=f"{name} {ref.version or ''} に既知の脆弱性があります: {title}",
+                    message=message,
                     package=ref,
-                    severity_reported=SEVERITY_MAP.get(str(item.get("Severity")).upper())
-                    or Severity.MEDIUM,
+                    severity_reported=severity or Severity.MEDIUM,
                     cwe=[c for c in item.get("CweIDs") or [] if isinstance(c, str)],
                     cve=[vuln_id] if _CVE_RE.match(vuln_id) else [],
                     references=_references(item),
@@ -162,6 +166,10 @@ def parse_trivy(
                 )
             )
     return candidates, warnings
+
+
+#: trivy に渡す --timeout を timeout_s よりどれだけ長くするか
+TRIVY_TIMEOUT_MARGIN_S = 60
 
 
 class TrivyScanner(BaseScanner):
@@ -182,7 +190,7 @@ class TrivyScanner(BaseScanner):
     async def scan(self, target: Target, ctx: ScanContext) -> ScanResult:
         status = self.probe()
         if not status.available:
-            return self.skipped(status.reason or "trivy が利用できません")
+            return self.skipped(status.reason or "trivy が利用できません", unavailable=True)
 
         selected, config_warnings = resolve_trivy_scanners(self.settings.scanners)
         if not selected:
@@ -204,6 +212,13 @@ class TrivyScanner(BaseScanner):
             "--output",
             str(raw_path),
             *(ctx.untrusted.trivy_args() if ctx.untrusted else []),
+            # trivy 自身の既定 (5 分) が timeout_s より先に効くと、タイムアウトが
+            # 「実行に失敗」に化ける。外側の上限が先に効くよう、少し長く渡す
+            *(
+                []
+                if any(arg.startswith("--timeout") for arg in self.settings.extra_args)
+                else ["--timeout", f"{self.settings.timeout_s + TRIVY_TIMEOUT_MARGIN_S}s"]
+            ),
             *self.settings.extra_args,
             ".",
         ]
