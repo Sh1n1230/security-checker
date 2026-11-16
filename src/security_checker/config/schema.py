@@ -27,6 +27,10 @@ DEFAULT_EXCLUDES = (
     "**/node_modules/**",
     "**/__pycache__/**",
     "**/.venv/**",
+    # ツールのキャッシュ. テスト ID やコンパイル結果に、テスト用のダミーの値が入る
+    "**/.pytest_cache/**",
+    "**/.mypy_cache/**",
+    "**/.ruff_cache/**",
     "**/.git/**",
     "**/.security-checker/**",
     "**/*.min.js",
