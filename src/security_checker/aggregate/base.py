@@ -75,6 +75,8 @@ class AggregationOutcome(BaseModel):
 
 
 class Aggregator(Protocol):
+    """複数 Reviewer の判定を 1 つの結果にまとめる集約器の契約 (設計書 §13)."""
+
     name: str
 
     def aggregate(
@@ -82,4 +84,6 @@ class Aggregator(Protocol):
         candidate: Candidate,
         verdicts: list[ReviewVerdict],
         cfg: AggregationConfig,
-    ) -> AggregationOutcome: ...
+    ) -> AggregationOutcome:
+        """候補 1 件に対する Reviewer の判定群を集約し、計算過程を detail に残した結果を返す."""
+        ...

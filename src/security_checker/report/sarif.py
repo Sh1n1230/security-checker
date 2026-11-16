@@ -70,22 +70,28 @@ def render_sarif(report: Report) -> dict[str, Any]:
     """Report を SARIF 2.1.0 の dict にする."""
     rules: dict[str, dict[str, Any]] = {}
     results: list[dict[str, Any]] = []
+    #: 位置を持たず Code Scanning に出せなかった候補. 黙って落とさず数を残す
+    dropped = 0
 
     if report.findings:
         for finding in report.findings:
             if finding.status in _EXCLUDED or finding.suppressed is not None:
                 continue
-            result = _finding_result(finding)
-            if result is not None:
-                rules.setdefault(result["ruleId"], _rule(finding.candidate))
-                results.append(result)
+            result = _finding_result(finding, report.target.repo_prefix)
+            if result is None:
+                dropped += 1
+                continue
+            rules.setdefault(result["ruleId"], _rule(finding.candidate))
+            results.append(result)
     else:
         # scan (LLM なし): スキャナの検出をそのまま出す
         for candidate in report.candidates:
-            result = _candidate_result(candidate)
-            if result is not None:
-                rules.setdefault(result["ruleId"], _rule(candidate))
-                results.append(result)
+            result = _candidate_result(candidate, report.target.repo_prefix)
+            if result is None:
+                dropped += 1
+                continue
+            rules.setdefault(result["ruleId"], _rule(candidate))
+            results.append(result)
 
     # diff モードでレビューしなかった候補. 出さないと PR の解析で「修正済み」に見え、
     # ゲートに掛けると既定ブランチの判定と食い違う。どちらも起こさない note にする
@@ -94,11 +100,14 @@ def render_sarif(report: Report) -> dict[str, Any]:
             candidate,
             level="note",
             text=f"[outside diff] {candidate.message or candidate.title}",
+            prefix=report.target.repo_prefix,
         )
-        if result is not None:
-            result["properties"]["status"] = "outside_diff"
-            rules.setdefault(result["ruleId"], _rule(candidate))
-            results.append(result)
+        if result is None:
+            dropped += 1
+            continue
+        result["properties"]["status"] = "outside_diff"
+        rules.setdefault(result["ruleId"], _rule(candidate))
+        results.append(result)
 
     return {
         "$schema": SARIF_SCHEMA,
@@ -114,10 +123,11 @@ def render_sarif(report: Report) -> dict[str, Any]:
                         "rules": [rules[key] for key in sorted(rules)],
                     }
                 },
-                "invocations": [_invocation(report)],
+                "invocations": [_invocation(report, dropped)],
                 "results": results,
                 "properties": {
                     "run_id": report.run_id,
+                    "results_without_location": dropped,
                     "mode": report.target.mode,
                     "scanners": {run.scanner: run.status.value for run in report.scanners},
                 },
@@ -194,14 +204,14 @@ def artifact_uri(path: str) -> str:
     return "/".join(quote(segment, safe="") for segment in path.replace("\\", "/").split("/"))
 
 
-def _location(candidate: Candidate) -> dict[str, Any] | None:
+def _location(candidate: Candidate, prefix: str = "") -> dict[str, Any] | None:
     if candidate.location is not None:
         start = max(candidate.location.start_line, 1)
         end = max(candidate.location.end_line, start)
         return {
             "physicalLocation": {
                 "artifactLocation": {
-                    "uri": artifact_uri(candidate.location.path),
+                    "uri": artifact_uri(prefix + candidate.location.path),
                     "uriBaseId": "%SRCROOT%",
                 },
                 "region": {"startLine": start, "endLine": end},
@@ -212,7 +222,7 @@ def _location(candidate: Candidate) -> dict[str, Any] | None:
         return {
             "physicalLocation": {
                 "artifactLocation": {
-                    "uri": artifact_uri(candidate.package.manifest),
+                    "uri": artifact_uri(prefix + candidate.package.manifest),
                     "uriBaseId": "%SRCROOT%",
                 },
                 "region": {"startLine": 1},
@@ -221,8 +231,10 @@ def _location(candidate: Candidate) -> dict[str, Any] | None:
     return None
 
 
-def _base_result(candidate: Candidate, *, level: str, text: str) -> dict[str, Any] | None:
-    location = _location(candidate)
+def _base_result(
+    candidate: Candidate, *, level: str, text: str, prefix: str = ""
+) -> dict[str, Any] | None:
+    location = _location(candidate, prefix)
     if location is None:
         return None
     return {
@@ -237,20 +249,23 @@ def _base_result(candidate: Candidate, *, level: str, text: str) -> dict[str, An
             "category": candidate.category.value,
             "severity_reported": _scanner_severity(candidate).value,
             "cwe": list(candidate.cwe),
+            # 値をマスクしてから保存・送信した候補か (§19.2)
+            "redacted": candidate.redacted,
         },
     }
 
 
-def _candidate_result(candidate: Candidate) -> dict[str, Any] | None:
+def _candidate_result(candidate: Candidate, prefix: str = "") -> dict[str, Any] | None:
     severity = _scanner_severity(candidate)
     return _base_result(
         candidate,
         level=_LEVEL_BY_SEVERITY[severity],
         text=candidate.message or candidate.title,
+        prefix=prefix,
     )
 
 
-def _finding_result(finding: Finding) -> dict[str, Any] | None:
+def _finding_result(finding: Finding, prefix: str = "") -> dict[str, Any] | None:
     candidate = finding.candidate
     severity = _scanner_severity(candidate)
     level = _LEVEL_BY_SEVERITY[severity]
@@ -263,6 +278,7 @@ def _finding_result(finding: Finding) -> dict[str, Any] | None:
         candidate,
         level=level,
         text=_finding_message(finding),
+        prefix=prefix,
     )
     if result is None:
         return None
@@ -309,7 +325,7 @@ def _finding_message(finding: Finding) -> str:
     return " ".join(parts[:2]) + "".join(parts[2:])
 
 
-def _invocation(report: Report) -> dict[str, Any]:
+def _invocation(report: Report, dropped: int = 0) -> dict[str, Any]:
     notifications = [
         {
             "level": "error",
@@ -321,8 +337,32 @@ def _invocation(report: Report) -> dict[str, Any]:
         for run in report.scanners
         if run.status is ScanStatus.FAILED
     ]
+    # 有効にしたのに入っていないスキャナの結果は 0 件になる。そのまま上げると、
+    # そのスキャナの既存 alert が「解決済み」として一括で閉じる (失敗と同じ構図)
+    unavailable = [
+        run for run in report.scanners if run.status is ScanStatus.SKIPPED and run.unavailable
+    ]
+    notifications += [
+        {
+            "level": "error",
+            "message": {"text": f"{run.scanner} を実行できませんでした: {run.reason or '未導入'}"},
+            "descriptor": {"id": f"scanner-unavailable/{run.scanner}"},
+        }
+        for run in unavailable
+    ]
+    if dropped:
+        notifications.append(
+            {
+                "level": "warning",
+                "message": {
+                    "text": f"位置を持たない候補 {dropped} 件は SARIF に含めていません "
+                    "(report.json を参照)"
+                },
+                "descriptor": {"id": "results-without-location"},
+            }
+        )
     invocation: dict[str, Any] = {
-        "executionSuccessful": not report.has_failed_scanner,
+        "executionSuccessful": not report.has_failed_scanner and not unavailable,
         "startTimeUtc": report.started_at.isoformat().replace("+00:00", "Z"),
         "endTimeUtc": report.finished_at.isoformat().replace("+00:00", "Z"),
     }
