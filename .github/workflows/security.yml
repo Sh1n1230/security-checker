@@ -27,6 +27,7 @@ permissions:
 jobs:
   security:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write # PR コメント
@@ -44,6 +45,7 @@ jobs:
 
   raw-sarif:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
@@ -177,6 +179,7 @@ jobs:
 
   ps1-lint:
     runs-on: ubuntu-latest # pwsh は ubuntu ランナーに同梱されている
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

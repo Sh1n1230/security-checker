@@ -11,6 +11,8 @@
 #      (tests/unit/test_scanner_versions.py が形式と参照のずれを検査する)
 #
 # このファイルは bash から source する。代入以外を書かない。
+# shellcheck shell=bash
+# shellcheck disable=SC2034  # 変数は source した側 (install-scanners.sh) が使う
 
 PINNED_GITLEAKS_VERSION=8.30.1
 GITLEAKS_SHA256_AMD64=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb # gitleaks_8.30.1_linux_x64.tar.gz
