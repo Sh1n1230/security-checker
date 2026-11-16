@@ -43,7 +43,7 @@ def test_default_config_uses_the_bundled_llm_rules():
         "pkg/llm_test.py",
     ],
 )
-def test_llm_python_rules_ignore_test_code_at_any_depth(path: str):
+def test_llm_python_rules_ignore_test_code_at_any_depth(path: str) -> None:
     config = yaml.safe_load((rules.SEMGREP_DIR / "llm.yml").read_text(encoding="utf-8"))
     python_rules = [rule for rule in config["rules"] if rule["languages"] == ["python"]]
     assert len(python_rules) == 2
@@ -53,7 +53,7 @@ def test_llm_python_rules_ignore_test_code_at_any_depth(path: str):
         )
 
 
-def test_llm_python_rules_still_target_production_code():
+def test_llm_python_rules_still_target_production_code() -> None:
     config = yaml.safe_load((rules.SEMGREP_DIR / "llm.yml").read_text(encoding="utf-8"))
     for rule in config["rules"]:
         if rule["languages"] == ["python"]:
