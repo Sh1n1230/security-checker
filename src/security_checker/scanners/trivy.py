@@ -67,6 +67,10 @@ def _references(item: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(u for u in urls if isinstance(u, str)))[:MAX_REFERENCES]
 
 
+#: 重大度が読めなかったときに本文へ足す注記. medium に丸めたことを隠さない
+_UNKNOWN_SEVERITY_NOTE = " (重大度不明のため medium として扱います)"
+
+
 def parse_trivy(
     payload: object, root: Path, *, exclude: list[str] | None = None
 ) -> tuple[list[Candidate], list[str]]:
@@ -89,83 +93,93 @@ def parse_trivy(
         path = relative_path(target, root)
         if exclude and is_excluded(path, exclude):
             continue
-
-        for raw_item in result.get("Misconfigurations") or []:
-            item = as_dict(raw_item)
-            if item.get("Status") != "FAIL":
-                continue
-            rule = item.get("ID") or item.get("AVDID")
-            if not isinstance(rule, str):
-                warnings.append(f"{path}: ID の無い誤設定を読み飛ばしました")
-                continue
-            cause = as_dict(item.get("CauseMetadata"))
-            raw_start, raw_end = cause.get("StartLine"), cause.get("EndLine")
-            start = raw_start if isinstance(raw_start, int) else 0
-            end = raw_end if isinstance(raw_end, int) else start
-            message = str(
-                item.get("Message") or item.get("Description") or item.get("Title") or rule
-            )
-            resolution = item.get("Resolution")
-            severity = SEVERITY_MAP.get(str(item.get("Severity")).upper())
-            if isinstance(resolution, str):
-                message += f" (対応: {resolution})"
-            if severity is None:
-                message += " (重大度不明のため medium として扱います)"
-            candidates.append(
-                Candidate(
-                    # 行番号を ID に含めない (§6.1)。同じルールの同じ指摘は出現順で区別する
-                    id=ids.make("trivy", rule, path, f"{cause.get('Resource') or ''} {message}"),
-                    scanner="trivy",
-                    category=Category.CONFIG,
-                    rule_id=rule,
-                    title=str(item.get("Title") or rule),
-                    message=message,
-                    location=Location(path=path, start_line=start, end_line=max(end, start)),
-                    # 不明を info にするとゲートから消える。依存の脆弱性・osv にそろえて中とする
-                    severity_reported=severity or Severity.MEDIUM,
-                    references=_references(item),
-                )
-            )
-
         ecosystem = str(result.get("Type") or "unknown")
-        for raw_item in result.get("Vulnerabilities") or []:
-            item = as_dict(raw_item)
-            vuln_id = item.get("VulnerabilityID")
-            name = item.get("PkgName")
-            if not isinstance(vuln_id, str) or not isinstance(name, str):
-                warnings.append(f"{path}: ID かパッケージ名の無い脆弱性を読み飛ばしました")
-                continue
-            version = item.get("InstalledVersion")
-            ref = PackageRef(
-                ecosystem=ecosystem,
-                name=name,
-                version=version if isinstance(version, str) else None,
-                manifest=path,
-            )
-            title = str(item.get("Title") or vuln_id)
-            fixed = item.get("FixedVersion")
-            severity = SEVERITY_MAP.get(str(item.get("Severity")).upper())
-            message = f"{name} {ref.version or ''} に既知の脆弱性があります: {title}"
-            if severity is None:
-                # 誤設定・osv と同じく、medium に丸めたことを隠さない
-                message += " (重大度不明のため medium として扱います)"
-            candidates.append(
-                Candidate(
-                    id=ids.make("trivy", vuln_id, path, ref.as_key()),
-                    scanner="trivy",
-                    category=Category.DEPENDENCY,
-                    rule_id=vuln_id,
-                    title=title,
-                    message=message,
-                    package=ref,
-                    severity_reported=severity or Severity.MEDIUM,
-                    cwe=[c for c in item.get("CweIDs") or [] if isinstance(c, str)],
-                    cve=[vuln_id] if _CVE_RE.match(vuln_id) else [],
-                    references=_references(item),
-                    fix_available=fixed if isinstance(fixed, str) and fixed else None,
-                )
-            )
+        found = [
+            *(
+                _misconfiguration(as_dict(item), path, ids, warnings)
+                for item in result.get("Misconfigurations") or []
+            ),
+            *(
+                _vulnerability(as_dict(item), path, ecosystem, ids, warnings)
+                for item in result.get("Vulnerabilities") or []
+            ),
+        ]
+        candidates.extend(candidate for candidate in found if candidate is not None)
     return candidates, warnings
+
+
+def _misconfiguration(
+    item: dict[str, Any], path: str, ids: IdFactory, warnings: list[str]
+) -> Candidate | None:
+    """誤設定 1 件. 通過したチェックと ID の無いものは候補にしない."""
+    if item.get("Status") != "FAIL":
+        return None
+    rule = item.get("ID") or item.get("AVDID")
+    if not isinstance(rule, str):
+        warnings.append(f"{path}: ID の無い誤設定を読み飛ばしました")
+        return None
+    cause = as_dict(item.get("CauseMetadata"))
+    raw_start, raw_end = cause.get("StartLine"), cause.get("EndLine")
+    start = raw_start if isinstance(raw_start, int) else 0
+    end = raw_end if isinstance(raw_end, int) else start
+    message = str(item.get("Message") or item.get("Description") or item.get("Title") or rule)
+    resolution = item.get("Resolution")
+    severity = SEVERITY_MAP.get(str(item.get("Severity")).upper())
+    if isinstance(resolution, str):
+        message += f" (対応: {resolution})"
+    if severity is None:
+        message += _UNKNOWN_SEVERITY_NOTE
+    return Candidate(
+        # 行番号を ID に含めない (§6.1)。同じルールの同じ指摘は出現順で区別する
+        id=ids.make("trivy", rule, path, f"{cause.get('Resource') or ''} {message}"),
+        scanner="trivy",
+        category=Category.CONFIG,
+        rule_id=rule,
+        title=str(item.get("Title") or rule),
+        message=message,
+        location=Location(path=path, start_line=start, end_line=max(end, start)),
+        # 不明を info にするとゲートから消える。依存の脆弱性・osv にそろえて中とする
+        severity_reported=severity or Severity.MEDIUM,
+        references=_references(item),
+    )
+
+
+def _vulnerability(
+    item: dict[str, Any], path: str, ecosystem: str, ids: IdFactory, warnings: list[str]
+) -> Candidate | None:
+    """依存の脆弱性 1 件. ID かパッケージ名の無いものは候補にしない."""
+    vuln_id = item.get("VulnerabilityID")
+    name = item.get("PkgName")
+    if not isinstance(vuln_id, str) or not isinstance(name, str):
+        warnings.append(f"{path}: ID かパッケージ名の無い脆弱性を読み飛ばしました")
+        return None
+    version = item.get("InstalledVersion")
+    ref = PackageRef(
+        ecosystem=ecosystem,
+        name=name,
+        version=version if isinstance(version, str) else None,
+        manifest=path,
+    )
+    title = str(item.get("Title") or vuln_id)
+    fixed = item.get("FixedVersion")
+    severity = SEVERITY_MAP.get(str(item.get("Severity")).upper())
+    message = f"{name} {ref.version or ''} に既知の脆弱性があります: {title}"
+    if severity is None:
+        message += _UNKNOWN_SEVERITY_NOTE
+    return Candidate(
+        id=ids.make("trivy", vuln_id, path, ref.as_key()),
+        scanner="trivy",
+        category=Category.DEPENDENCY,
+        rule_id=vuln_id,
+        title=title,
+        message=message,
+        package=ref,
+        severity_reported=severity or Severity.MEDIUM,
+        cwe=[c for c in item.get("CweIDs") or [] if isinstance(c, str)],
+        cve=[vuln_id] if _CVE_RE.match(vuln_id) else [],
+        references=_references(item),
+        fix_available=fixed if isinstance(fixed, str) and fixed else None,
+    )
 
 
 #: trivy に渡す --timeout を timeout_s よりどれだけ長くするか
