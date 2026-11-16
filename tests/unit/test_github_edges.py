@@ -222,3 +222,18 @@ def test_inline_plan_is_empty_for_a_status_that_cannot_be_commented():
     plan = plan_inline(report, settings, {"src/app.py": [(1, 10)]}, set())
     assert plan.comments == []
     assert Severity.HIGH in {f.severity for f in report.findings}
+
+
+def test_findings_in_files_without_a_patch_are_counted_apart_from_outside_diff():
+    # 差分が大きいと GitHub は patch を返さない. 「diff 外」と表示すると原因が分からない
+    big = make_candidate("c1", path="big.py", line=10)
+    elsewhere = make_candidate("c2", path="untouched.py", line=10)
+    report = make_report(
+        [big, elsewhere],
+        [
+            make_finding(big, FindingStatus.CONFIRMED),
+            make_finding(elsewhere, FindingStatus.CONFIRMED),
+        ],
+    )
+    plan = plan_inline(report, GithubConfig(), {"big.py": []}, set(), without_patch={"big.py"})
+    assert (plan.no_patch, plan.outside_diff, plan.comments) == (1, 1, [])

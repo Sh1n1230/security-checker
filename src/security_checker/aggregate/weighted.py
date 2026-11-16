@@ -157,8 +157,7 @@ class WeightedAggregator:
         return aggregate_severity(vulnerable, cfg.consensus.severity, self.weight_of)
 
     def _summary(self, vulnerable: list[ReviewVerdict], score: float) -> str:
-        if not vulnerable:
-            return f"重み付きスコア {score:+.2f}。"
+        # 閾値は正なので、ここに来るのは「脆弱」と答えた Reviewer がいるときだけ
         return f"{_headline(vulnerable[0])} (重み付きスコア {score:+.2f})"
 
     def _outcome(

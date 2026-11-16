@@ -160,6 +160,59 @@ def test_fields_that_match_the_transport_are_not_reported():
     assert unimplemented_warnings(config) == []
 
 
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Authorization",
+        "authorization",
+        "Proxy-Authorization",
+        "Cookie",
+        "x-api-key",
+        "X-Access-Token",
+    ],
+)
+def test_literal_sensitive_http_header_warns_without_echoing_secret(header):
+    config = Config.model_validate(
+        {
+            "reviewers": [
+                {
+                    "name": "api",
+                    "transport": "http",
+                    "dialect": "openai_chat",
+                    "base_url": "https://example.invalid/v1",
+                    "model": "m",
+                    "headers": {header: "SUPER_SECRET_SENTINEL"},
+                }
+            ]
+        }
+    )
+    messages = unimplemented_warnings(config)
+    assert any(
+        "'api'" in message and header in message and "headers_env" in message
+        for message in messages
+    )
+    assert all("SUPER_SECRET_SENTINEL" not in message for message in messages)
+
+
+def test_environment_backed_and_nonsensitive_http_headers_do_not_warn():
+    config = Config.model_validate(
+        {
+            "reviewers": [
+                {
+                    "name": "api",
+                    "transport": "http",
+                    "dialect": "openai_chat",
+                    "base_url": "https://example.invalid/v1",
+                    "model": "m",
+                    "headers": {"X-Trace": "trace-123"},
+                    "headers_env": {"Authorization": "API_TOKEN_ENV"},
+                }
+            ]
+        }
+    )
+    assert unimplemented_warnings(config) == []
+
+
 def test_min_ratio_below_a_majority_is_reported():
     config = Config.model_validate({"aggregation": {"consensus": {"min_ratio": 0.3}}})
     assert any("min_ratio" in warning for warning in unimplemented_warnings(config))

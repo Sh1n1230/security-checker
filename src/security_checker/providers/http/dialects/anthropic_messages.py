@@ -154,6 +154,10 @@ class AnthropicMessagesDialect:
         """この方言は認証エラーを 401 / 403 で返すので、本文では判定しない."""
         return False
 
+    def default_capabilities(self) -> dict[str, object]:
+        """この形に json_mode は無い. 構造化出力はツール呼び出しの強制 (json_schema) で得る."""
+        return {"structured_output": StructuredMode.JSON_SCHEMA.value}
+
     def explain_error(self, status: int, body: str) -> str | None:
         """次に取れる行動が分かる場合だけ文章にする (§20.2)."""
         lowered = body.lower()

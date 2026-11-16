@@ -24,7 +24,12 @@ _MASK = "\x00"
 
 
 def normalize_snippet(text: str) -> str:
-    """安定 ID 用の正規化: 文字列退避 → コメント除去 → 空白圧縮 → 小文字化."""
+    """安定 ID 用の正規化: 文字列退避 → コメント除去 → 空白圧縮.
+
+    大文字小文字は保持する。`API_KEY = x` と `api_key = x`、`eval(A)` と `eval(a)` のように
+    大文字小文字だけが違う別々の指摘を、同じ ID (と出現順の連番) にしないため。
+    連番は行の挿入でずれるので、baseline の抑制対象が入れ替わっていた。
+    """
     literals: list[str] = []
 
     def stash(m: re.Match[str]) -> str:
@@ -39,7 +44,7 @@ def normalize_snippet(text: str) -> str:
             lambda m: literals[int(m.group(1))],
             without_comments,
         )
-    return _WS_RE.sub(" ", without_comments).strip().lower()
+    return _WS_RE.sub(" ", without_comments).strip()
 
 
 class Location(BaseModel):

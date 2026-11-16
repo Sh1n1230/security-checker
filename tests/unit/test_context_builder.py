@@ -8,7 +8,14 @@ import pytest
 
 from security_checker.config.schema import ContextConfig
 from security_checker.context.budget import PROMPT_OVERHEAD_TOKENS, estimate_tokens
-from security_checker.context.builder import ContextBuilder
+from security_checker.context.builder import (
+    NOTE_DEPENDENCY,
+    NOTE_MASKED_VALUE,
+    NOTE_OVER_BUDGET,
+    NOTE_TRUNCATED,
+    NOTE_UNREADABLE,
+    ContextBuilder,
+)
 from security_checker.context.facts import collect_repo_facts
 from security_checker.context.slicer import TRUNCATED_LINE_MARK, line_window, shrink
 from security_checker.models.candidate import Candidate, Location, PackageRef
@@ -122,7 +129,7 @@ def test_secret_values_are_masked_before_sending(repo):
     assert primary is not None
     assert SECRET not in primary.text
     assert "xoxb" in primary.text
-    assert any("マスク" in note for note in task.notes)
+    assert NOTE_MASKED_VALUE in task.notes
 
 
 def test_budget_truncates_and_notes_it(repo):
@@ -133,7 +140,7 @@ def test_budget_truncates_and_notes_it(repo):
     assert primary is not None
     assert task.code_context.truncated is True
     assert "line50" in primary.text  # 該当行は必ず残す
-    assert any("切り詰め" in note for note in task.notes)
+    assert NOTE_TRUNCATED in task.notes
 
 
 def test_missing_file_is_noted(repo):
@@ -142,7 +149,7 @@ def test_missing_file_is_noted(repo):
     )
     task = builder(repo).build(candidate)
     assert task.code_context.primary is None
-    assert any("読み込め" in note for note in task.notes)
+    assert NOTE_UNREADABLE in task.notes
 
 
 def test_dependency_candidate_has_no_code(repo):
@@ -157,7 +164,7 @@ def test_dependency_candidate_has_no_code(repo):
     )
     task = builder(repo).build(candidate)
     assert task.code_context.primary is None
-    assert any("依存パッケージ" in note for note in task.notes)
+    assert NOTE_DEPENDENCY in task.notes
 
 
 def test_shrink_keeps_focus_line():
@@ -299,7 +306,7 @@ def test_no_body_is_sent_when_the_budget_cannot_hold_any(tmp_path):
     )
     assert task.code_context.primary is None
     assert task.code_context.truncated
-    assert any("コード本文は提示していません" in note for note in task.notes)
+    assert NOTE_OVER_BUDGET in task.notes
 
 
 def test_the_estimate_counts_the_whole_prompt(repo):

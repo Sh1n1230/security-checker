@@ -27,6 +27,10 @@ DEFAULT_EXCLUDES = (
     "**/node_modules/**",
     "**/__pycache__/**",
     "**/.venv/**",
+    # ツールのキャッシュ. テスト ID やコンパイル結果に、テスト用のダミーの値が入る
+    "**/.pytest_cache/**",
+    "**/.mypy_cache/**",
+    "**/.ruff_cache/**",
     "**/.git/**",
     "**/.security-checker/**",
     "**/*.min.js",
@@ -211,7 +215,8 @@ class ReviewerConfig(StrictModel):
     weight: float = Field(default=1.0, ge=0.0)
     #: 既定は transport で変わる (http 120 / process 300)。_default_timeout を参照
     timeout_s: int = Field(default=120, gt=0)
-    concurrency: int = Field(default=1, gt=0)
+    #: 同時に送る数. 省略時は http が concurrency.reviews_per_provider、process が 1
+    concurrency: int | None = Field(default=None, gt=0)
     rate_limit: RateLimit = RateLimit()
 
     # http transport ("text_io" だけは process transport の方言)
@@ -296,7 +301,8 @@ class ConsensusConfig(StrictModel):
 class WeightedConfig(StrictModel):
     """weighted 戦略の閾値."""
 
-    threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    #: 0 は書けない. 0 だと、誰も脆弱と言っていない候補 (スコア 0) まで likely になる
+    threshold: float = Field(default=0.6, gt=0.0, le=1.0)
 
 
 class JudgeConfig(StrictModel):
