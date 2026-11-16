@@ -75,7 +75,13 @@ async def test_repair_retry_recovers_from_broken_json():
     assert outcome.verdict.status is VerdictStatus.OK
     assert outcome.verdict.attempt == 2
     assert len(provider.requests) == 2
-    assert "不正でした" in provider.requests[1].user
+    repair = provider.requests[1].user
+    assert "previous output was invalid" in repair
+    # 元のタスク (コード) を含め、前回の出力はデリミタで囲む (#293, #295)
+    assert repair.startswith(provider.requests[0].user.rstrip())
+    assert (
+        "<<<UNTRUSTED_OUTPUT>>>\nこれは JSON ではありません\n<<<END_UNTRUSTED_OUTPUT>>>" in repair
+    )
 
 
 async def test_repair_is_attempted_only_once():
@@ -223,3 +229,129 @@ def test_evidence_for_a_candidate_without_code_is_dropped():
     kept, warnings = drop_hallucinated_evidence(_judgement(("uv.lock", 1, 1)), make_task())
     assert kept.evidence == []
     assert warnings
+
+
+async def test_truncated_output_is_not_repaired_with_the_same_limit():
+    """上限で切れた出力に同じ上限で修復を送らない (#665)."""
+    from security_checker.providers.base import CompletionResponse
+
+    cut = CompletionResponse(text='{"vulnerable": tr', finish_reason="length")
+    provider = ScriptedProvider([cut, verdict_payload()])
+    outcome = await Reviewer("r1", provider, max_output_tokens=50).review(make_task())
+    assert outcome.verdict.status is VerdictStatus.SCHEMA_ERROR
+    assert "max_output_tokens (50)" in outcome.verdict.reasoning
+    assert len(provider.requests) == 1
+
+
+def test_max_output_tokens_is_clamped_to_the_model_limit():
+    """モデルの出力上限を Reviewer の希望で引き上げない (#610)."""
+    from security_checker.config.schema import Config
+    from security_checker.run import build_reviewers
+
+    config = Config.model_validate(
+        {
+            "reviewers": [
+                {
+                    "name": "r1",
+                    "transport": "http",
+                    "dialect": "openai_chat",
+                    "base_url": "http://127.0.0.1:9/v1",
+                    "model": "m",
+                    "max_output_tokens": 999_999,
+                    "capabilities": {"max_output_tokens": 1024},
+                }
+            ]
+        }
+    )
+    setup = build_reviewers(config, environ={})
+    assert setup.runtimes[0].reviewer.max_output_tokens == 1024
+    assert any("1024" in w for w in setup.warnings)
+
+
+async def test_concurrent_reviews_trace_their_own_prompts():
+    """同じ Reviewer を並行して呼んでも、トレースには自分の候補のプロンプトが残る (#315)."""
+    import asyncio
+
+    from security_checker.observability.trace import sha256_text
+    from security_checker.review import prompts
+    from security_checker.review.structured import verdict_schema
+
+    class SlowProvider(ScriptedProvider):
+        async def complete(self, req):
+            # 1 件目を遅らせ、2 件目のプロンプトが先に設定される順序にする
+            await asyncio.sleep(0.05 if "c-slow" in req.user else 0)
+            return await super().complete(req)
+
+    provider = SlowProvider([verdict_payload(), verdict_payload()])
+    reviewer = Reviewer("r1", provider)
+    base = make_task()
+    slow = base.model_copy(update={"candidate": base.candidate.model_copy(update={"id": "c-slow"})})
+    fast = base.model_copy(update={"candidate": base.candidate.model_copy(update={"id": "c-fast"})})
+    outcomes = await asyncio.gather(reviewer.review(slow), reviewer.review(fast))
+    schema = verdict_schema()
+    for task, outcome in zip((slow, fast), outcomes, strict=True):
+        expected = sha256_text(prompts.render_user(task, schema))
+        assert outcome.trace is not None
+        assert outcome.trace["prompt"]["user_sha256"] == expected
+
+
+def test_local_ollama_reviewers_cost_zero_and_unpriced_ones_are_warned():
+    """ollama_chat は価格表に無ければ 0 (#313). 価格の無い Reviewer は予算の外と警告する (#311)."""
+    from security_checker.config.schema import Config
+    from security_checker.run import build_reviewers
+
+    config = Config.model_validate(
+        {
+            "budget": {"max_usd": 1.0},
+            "reviewers": [
+                {
+                    "name": "local",
+                    "transport": "http",
+                    "dialect": "ollama_chat",
+                    "base_url": "http://127.0.0.1:11434",
+                    "model": "llama",
+                },
+                {
+                    "name": "remote",
+                    "transport": "http",
+                    "dialect": "openai_chat",
+                    "base_url": "http://127.0.0.1:9/v1",
+                    "model": "unknown-model",
+                },
+            ],
+        }
+    )
+    setup = build_reviewers(config, environ={})
+    local, remote = (runtime.reviewer for runtime in setup.runtimes)
+    assert local.price is not None and local.price.input_per_1m == 0.0
+    assert remote.price is None
+    assert any("'remote'" in w and "budget.max_usd" in w for w in setup.warnings)
+    assert not any("'local'" in w for w in setup.warnings)
+
+
+async def test_trace_keeps_only_a_hash_of_the_response_by_default():
+    """応答はコードを引用しうる. save_prompts: false では全文を残さない (#447)."""
+    provider = ScriptedProvider([verdict_payload()])
+    outcome = await Reviewer("r1", provider).review(make_task())
+    assert outcome.trace is not None
+    assert outcome.trace["response"]["raw"] is None
+    assert outcome.trace["response"]["raw_sha256"]
+    saved = await Reviewer("r1", ScriptedProvider([verdict_payload()]), save_prompts=True).review(
+        make_task()
+    )
+    assert saved.trace is not None
+    assert saved.trace["response"]["raw"]
+
+
+def test_pricing_must_be_a_mapping_with_non_negative_prices(tmp_path):
+    """リストのトップレベル (#452) と負の単価 (#453) を設定エラーにする."""
+    from security_checker.errors import ConfigError
+    from security_checker.observability.cost import load_price_table
+
+    path = tmp_path / "pricing.yml"
+    path.write_text("- a\n- b\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="マッピング"):
+        load_price_table(explicit=path)
+    path.write_text("models:\n  m:\n    input_per_1m: -1\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="不正"):
+        load_price_table(explicit=path)
