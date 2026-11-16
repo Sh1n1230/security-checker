@@ -225,6 +225,25 @@ class ReviewerConfig(StrictModel):
     #: stdout の解釈方法. 現状は「最初の JSON オブジェクトを抽出する」のみ
     parse: Literal["json_in_stdout"] = "json_in_stdout"
 
+    @field_validator("headers")
+    @classmethod
+    def _reject_sensitive_inline_headers(cls, headers: dict[str, str]) -> dict[str, str]:
+        """認証ヘッダの平文値を、共有設定へ保存する前に拒否する (§19.1)."""
+        for name in headers:
+            normalized = name.strip().lower().replace("_", "-")
+            named_secret = normalized in {
+                "authorization",
+                "proxy-authorization",
+                "cookie",
+                "set-cookie",
+            }
+            if named_secret or re.search(r"(?:^|-)(?:token|key)$", normalized):
+                raise ValueError(
+                    f"ヘッダ '{name}' の値を headers に直接書けません。"
+                    "秘密を含むヘッダは headers_env で環境変数名を指定してください"
+                )
+        return headers
+
     @model_validator(mode="before")
     @classmethod
     def _default_timeout(cls, data: Any) -> Any:

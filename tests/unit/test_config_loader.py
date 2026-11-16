@@ -99,6 +99,42 @@ def test_plaintext_api_key_is_rejected(tmp_path):
         load_config(tmp_path, environ={})
 
 
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Authorization",
+        "proxy-authorization",
+        "COOKIE",
+        "X-Api-Key",
+        "X-Session-Token",
+        "Client_Key",
+    ],
+)
+def test_plaintext_auth_headers_are_rejected_without_exposing_value(tmp_path, header):
+    write_config(
+        tmp_path,
+        "version: 1\nreviewers:\n  - name: r1\n    transport: http\n"
+        "    dialect: openai_chat\n    base_url: https://example.com/v1\n    model: m\n"
+        f"    headers: {{'{header}': 'FAKE-CREDENTIAL-DO-NOT-PRINT'}}\n",
+    )
+    with pytest.raises(ConfigError, match="headers_env") as exc:
+        load_config(tmp_path, environ={})
+    assert "FAKE-CREDENTIAL-DO-NOT-PRINT" not in str(exc.value)
+
+
+def test_nonsecret_inline_headers_and_secret_headers_env_are_accepted(tmp_path):
+    write_config(
+        tmp_path,
+        "version: 1\nreviewers:\n  - name: r1\n    transport: http\n"
+        "    dialect: openai_chat\n    base_url: https://example.com/v1\n    model: m\n"
+        "    headers: {Accept: application/json, X-Client-Version: '1'}\n"
+        "    headers_env: {Authorization: SERVICE_AUTH}\n",
+    )
+    config = load_config(tmp_path, environ={}).config.reviewers[0]
+    assert config.headers == {"Accept": "application/json", "X-Client-Version": "1"}
+    assert config.headers_env == {"Authorization": "SERVICE_AUTH"}
+
+
 def test_unknown_key_is_rejected(tmp_path):
     write_config(tmp_path, "version: 1\npolicy:\n  fail_onn: high\n")
     with pytest.raises(ConfigError, match="fail_onn"):
