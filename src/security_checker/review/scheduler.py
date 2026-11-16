@@ -58,6 +58,7 @@ class RateLimiter:
         self._lock = asyncio.Lock()
 
     async def acquire(self, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep) -> None:
+        """直近 1 分の送信数が rpm を下回るまで待ち、1 リクエスト分を確保する."""
         while True:
             async with self._lock:
                 now = time.monotonic()
@@ -81,6 +82,7 @@ class RateLimiter:
         return self.rpm
 
     def recover(self) -> None:
+        """絞っていた実効 rpm を、元の値を上限に倍へ戻す."""
         self.rpm = min(self.base_rpm, self.rpm * 2)
 
 
@@ -96,6 +98,7 @@ class TokenLimiter:
         self._lock = asyncio.Lock()
 
     async def acquire(self, tokens: int) -> None:
+        """直近 1 分のトークン数が tpm に収まるまで待ち、見積り分を確保する."""
         while True:
             async with self._lock:
                 now = time.monotonic()
@@ -118,6 +121,7 @@ class DailyQuota:
     limit: int
 
     def remaining(self) -> int:
+        """今日あと何回送れるか."""
         return self.store.remaining(self.key, self.limit)
 
 
@@ -137,6 +141,7 @@ class ReviewerRuntime:
 
     @property
     def name(self) -> str:
+        """Reviewer の名前."""
         return self.reviewer.name
 
 

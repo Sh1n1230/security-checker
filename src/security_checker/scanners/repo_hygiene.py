@@ -126,6 +126,7 @@ class RepoHygieneScanner(BaseScanner):
         super().__init__(settings)
 
     async def scan(self, target: Target, ctx: ScanContext) -> ScanResult:
+        """スキャナを実行して結果を正規化する. 未導入 (skipped) と失敗 (failed) は区別して返す."""
         status = self.probe()
         if not status.available:
             return self.skipped(status.reason or "git が利用できません", unavailable=True)

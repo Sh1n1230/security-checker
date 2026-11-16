@@ -58,6 +58,7 @@ class ContextBuilder:
         self.repo_facts = repo_facts if config.include_repo_facts else RepoFacts()
 
     def build(self, candidate: Candidate) -> ReviewTask:
+        """候補 1 件分の ReviewTask を作る. 文脈は予算に収め、検出した値は伏せる (§8・§19.2)."""
         notes: list[str] = []
         primary: CodeSlice | None = None
         truncated = False

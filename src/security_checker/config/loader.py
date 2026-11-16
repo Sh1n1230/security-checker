@@ -77,6 +77,7 @@ def find_local_config_file(root: Path) -> Path | None:
 
 
 def available_presets() -> list[str]:
+    """同梱している構成プリセットの名前 (`--preset` に渡せるもの)."""
     return sorted(path.stem for path in PRESET_DIR.glob("*.yml"))
 
 

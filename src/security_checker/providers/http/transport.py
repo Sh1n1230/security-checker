@@ -69,6 +69,7 @@ class HttpProvider:
 
     @property
     def capabilities(self) -> Capabilities:
+        """この Provider が使える機能."""
         return self._capabilities
 
     @property
@@ -117,6 +118,7 @@ class HttpProvider:
             )
 
     async def health_check(self) -> HealthStatus:
+        """出力 1 トークンのリクエストを送り、到達と認証を確かめる."""
         started = time.monotonic()
         try:
             await self._post(
@@ -127,6 +129,7 @@ class HttpProvider:
         return HealthStatus(ok=True, latency_ms=int((time.monotonic() - started) * 1000))
 
     async def aclose(self) -> None:
+        """自分で作った HTTP クライアントを閉じる. 渡されたものは閉じない."""
         if self._owns_client:
             await self._client.aclose()
 

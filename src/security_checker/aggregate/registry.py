@@ -25,6 +25,7 @@ BUILTIN_AGGREGATORS: dict[str, Callable[..., Aggregator]] = {
 
 
 def discover_plugin_aggregators() -> tuple[dict[str, Callable[..., Aggregator]], list[str]]:
+    """entry point で登録された Aggregator を探す. 読み込みの失敗は警告にして続行する."""
     found: dict[str, Callable[..., Aggregator]] = {}
     warnings: list[str] = []
     for entry in entry_points(group=ENTRY_POINT_GROUP):

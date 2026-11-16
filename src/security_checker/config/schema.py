@@ -41,6 +41,8 @@ ALWAYS_EXCLUDES = (
 
 
 class TargetConfig(StrictModel):
+    """検査対象と範囲 (全体か差分か)・除外パターン."""
+
     root: str = "."
     mode: Literal["auto", "full", "diff"] = "auto"
     #: 設定すると既定の一覧を**置き換える** (ALWAYS_EXCLUDES だけは常に足す)
@@ -58,12 +60,16 @@ BUILTIN_SCANNER_NAMES = frozenset({"semgrep", "gitleaks", "osv", "trivy"})
 
 
 class ScannerConfig(StrictModel):
+    """スキャナに共通の設定: 有効か・タイムアウト・追加の引数."""
+
     enabled: bool = True
     timeout_s: int = Field(default=600, gt=0)
     extra_args: list[str] = Field(default_factory=list)
 
 
 class SemgrepConfig(ScannerConfig):
+    """semgrep の設定. ルールはレジストリ名・パス・`bundled:<名前>` で指す."""
+
     #: `--config` に渡すもの. 1 つなら文字列、複数ならリスト。`bundled:<名前>` で同梱ルールを指す
     config: str | list[str] = Field(
         default_factory=lambda: ["p/default", "bundled:llm", "bundled:ci-lock"]
@@ -85,14 +91,19 @@ class SemgrepConfig(ScannerConfig):
 
     @property
     def configs(self) -> list[str]:
+        """`config` を常にリストで返す (文字列 1 つでも書けるため)."""
         return [self.config] if isinstance(self.config, str) else list(self.config)
 
 
 class GitleaksConfig(ScannerConfig):
+    """gitleaks の設定."""
+
     timeout_s: int = Field(default=300, gt=0)
 
 
 class RepoHygieneConfig(ScannerConfig):
+    """内蔵チェック repo-hygiene の設定. git を呼ぶだけなので、追加の引数は受け付けない."""
+
     #: git ls-files を呼ぶだけなので短い
     timeout_s: int = Field(default=60, gt=0)
 
@@ -106,14 +117,20 @@ class RepoHygieneConfig(ScannerConfig):
 
 
 class OsvConfig(ScannerConfig):
+    """osv-scanner の設定."""
+
     timeout_s: int = Field(default=300, gt=0)
 
 
 class TrivyConfig(ScannerConfig):
+    """trivy の設定. `scanners` で検査の種類 (config・vuln) を選ぶ."""
+
     scanners: list[str] = Field(default_factory=lambda: ["config"])
 
 
 class ScannersConfig(StrictModel):
+    """内蔵スキャナごとの設定と、有効にするプラグイン."""
+
     semgrep: SemgrepConfig = SemgrepConfig()
     gitleaks: GitleaksConfig = GitleaksConfig()
     # git だけで動く内蔵チェック。git 管理外なら skipped になるだけなので既定で有効
@@ -139,6 +156,8 @@ class ScannersConfig(StrictModel):
 
 
 class ContextConfig(StrictModel):
+    """LLM に渡す文脈の大きさ."""
+
     window_lines: int = Field(default=40, gt=0)
     max_callers: int = Field(default=3, ge=0)
     max_tokens_per_task: int = Field(default=8000, gt=0)
@@ -146,6 +165,8 @@ class ContextConfig(StrictModel):
 
 
 class RateLimit(StrictModel):
+    """提供元の上限に合わせる送信の制限 (rpm・tpm・rpd)."""
+
     #: requests / minute
     rpm: int | None = Field(default=None, gt=0)
     #: tokens / minute (入力の見積り + 出力の上限で数える)
@@ -265,16 +286,22 @@ MAJORITY_RATIO = 0.5
 
 
 class ConsensusConfig(StrictModel):
+    """consensus 戦略の閾値."""
+
     min_votes: int = Field(default=2, ge=1)
     min_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
     severity: Literal["median", "max", "weighted_mean"] = "median"
 
 
 class WeightedConfig(StrictModel):
+    """weighted 戦略の閾値."""
+
     threshold: float = Field(default=0.6, ge=0.0, le=1.0)
 
 
 class JudgeConfig(StrictModel):
+    """judge 戦略の設定: 誰を Judge にし、どの候補を回すか."""
+
     #: Judge 役の Reviewer (reviewers の name). 一次レビューには参加しない
     reviewer: str | None = None
     #: Judge が失敗したとき / Judge に回さない候補の集約戦略
@@ -284,6 +311,8 @@ class JudgeConfig(StrictModel):
 
 
 class AggregationConfig(StrictModel):
+    """複数 Reviewer の判定をまとめる戦略と、その設定."""
+
     strategy: str = "consensus"
     consensus: ConsensusConfig = ConsensusConfig()
     weighted: WeightedConfig = WeightedConfig()
@@ -291,6 +320,8 @@ class AggregationConfig(StrictModel):
 
 
 class PolicyConfig(StrictModel):
+    """終了コードを決める条件 (重大度・スコア・strict) と抑制の設定."""
+
     fail_on: Severity = Severity.HIGH
     fail_on_status: list[FindingStatus] = Field(
         default_factory=lambda: [FindingStatus.CONFIRMED, FindingStatus.LIKELY]
@@ -302,6 +333,8 @@ class PolicyConfig(StrictModel):
 
 
 class BudgetConfig(StrictModel):
+    """1 回の実行で使ってよい上限 (候補数・金額・トークン)."""
+
     max_candidates: int = Field(default=200, gt=0)
     max_usd: float | None = Field(default=1.0, ge=0.0)
     max_total_tokens: int | None = Field(default=2_000_000, gt=0)
@@ -311,6 +344,8 @@ class BudgetConfig(StrictModel):
 
 
 class ConcurrencyConfig(StrictModel):
+    """同時に走らせるスキャナとレビューの数."""
+
     scanners: int = Field(default=4, gt=0)
     reviews_per_provider: int = Field(default=4, gt=0)
 
@@ -325,6 +360,8 @@ def _default_formats() -> list[OutputFormat]:
 
 
 class OutputConfig(StrictModel):
+    """レポートの出力先・形式・言語と、プロンプトを保存するか."""
+
     dir: str = ".security-checker/"
     formats: list[OutputFormat] = Field(default_factory=_default_formats)
     save_prompts: bool = False
@@ -354,6 +391,8 @@ _LANGUAGE_TAG_RE = re.compile(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*")
 
 
 class GithubConfig(StrictModel):
+    """PR へのコメントの出し方."""
+
     comment: bool = True
     comment_mode: Literal["sticky", "new"] = "sticky"
     inline_comments: bool = True
@@ -367,6 +406,8 @@ class GithubConfig(StrictModel):
 
 
 class LoggingConfig(StrictModel):
+    """構造化ログのレベルと形式."""
+
     level: Literal["debug", "info", "warn", "error"] = "info"
     format: Literal["text", "json"] = "text"
 
@@ -404,6 +445,7 @@ class Config(StrictModel):
         return self
 
     def scanner_settings(self) -> dict[str, ScannerConfig]:
+        """スキャナの名前 → 設定. 内蔵とプラグインを同じ形で返す."""
         return {
             "semgrep": self.scanners.semgrep,
             "gitleaks": self.scanners.gitleaks,

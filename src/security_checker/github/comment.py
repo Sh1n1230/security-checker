@@ -353,6 +353,7 @@ def _footer(report: Report, report_url: str | None) -> str:
 
 
 def finding_marker(finding: Finding) -> str:
+    """inline コメントに埋める印. 同じ指摘を二重に投稿しないために使う."""
     return f"{FINDING_MARKER_PREFIX}{finding.candidate.id} -->"
 
 
@@ -367,6 +368,7 @@ def existing_finding_ids(bodies: Iterable[str]) -> set[str]:
 
 
 def render_inline(finding: Finding) -> str:
+    """指摘 1 件の inline コメントの本文."""
     candidate = finding.candidate
     if finding.status is FindingStatus.REVIEW_REQUIRED:
         head = "❓ **REVIEW REQUIRED** — Reviewer の判断が分かれました"
@@ -394,6 +396,8 @@ def render_inline(finding: Finding) -> str:
 
 @dataclass(frozen=True)
 class InlineComment:
+    """投稿する inline コメント 1 件 (位置と本文)."""
+
     path: str
     line: int
     body: str
@@ -402,6 +406,8 @@ class InlineComment:
 
 @dataclass
 class InlinePlan:
+    """inline コメントの投稿計画と、投稿しなかった件数の内訳."""
+
     comments: list[InlineComment] = field(default_factory=list)
     already_posted: int = 0
     outside_diff: int = 0

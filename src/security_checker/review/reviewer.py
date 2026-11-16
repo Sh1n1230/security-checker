@@ -102,6 +102,7 @@ class Reviewer:
 
     @property
     def model(self) -> str:
+        """Provider が使うモデル名. 分からなければ 'unknown'."""
         return getattr(self.provider, "model", "unknown")
 
     async def review(

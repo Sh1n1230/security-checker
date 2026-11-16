@@ -78,6 +78,7 @@ def render_markdown(report: Report, decision: PolicyDecision) -> str:
 
 
 def write_markdown(report: Report, decision: PolicyDecision, output_dir: Path) -> Path:
+    """report.md を書き出し、そのパスを返す."""
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "report.md"
     path.write_text(render_markdown(report, decision), encoding="utf-8")

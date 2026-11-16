@@ -33,8 +33,6 @@ from security_checker.run import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from security_checker.config.schema import Config
     from security_checker.eval.dataset import Dataset, EvalCase
     from security_checker.models.candidate import Candidate
@@ -265,7 +263,3 @@ def _usd(metrics: Metrics) -> str:
     if metrics.total_usd is None:
         return "—"
     return f"${metrics.total_usd:.4f}"
-
-
-def outcomes_by_case(outcomes: Sequence[CaseOutcome]) -> dict[str, CaseOutcome]:
-    return {outcome.case_id: outcome for outcome in outcomes}

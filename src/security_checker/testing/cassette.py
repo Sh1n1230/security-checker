@@ -39,6 +39,7 @@ class CassetteMissError(AssertionError):
 
 
 def request_key(req: CompletionRequest, model: str) -> str:
+    """リクエストの内容から作る、カセット内の検索キー."""
     payload = json.dumps(
         {
             "model": model,
@@ -98,11 +99,13 @@ class CassetteProvider:
 
     @property
     def capabilities(self) -> Capabilities:
+        """記録時は実際の Provider の値、再生時は既定の値."""
         if self.inner is not None:
             return self.inner.capabilities
         return Capabilities(structured_output=StructuredMode.JSON_SCHEMA)
 
     async def complete(self, req: CompletionRequest) -> CompletionResponse:
+        """記録モードなら実際に呼んで保存し、再生モードなら保存済みの応答を返す."""
         key = request_key(req, self.model)
         if self.record and self.inner is not None:
             response = await self.inner.complete(req)
@@ -121,10 +124,12 @@ class CassetteProvider:
         return CompletionResponse.model_validate(entry["response"])
 
     async def health_check(self) -> HealthStatus:
+        """記録モードなら実際の Provider に確かめ、再生モードなら常に ok."""
         if self.inner is not None and self.record:
             return await self.inner.health_check()
         return HealthStatus(ok=True, detail="cassette")
 
     async def aclose(self) -> None:
+        """実際の Provider があれば閉じる."""
         if self.inner is not None:
             await self.inner.aclose()

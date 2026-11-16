@@ -45,6 +45,7 @@ class WeightedAggregator:
         self.weights = dict(weights or {})
 
     def weight_of(self, verdict: ReviewVerdict) -> float:
+        """Reviewer の重み. 設定に無ければ等倍."""
         return self.weights.get(verdict.reviewer, DEFAULT_WEIGHT)
 
     def aggregate(
@@ -53,6 +54,7 @@ class WeightedAggregator:
         verdicts: list[ReviewVerdict],
         cfg: AggregationConfig,
     ) -> AggregationOutcome:
+        """重みと confidence から符号付きのスコアを作り、閾値で status を決める (§14.2)."""
         valid = [verdict for verdict in verdicts if verdict.status is VerdictStatus.OK]
         if not valid:
             return AggregationOutcome(

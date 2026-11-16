@@ -135,6 +135,7 @@ def _existing_salt(path: Path) -> str | None:
 
 
 def write_baseline(path: Path, candidates: list[Candidate], *, tool_version: str) -> Path:
+    """いまの候補を baseline として書き出す."""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = render_baseline(candidates, tool_version=tool_version, salt=_existing_salt(path))
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

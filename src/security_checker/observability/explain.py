@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class Explanation:
+    """候補 1 件について、判定と呼び出し記録をたどった結果."""
+
     candidate: Candidate
     finding: Finding | None = None
     suppressed: SuppressedCandidate | None = None
@@ -30,6 +32,7 @@ class Explanation:
 
 
 def load_report(path: Path) -> Report:
+    """report.json を読む. 無い・壊れている場合は ConfigError."""
     if not path.is_file():
         raise ConfigError(f"レポートが見つかりません: {path}")
     try:

@@ -56,22 +56,27 @@ class CaseOutcome(BaseModel):
 
     @property
     def reported(self) -> bool:
+        """脆弱として報告したか (confirmed / likely)."""
         return self.status in REPORTED_AS_VULNERABLE
 
     @property
     def dismissed(self) -> bool:
+        """誤検出として切り捨てたか."""
         return self.status in DISMISSED
 
     @property
     def deferred(self) -> bool:
+        """結論を出さず人に回したか (review_required / inconclusive)."""
         return self.status in DEFERRED
 
     @property
     def errored(self) -> bool:
+        """Reviewer 側のエラーで判定できなかったか."""
         return self.status is FindingStatus.ERROR
 
     @property
     def not_reviewed(self) -> bool:
+        """予算や上限でレビューされなかったか."""
         return self.status is FindingStatus.NOT_REVIEWED
 
 

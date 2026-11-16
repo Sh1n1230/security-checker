@@ -46,6 +46,7 @@ class ProviderContractTests:
     """すべての Provider が満たすべき契約."""
 
     def make_provider(self) -> LLMProvider:  # pragma: no cover - サブクラスが実装する
+        """検査する Provider を返す (サブクラスが実装する)."""
         raise NotImplementedError
 
     def make_http_provider(
@@ -72,6 +73,7 @@ class ProviderContractTests:
         return provider
 
     def make_request(self, **overrides: object) -> CompletionRequest:
+        """妥当な CompletionRequest. 引数で一部を差し替える."""
         payload: dict[str, Any] = {
             "system": "system",
             "user": "user",
@@ -83,6 +85,7 @@ class ProviderContractTests:
         return CompletionRequest(**payload)
 
     def test_capabilities_are_valid(self) -> None:
+        """capabilities が Capabilities で、上限が正の数である."""
         provider = self.make_provider()
         capabilities = provider.capabilities
         assert isinstance(capabilities, Capabilities)
@@ -91,6 +94,7 @@ class ProviderContractTests:
         assert isinstance(capabilities.structured_output, StructuredMode)
 
     def test_identity_fields(self) -> None:
+        """transport が http か process で、dialect が空でない."""
         provider = self.make_provider()
         assert provider.transport in ("http", "process")
         assert isinstance(provider.dialect, str)
@@ -98,6 +102,7 @@ class ProviderContractTests:
 
     @pytest.mark.asyncio
     async def test_complete_returns_response(self) -> None:
+        """complete が CompletionResponse を返し、usage が埋まっている."""
         provider = self.make_provider()
         response = await provider.complete(self.make_request())
         assert isinstance(response, CompletionResponse)
@@ -107,6 +112,7 @@ class ProviderContractTests:
 
     @pytest.mark.asyncio
     async def test_aclose_is_idempotent(self) -> None:
+        """aclose を 2 回呼んでも失敗しない."""
         provider = self.make_provider()
         await provider.aclose()
         await provider.aclose()
@@ -125,6 +131,7 @@ class ProviderContractTests:
         ],
     )
     async def test_http_errors_are_normalized(self, status: int, error: type[Exception]) -> None:
+        """HTTP の失敗が ProviderError の対応する派生に正規化される."""
         provider = self._http_provider(lambda _: httpx.Response(status, text="error"))
         with pytest.raises(error):
             await provider.complete(self.make_request())
@@ -132,6 +139,7 @@ class ProviderContractTests:
 
     @pytest.mark.asyncio
     async def test_rate_limit_carries_retry_after(self) -> None:
+        """429 の Retry-After が例外に載る."""
         provider = self._http_provider(
             lambda _: httpx.Response(429, text="slow", headers={"Retry-After": str(RETRY_AFTER_S)})
         )
@@ -142,6 +150,8 @@ class ProviderContractTests:
 
     @pytest.mark.asyncio
     async def test_a_timeout_is_normalized(self) -> None:
+        """タイムアウトが ProviderTimeoutError になる."""
+
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ReadTimeout("timeout", request=request)
 
@@ -165,6 +175,7 @@ class ProviderContractTests:
 
     @pytest.mark.asyncio
     async def test_other_client_errors_are_not_degraded(self) -> None:
+        """400 以外のクライアントエラー (404 など) では降格せず、送り直さない."""
         calls: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -252,6 +263,7 @@ class ProcessProviderContractTests(ProviderContractTests):
         return ProcessProvider(name="contract", command=command, capabilities=Capabilities())
 
     def make_provider(self) -> LLMProvider:
+        """標準入力をそのまま返すコマンドで Provider を作る."""
         return self.make_process_provider(python_command(ECHO_SCRIPT))
 
     def _echo(self, response: CompletionResponse) -> dict[str, Any]:

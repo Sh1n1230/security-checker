@@ -32,6 +32,7 @@ RANK_FLOORS: tuple[tuple[Literal["A", "B", "C"], int], ...] = (("A", 90), ("B", 
 
 
 def rank_for(value: int) -> Literal["A", "B", "C", "D"]:
+    """スコア (0〜100) をランク A〜D にする."""
     for rank, floor in RANK_FLOORS:
         if value >= floor:
             return rank

@@ -99,6 +99,7 @@ class ProcessProvider:
 
     @property
     def capabilities(self) -> Capabilities:
+        """この Provider が使える機能."""
         return self._capabilities
 
     async def complete(self, req: CompletionRequest) -> CompletionResponse:

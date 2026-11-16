@@ -26,6 +26,7 @@ class PolicyDecision:
 
     @property
     def failed(self) -> bool:
+        """ポリシー違反か実行エラーで、終了コードが 0 でないか."""
         return self.exit_code is not ExitCode.OK
 
 

@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class ReviewerEstimate:
+    """Reviewer 1 体分の見積り."""
+
     name: str
     calls: int
     input_tokens: int
@@ -37,17 +39,21 @@ class ReviewerEstimate:
 
 @dataclass
 class Estimate:
+    """実行全体の見積り."""
+
     tasks: int
     reviewers: list[ReviewerEstimate] = field(default_factory=list)
 
     @property
     def total_usd(self) -> float | None:
+        """合計の金額. 価格の分からない Reviewer が混ざれば None."""
         if any(r.usd is None for r in self.reviewers):
             return None
         return sum(r.usd or 0.0 for r in self.reviewers)
 
     @property
     def total_input_tokens(self) -> int:
+        """入力トークン数の合計."""
         return sum(r.input_tokens for r in self.reviewers)
 
 

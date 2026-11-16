@@ -43,6 +43,8 @@ PROBE_CODE = "import subprocess\n\ndef run(cmd):\n    return subprocess.run(cmd,
 
 @dataclass
 class Step:
+    """疎通確認の 1 段階 (設定・疎通・構造化出力) の結果."""
+
     label: str
     ok: bool
     detail: str = ""
@@ -50,6 +52,8 @@ class Step:
 
 @dataclass
 class CheckResult:
+    """Reviewer 1 体の疎通確認の結果と、次に取れる行動の案内."""
+
     name: str
     transport: str
     steps: list[Step] = field(default_factory=list)
@@ -57,10 +61,12 @@ class CheckResult:
 
     @property
     def ok(self) -> bool:
+        """すべての段階が通ったか."""
         return bool(self.steps) and all(step.ok for step in self.steps)
 
 
 def probe_task() -> ReviewTask:
+    """疎通確認に使う合成の ReviewTask (shell=True に引数を渡す、明らかに脆弱なコード)."""
     candidate = Candidate(
         id="providers-check",
         scanner="security-checker",
@@ -105,6 +111,7 @@ def _suggest(exc: Exception, reviewer: ReviewerConfig) -> str:
 async def check_reviewer(
     reviewer: ReviewerConfig, *, environ: dict[str, str] | None = None, probe: bool = True
 ) -> CheckResult:
+    """設定 → 疎通 → 構造化出力の順に確かめる. `probe=False` なら疎通まで."""
     result = CheckResult(name=reviewer.name, transport=reviewer.transport)
     warnings: list[str] = []
     try:
@@ -179,6 +186,8 @@ async def check_reviewer(
 
 @dataclass
 class ProviderCatalog:
+    """使える方言・プリセット・プラグインの一覧."""
+
     dialects: list[str]
     http_presets: dict[str, str]
     process_presets: dict[str, str]

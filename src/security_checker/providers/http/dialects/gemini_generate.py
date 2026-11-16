@@ -52,9 +52,11 @@ class GeminiGenerateDialect:
         self.options = options or DialectOptions()
 
     def endpoint(self, base_url: str, model: str) -> str:
+        """リクエストを送る URL を返す."""
         return f"{base_url.rstrip('/')}/models/{model}:generateContent"
 
     def headers(self, api_key: str | None) -> dict[str, str]:
+        """認証を含む HTTP ヘッダを返す."""
         headers = {"Content-Type": "application/json"}
         if api_key:
             # クエリ文字列ではなくヘッダで渡す。URL はログや履歴に残りうるため
@@ -69,6 +71,7 @@ class GeminiGenerateDialect:
         capabilities: Capabilities,
         mode: StructuredMode,
     ) -> dict[str, Any]:
+        """CompletionRequest をこの方言のリクエスト本文にする."""
         generation: dict[str, Any] = {"maxOutputTokens": output_limit(req, capabilities)}
         if capabilities.supports_temperature:
             generation["temperature"] = req.temperature
@@ -96,6 +99,7 @@ class GeminiGenerateDialect:
         return payload
 
     def parse_response(self, payload: dict[str, Any]) -> DialectResponse:
+        """応答の本文から、テキスト・構造化出力・使用量を取り出す."""
         candidates = payload.get("candidates")
         if not isinstance(candidates, list) or not candidates:
             raise ProviderResponseError(_no_candidates_reason(payload))
@@ -131,16 +135,19 @@ class GeminiGenerateDialect:
         )
 
     def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]:
+        """疎通確認用の最小のリクエスト本文 (出力は 1 トークン)."""
         return {
             "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
             "generationConfig": {"maxOutputTokens": 1},
         }
 
     def is_auth_error(self, status: int, body: str) -> bool:
+        """鍵の不備を 400 で返す応答を、認証エラーとして扱う."""
         # この形は鍵の不備を 401 ではなく 400 で返す
         return status == HTTPStatus.BAD_REQUEST and "api key" in body.lower()
 
     def explain_error(self, status: int, body: str) -> str | None:
+        """次に取れる行動が分かる場合だけ文章にする (§20.2)."""
         lowered = body.lower()
         if status == HTTPStatus.BAD_REQUEST and "api key" in lowered:
             # この形は鍵の不備を 401 ではなく 400 で返すため、認証エラーに見えない

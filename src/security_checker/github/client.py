@@ -117,6 +117,7 @@ class GithubClient:
         )
 
     def close(self) -> None:
+        """HTTP の接続を閉じる."""
         self._client.close()
 
     def __enter__(self) -> Self:
@@ -184,9 +185,11 @@ class GithubClient:
         return items
 
     def issue_comments(self, pr: PullRequestContext) -> list[dict[str, Any]]:
+        """PR に付いたコメント (サマリの置き場所) の一覧."""
         return self._paginate(f"/repos/{pr.repository}/issues/{pr.number}/comments")
 
     def create_issue_comment(self, pr: PullRequestContext, body: str) -> dict[str, Any]:
+        """PR にコメントを 1 件付ける."""
         url = f"/repos/{pr.repository}/issues/{pr.number}/comments"
         result: dict[str, Any] = self._request("POST", url, body={"body": body}).json()
         return result
@@ -194,23 +197,28 @@ class GithubClient:
     def update_issue_comment(
         self, pr: PullRequestContext, comment_id: int, body: str
     ) -> dict[str, Any]:
+        """既存のコメントの本文を置き換える."""
         url = f"/repos/{pr.repository}/issues/comments/{comment_id}"
         result: dict[str, Any] = self._request("PATCH", url, body={"body": body}).json()
         return result
 
     def review_comments(self, pr: PullRequestContext) -> list[dict[str, Any]]:
+        """PR の差分に付いた inline コメントの一覧."""
         return self._paginate(f"/repos/{pr.repository}/pulls/{pr.number}/comments")
 
     def pull_files(self, pr: PullRequestContext) -> list[dict[str, Any]]:
+        """PR で変更されたファイルと、その patch の一覧."""
         return self._paginate(f"/repos/{pr.repository}/pulls/{pr.number}/files")
 
     def head_sha(self, pr: PullRequestContext) -> str:
+        """PR の head のコミット SHA."""
         data = self._request("GET", f"/repos/{pr.repository}/pulls/{pr.number}").json()
         return str(data["head"]["sha"])
 
     def create_review(
         self, pr: PullRequestContext, commit_id: str, comments: list[dict[str, Any]]
     ) -> dict[str, Any]:
+        """inline コメントをまとめた review を 1 件作る (event は COMMENT)."""
         url = f"/repos/{pr.repository}/pulls/{pr.number}/reviews"
         payload = {
             "commit_id": commit_id,

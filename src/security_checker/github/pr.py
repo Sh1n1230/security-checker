@@ -46,6 +46,7 @@ class DiffScope:
     changed_files: frozenset[str] = frozenset()
 
     def overlaps(self, path: str, start: int, end: int) -> bool:
+        """指定した行範囲が、このファイルの追加行と重なるか."""
         return any(lo <= end and start <= hi for lo, hi in self.added.get(path, ()))
 
     def is_commentable(self, path: str, line: int) -> bool:

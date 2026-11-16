@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 
 def sha256_text(text: str) -> str:
+    """文字列の SHA-256 (16 進)."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -29,6 +30,7 @@ class TraceWriter:
         self._index = 0
 
     def write_run(self, payload: dict[str, Any]) -> Path | None:
+        """実行全体の記録 (run.json) を書く. 無効なら何もしない."""
         if not self.enabled:
             return None
         self.root.mkdir(parents=True, exist_ok=True)
@@ -37,6 +39,7 @@ class TraceWriter:
         return path
 
     def write_call(self, payload: dict[str, Any]) -> Path | None:
+        """LLM 呼び出し 1 回分の記録を calls/ に書く. 無効なら何もしない."""
         if not self.enabled:
             return None
         calls = self.root / "calls"

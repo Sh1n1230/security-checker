@@ -42,6 +42,7 @@ class ConsensusAggregator:
         self.weights = dict(weights or {})
 
     def weight_of(self, verdict: ReviewVerdict) -> float:
+        """Reviewer の重み. 設定に無ければ等倍."""
         return self.weights.get(verdict.reviewer, 1.0)
 
     def aggregate(
@@ -50,6 +51,7 @@ class ConsensusAggregator:
         verdicts: list[ReviewVerdict],
         cfg: AggregationConfig,
     ) -> AggregationOutcome:
+        """「脆弱」と判定した Reviewer の数と比率から status を決める (§13.1)."""
         valid = [verdict for verdict in verdicts if verdict.status is VerdictStatus.OK]
         if not valid:
             return AggregationOutcome(

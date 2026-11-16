@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class SuppressionRules:
+    """抑制の材料一式 (baseline・ignore ファイル・コード内注釈)."""
+
     baseline: Baseline = field(default_factory=Baseline)
     ignore: IgnoreFile | None = None
     annotations: AnnotationReader | None = None

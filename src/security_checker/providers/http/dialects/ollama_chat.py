@@ -35,9 +35,11 @@ class OllamaChatDialect:
         self.keep_alive = resolved.keep_alive
 
     def endpoint(self, base_url: str, model: str) -> str:
+        """リクエストを送る URL を返す."""
         return f"{base_url.rstrip('/')}/api/chat"
 
     def headers(self, api_key: str | None) -> dict[str, str]:
+        """認証を含む HTTP ヘッダを返す."""
         headers = {"Content-Type": "application/json"}
         # ローカルで動かす前提の形だが、認証を挟むプロキシの背後に置く構成もある
         if api_key:
@@ -52,6 +54,7 @@ class OllamaChatDialect:
         capabilities: Capabilities,
         mode: StructuredMode,
     ) -> dict[str, Any]:
+        """CompletionRequest をこの方言のリクエスト本文にする."""
         messages: list[dict[str, str]] = []
         if capabilities.supports_system_role:
             messages.append({"role": "system", "content": req.system})
@@ -89,6 +92,7 @@ class OllamaChatDialect:
         return payload
 
     def parse_response(self, payload: dict[str, Any]) -> DialectResponse:
+        """応答の本文から、テキスト・構造化出力・使用量を取り出す."""
         message = payload.get("message")
         if not isinstance(message, dict):
             raise ProviderResponseError("応答に message がありません")
@@ -111,6 +115,7 @@ class OllamaChatDialect:
         )
 
     def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]:
+        """疎通確認用の最小のリクエスト本文 (出力は 1 トークン)."""
         return {
             "model": model,
             "messages": [{"role": "user", "content": "ping"}],
@@ -119,6 +124,7 @@ class OllamaChatDialect:
         }
 
     def is_auth_error(self, status: int, body: str) -> bool:
+        """この方言は認証エラーを 401 / 403 で返すので、本文では判定しない."""
         return False
 
     def explain_error(self, status: int, body: str) -> str | None:

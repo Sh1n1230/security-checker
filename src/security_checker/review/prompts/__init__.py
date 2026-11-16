@@ -48,6 +48,7 @@ def render_system(language: str = DEFAULT_LANGUAGE) -> str:
 
 
 def render_user(task: ReviewTask, schema: dict[str, object]) -> str:
+    """候補 1 件分の user プロンプト. スキャナ由来の欄はデリミタで囲む."""
     primary = task.code_context.primary
     return (
         _environment()
@@ -162,6 +163,7 @@ class PeerOpinion:
     needs_more_context: list[str] = field(default_factory=list)
 
     def sanitized(self) -> dict[str, Any]:
+        """Judge のプロンプトに載せる形. 自由記述に現れたデリミタは無害化する."""
         return {
             "label": self.label,
             "vulnerable": self.vulnerable,
@@ -176,6 +178,7 @@ class PeerOpinion:
 
 
 def render_judge_system(language: str = DEFAULT_LANGUAGE) -> str:
+    """Judge 用の system プロンプト. 出力言語の指示を末尾に付ける."""
     base = _environment().get_template(f"judge_system.{PROMPT_VERSION}.jinja").render()
     instruction = output_language_instruction(language)
     return f"{base}\n{instruction}\n" if instruction else base
