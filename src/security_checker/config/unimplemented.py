@@ -49,6 +49,7 @@ def unimplemented_warnings(config: Config) -> list[str]:
 
     for reviewer in config.reviewers:
         warnings.extend(_transport_mismatch(reviewer))
+        warnings.extend(_literal_sensitive_header_warnings(reviewer))
 
     for reviewer in config.reviewers:
         # num_ctx / keep_alive は ollama_chat 方言にしかない概念。
@@ -92,6 +93,47 @@ def _output_flag_warnings(config: Config) -> list[str]:
 _HTTP_ONLY = ("base_url", "api_key_env", "headers", "headers_env")
 #: transport: http では読まれない項目 (process transport 専用)
 _PROCESS_ONLY = ("command", "prompt_via")
+
+_SENSITIVE_HTTP_HEADERS = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "api-key",
+        "x-api-key",
+        "x-auth-token",
+        "x-access-token",
+        "private-token",
+    }
+)
+
+
+def _literal_sensitive_header_warnings(reviewer: ReviewerConfig) -> list[str]:
+    """Avoid silently accepting credentials embedded in HTTP reviewer configs.
+
+    Include only header names in warnings: logging their values would recreate
+    the very credential disclosure this check is intended to prevent.
+    """
+    if reviewer.transport != "http":
+        return []
+    names = sorted(
+        name
+        for name, value in reviewer.headers.items()
+        if value
+        and (
+            name.casefold() in _SENSITIVE_HTTP_HEADERS
+            or name.casefold().endswith(("-api-key", "-token"))
+        )
+    )
+    if not names:
+        return []
+    return [
+        (
+            f"reviewer '{reviewer.name}': 機密 HTTP ヘッダ ({', '.join(names)}) の値が "
+            "headers に直接設定されています。資格情報は headers_env から環境変数で指定してください"
+        )
+    ]
 
 
 def _transport_mismatch(reviewer: ReviewerConfig) -> list[str]:

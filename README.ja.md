@@ -102,7 +102,8 @@ stdin(または一時ファイル)でのみ渡し、実行後に書き込みを�
 利用者が確認してください**)は [docs/process-transport.md](docs/process-transport.md) に
 まとめてあります。性質の異なる transport を混ぜると agreement が情報量を持ちやすくなります。
 
-構造化出力は `json_schema → json_mode → prompt_only` の順に自動で降格し、
+構造化出力は `json_schema → json_mode → prompt_only` の順に自動で降格し
+(どこから始めるかは [docs/providers.md](docs/providers.md#構造化出力の降格) を参照)、
 スキーマ違反の応答は 1 回だけ修復を試みます。それでも駄目なら `schema_error` として
 **レポートに残します**(黙って消しません)。
 

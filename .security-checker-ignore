@@ -1,0 +1,10 @@
+# このリポジトリ自身の検査 (dogfooding) で、内容を確かめたうえで外している指摘。
+# 外す理由を必ず書く。理由が成り立たなくなったら行を消す。
+
+# 配布用のサンプル workflow。`uses: ...@<SHA>` は利用者が自分で置き換えるプレースホルダで、
+# 可変タグを使っているわけではない (docs/github-actions.md が SHA で固定するよう案内している)
+rule:yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag ci/**
+
+# jinja2 は LLM に送るプロンプト (プレーンテキスト) の組み立てに使っている。
+# HTML を出力しないので、このルールが想定する XSS の経路が無い
+rule:python.flask.security.xss.audit.direct-use-of-jinja2.direct-use-of-jinja2 src/security_checker/review/prompts/__init__.py

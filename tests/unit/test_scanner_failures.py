@@ -15,7 +15,7 @@ import pytest
 from security_checker.config.schema import GitleaksConfig, OsvConfig, SemgrepConfig, TrivyConfig
 from security_checker.errors import ConfigError
 from security_checker.models.enums import ScanStatus, Severity
-from security_checker.scanners import gitleaks, osv, registry, semgrep, trivy, untrusted
+from security_checker.scanners import base, gitleaks, osv, registry, semgrep, trivy, untrusted
 from security_checker.scanners.base import (
     CommandResult,
     ScanContext,
@@ -365,3 +365,27 @@ def test_annotation_scan_skips_huge_and_unreadable_files(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, "read_bytes", deny)
     assert untrusted._find_trivy_annotations(tmp_path) == []
+
+
+# --- stderr の抜粋 ----------------------------------------------------------------
+
+
+def test_stderr_excerpt_masks_known_keys_and_url_credentials():
+    # report.json と CI の artifact に残る. 値は実行時に組み立て、自リポジトリの検査に掛けない
+    token = "ghp_" + "a1B2c3D4" * 5
+    stderr = f"fatal: unable to access 'https://bot:hunter2pass@proxy.example/x'\nline: {token}\n"
+    shown = excerpt(stderr.encode())
+    assert shown is not None
+    assert token not in shown
+    assert "hunter2pass" not in shown
+    assert "https://bot:********@proxy.example/x" in shown
+    assert "ghp_" in shown  # 形式は残す
+
+
+def test_stderr_excerpt_masks_before_truncating():
+    token = "ghp_" + "a1B2c3D4" * 5
+    padding = "x" * (base.STDERR_EXCERPT_LIMIT - 10)
+    shown = excerpt(f"{padding} {token}".encode())
+    assert shown is not None
+    # 切り詰めた位置でキーが途中で切れても、値の断片を残さない
+    assert "a1B2c3D4" not in shown

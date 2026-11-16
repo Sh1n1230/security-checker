@@ -71,6 +71,7 @@ class SandboxResult:
     argv: tuple[str, ...]
     timed_out: bool = False
     created_paths: tuple[str, ...] = ()
+    created_paths_omitted: int = 0
     duration_ms: int = 0
 
 
@@ -124,13 +125,15 @@ async def run_sandboxed(
             with contextlib.suppress(TimeoutError, OSError, RuntimeError):
                 await asyncio.wait_for(_communicate_capped(process, b""), timeout=TERM_GRACE_S)
 
+        paths, omitted = _created_paths_with_omitted(cwd)
         return SandboxResult(
             exit_code=process.returncode,
             stdout=stdout.text(),
             stderr=stderr.text(),
             argv=tuple(resolved),
             timed_out=timed_out,
-            created_paths=created_paths(cwd),
+            created_paths=paths,
+            created_paths_omitted=omitted,
             duration_ms=int((time.monotonic() - started) * 1000),
         )
 
@@ -176,13 +179,20 @@ def created_paths(cwd: Path) -> tuple[str, ...]:
     空で始まったディレクトリなので、残っているものはすべて Reviewer の書き込みである
     (§25.2 の契約テスト 9 番)。絶対パスでこの外に書かれた場合は検知できない。
     """
+    return _created_paths_with_omitted(cwd)[0]
+
+
+def _created_paths_with_omitted(cwd: Path) -> tuple[tuple[str, ...], int]:
+    """Keep at most 20 path names, but count every entry for audit warnings."""
     found: list[str] = []
+    omitted = 0
     for path in sorted(cwd.rglob("*")):
+        if len(found) >= CREATED_PATHS_LIMIT:
+            omitted += 1
+            continue
         suffix = "/" if path.is_dir() else ""
         found.append(path.relative_to(cwd).as_posix() + suffix)
-        if len(found) >= CREATED_PATHS_LIMIT:
-            break
-    return tuple(found)
+    return tuple(found), omitted
 
 
 @dataclass
