@@ -35,6 +35,6 @@ def test_resolve_http_preset_returns_none_when_no_match():
 
 def test_resolve_http_preset_returns_none_when_base_or_model_missing():
     """Early return None when base_url or model is missing."""
-    presets = {}
+    presets: dict[str, HttpPreset] = {}
     assert resolve_http_preset(presets, name=None, base_url=None, model="x") is None
     assert resolve_http_preset(presets, name=None, base_url="https://x", model=None) is None
