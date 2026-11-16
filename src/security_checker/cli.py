@@ -644,53 +644,13 @@ def init(
     # --stdout では標準出力を YAML だけにする (`> security-checker.yml` で使えるように)
     console = _console(stderr=stdout)
 
-    usable = _print_detections(console, detect_all())
-    blocks: list[dict[str, Any]] = []
-
-    if usable and command is not None and not yes:
-        # --command は「これを使う」という明示なので、検出分を対話で尋ねない。
-        # 尋ねると、CI やスクリプトから呼んだときに標準入力が無くて失敗する。
-        console.print(
-            "[dim]--command が指定されているため、検出されたものは採用しません。"
-            "検出分も使うなら --yes を付けるか、--command なしで実行してください[/dim]\n"
-        )
-        usable = []
-    elif usable and not yes:
-        for index, item in enumerate(usable, start=1):
-            console.print(f"    [bold]{index}[/bold]. {escape(item.name)} ({item.transport})")
-        try:
-            answer = typer.prompt(
-                "Reviewer にするものを番号で (カンマ区切り・空欄で全部・'-' で選ばない)",
-                default="",
-                show_default=False,
-                err=stdout,
-            ).strip()
-        except typer.Abort:
-            # 標準入力が無い (CI・パイプ) と、尋ねても答えが返らない. 黙って Aborted にしない
-            _fail(
-                "番号を尋ねられませんでした (標準入力がありません)。"
-                "検出したものをすべて採用するなら --yes、使わないなら --command を指定してください",
-                ExitCode.CONFIG_ERROR,
-            )
-        usable = _select(usable, answer, console)
-    blocks.extend(dict(item.config) for item in usable)
+    usable = _choose_detections(
+        console, _print_detections(console, detect_all()), command=command, yes=yes, stdout=stdout
+    )
+    blocks: list[dict[str, Any]] = [dict(item.config) for item in usable]
     placeholder_models = _fill_http_models(blocks, model)
-
     if command is not None:
-        argv = _split_command(command)
-        if not argv:
-            _fail("--command が空です", ExitCode.CONFIG_ERROR)
-        reviewer_name = name or Path(argv[0]).name
-        taken = {str(block["name"]) for block in blocks}
-        if reviewer_name in taken:
-            if name is not None:
-                _fail(
-                    f"Reviewer '{name}' は検出したプリセットと名前が重複しています。"
-                    "--name で別の名前を指定してください",
-                    ExitCode.CONFIG_ERROR,
-                )
-            reviewer_name = _unique_name(reviewer_name, taken)
-        blocks.append(_reviewer_block(reviewer_name, argv))
+        blocks.append(_command_block(command, name, taken={str(b["name"]) for b in blocks}))
 
     if not blocks:
         console.print(
@@ -723,7 +683,67 @@ def init(
     if stdout:
         _emit(document)
         raise typer.Exit(code=int(ExitCode.OK))
+    _write_init_config(console, root, document, local=local, force=force)
 
+
+def _choose_detections(
+    console: Console,
+    usable: list[Detection],
+    *,
+    command: str | None,
+    yes: bool,
+    stdout: bool,
+) -> list[Detection]:
+    """検出されたもののうち、Reviewer にするものを決める (--yes なら全部)."""
+    if not usable or yes:
+        return usable
+    if command is not None:
+        # --command は「これを使う」という明示なので、検出分を対話で尋ねない。
+        # 尋ねると、CI やスクリプトから呼んだときに標準入力が無くて失敗する。
+        console.print(
+            "[dim]--command が指定されているため、検出されたものは採用しません。"
+            "検出分も使うなら --yes を付けるか、--command なしで実行してください[/dim]\n"
+        )
+        return []
+    for index, item in enumerate(usable, start=1):
+        console.print(f"    [bold]{index}[/bold]. {escape(item.name)} ({item.transport})")
+    try:
+        answer = typer.prompt(
+            "Reviewer にするものを番号で (カンマ区切り・空欄で全部・'-' で選ばない)",
+            default="",
+            show_default=False,
+            err=stdout,
+        ).strip()
+    except typer.Abort:
+        # 標準入力が無い (CI・パイプ) と、尋ねても答えが返らない. 黙って Aborted にしない
+        _fail(
+            "番号を尋ねられませんでした (標準入力がありません)。"
+            "検出したものをすべて採用するなら --yes、使わないなら --command を指定してください",
+            ExitCode.CONFIG_ERROR,
+        )
+    return _select(usable, answer, console)
+
+
+def _command_block(command: str, name: str | None, *, taken: set[str]) -> dict[str, Any]:
+    """--command から process transport の Reviewer を作る. 名前の重複は避ける."""
+    argv = _split_command(command)
+    if not argv:
+        _fail("--command が空です", ExitCode.CONFIG_ERROR)
+    reviewer_name = name or Path(argv[0]).name
+    if reviewer_name in taken:
+        if name is not None:
+            _fail(
+                f"Reviewer '{name}' は検出したプリセットと名前が重複しています。"
+                "--name で別の名前を指定してください",
+                ExitCode.CONFIG_ERROR,
+            )
+        reviewer_name = _unique_name(reviewer_name, taken)
+    return _reviewer_block(reviewer_name, argv)
+
+
+def _write_init_config(
+    console: Console, root: Path, document: str, *, local: bool, force: bool
+) -> None:
     destination = root / (LOCAL_CONFIG_FILENAMES[0] if local else CONFIG_FILENAMES[0])
     if destination.exists() and not force:
         _fail(

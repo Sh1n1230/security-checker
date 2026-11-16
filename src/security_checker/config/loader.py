@@ -248,27 +248,11 @@ def load_config(
     source = environ if environ is not None else dict(os.environ)
     untrusted = source.get(UNTRUSTED_TARGET_ENV, "").lower() in ("1", "true", "yes")
     if untrusted:
-        if config_path is None:
-            raise ConfigError(
-                f"{UNTRUSTED_TARGET_ENV} が有効なときは、検査対象の外にある設定ファイルを "
-                "--config で明示してください"
-            )
-        if config_path.resolve().is_relative_to(root.resolve()):
-            raise ConfigError(
-                f"{UNTRUSTED_TARGET_ENV} が有効なときは、検査対象の中の設定ファイル "
-                f"({config_path}) を使えません"
-            )
+        _require_config_outside_target(root, config_path)
 
     layers: list[tuple[Layer, dict[str, Any]]] = [("default", Config().model_dump(mode="json"))]
-
     if preset is not None:
-        preset_path = PRESET_DIR / f"{preset}.yml"
-        # 名前は同梱の一覧と照合する. `../x` で presets の外の YAML を読ませない
-        if preset not in available_presets() or not preset_path.is_file():
-            raise ConfigError(
-                f"preset '{preset}' は存在しません。利用可能: {', '.join(available_presets())}"
-            )
-        layers.append((f"preset:{preset}", _read_yaml(preset_path)))
+        layers.append((f"preset:{preset}", _read_preset(preset)))
 
     resolved_path = config_path
     if resolved_path is None:
@@ -276,33 +260,17 @@ def load_config(
     elif not resolved_path.is_file():
         raise ConfigError(f"設定ファイルが見つかりません: {resolved_path}")
     if resolved_path is not None:
-        file_data = _read_yaml(resolved_path)
-        _reject_plaintext_keys(file_data)
-        layers.append((f"file:{resolved_path}", file_data))
+        layers.append((f"file:{resolved_path}", _read_user_layer(resolved_path)))
 
     # 共有設定の後に、git 管理しない個人用の層を重ねる。
     # 「手元でだけ使う Reviewer」を共有設定に混ぜずに済ませるための経路。
     local_path = None if untrusted else find_local_config_file(root)
     if local_path is not None:
-        local_data = _read_yaml(local_path)
-        _reject_plaintext_keys(local_data)
-        layers.append((f"local:{local_path}", local_data))
+        layers.append((f"local:{local_path}", _read_user_layer(local_path)))
 
     layers.append(("env", env_overrides(source)))
     layers.append(("cli", cli_overrides or {}))
-
-    merged: dict[str, Any] = {}
-    origins: dict[str, Layer] = {}
-    for name, data in layers:
-        if not data:
-            continue
-        merged = (
-            _merge_local_layer(merged, data)
-            if name.startswith("local:")
-            else _deep_merge(merged, data)
-        )
-        for key in _flatten(data):
-            origins[key] = name
+    merged, origins = _merge_layers(layers)
 
     try:
         config = Config.model_validate(_drop_disabled_reviewers(merged))
@@ -318,6 +286,56 @@ def load_config(
         untrusted_target=untrusted,
         warnings=unimplemented_warnings(config, origins),
     )
+
+
+def _require_config_outside_target(root: Path, config_path: Path | None) -> None:
+    """検査対象を信用しないときは、対象の外にある設定ファイルの明示を求める (§21.2)."""
+    if config_path is None:
+        raise ConfigError(
+            f"{UNTRUSTED_TARGET_ENV} が有効なときは、検査対象の外にある設定ファイルを "
+            "--config で明示してください"
+        )
+    if config_path.resolve().is_relative_to(root.resolve()):
+        raise ConfigError(
+            f"{UNTRUSTED_TARGET_ENV} が有効なときは、検査対象の中の設定ファイル "
+            f"({config_path}) を使えません"
+        )
+
+
+def _read_preset(preset: str) -> dict[str, Any]:
+    preset_path = PRESET_DIR / f"{preset}.yml"
+    # 名前は同梱の一覧と照合する. `../x` で presets の外の YAML を読ませない
+    if preset not in available_presets() or not preset_path.is_file():
+        raise ConfigError(
+            f"preset '{preset}' は存在しません。利用可能: {', '.join(available_presets())}"
+        )
+    return _read_yaml(preset_path)
+
+
+def _read_user_layer(path: Path) -> dict[str, Any]:
+    """利用者が書いた設定ファイル (共有・local). 鍵の直書きはここで拒む."""
+    data = _read_yaml(path)
+    _reject_plaintext_keys(data)
+    return data
+
+
+def _merge_layers(
+    layers: list[tuple[Layer, dict[str, Any]]],
+) -> tuple[dict[str, Any], dict[str, Layer]]:
+    """層を後勝ちで重ね、各キーの値を決めた層も返す."""
+    merged: dict[str, Any] = {}
+    origins: dict[str, Layer] = {}
+    for name, data in layers:
+        if not data:
+            continue
+        merged = (
+            _merge_local_layer(merged, data)
+            if name.startswith("local:")
+            else _deep_merge(merged, data)
+        )
+        for key in _flatten(data):
+            origins[key] = name
+    return merged, origins
 
 
 def _format_validation_error(exc: ValidationError) -> str:
