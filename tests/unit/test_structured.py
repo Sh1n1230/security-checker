@@ -151,3 +151,33 @@ def test_braces_and_escaped_quotes_inside_strings_do_not_end_the_object():
 def test_an_unparsable_object_is_skipped_and_the_next_one_is_used():
     text = 'Example: {not json} Answer: {"vulnerable": false}'
     assert extract_json(text) == {"vulnerable": False}
+
+
+# --- 例示の JSON の後に判定がある応答 (#661) ---------------------------------------
+
+
+def test_the_judgement_is_found_after_an_example_object():
+    answer = verdict_payload(vulnerable=False, severity="none")
+    text = f'For example {{"a": 1}} would be invalid. My verdict:\n{json.dumps(answer)}'
+    judgement = parse_judgement(None, text)
+    assert judgement.vulnerable is False
+
+
+def test_a_provider_parsed_example_is_replaced_by_the_judgement_in_the_text():
+    # process transport は最初のオブジェクトを parsed として渡す. それが判定でなければ探し直す
+    answer = verdict_payload()
+    text = f'{{"note": "thinking"}}\n{json.dumps(answer)}'
+    assert parse_judgement({"note": "thinking"}, text).vulnerable is True
+
+
+def test_without_any_valid_judgement_the_last_object_is_reported():
+    with pytest.raises(SchemaViolationError) as info:
+        parse_judgement(None, '{"a": 1} then {"vulnerable": "maybe"}')
+    # 例示ではなく、答えのつもりで書かれた最後のオブジェクトの違反を伝える
+    assert "vulnerable" in str(info.value)
+
+
+def test_extract_json_without_a_filter_still_returns_the_first_object():
+    assert extract_json('x {"a": 1} y {"b": 2}') == {"a": 1}
+    assert extract_json('x {"a": 1} y {"b": 2}', accept=lambda d: "b" in d) == {"b": 2}
+    assert extract_json('x {"a": 1} y {"b": 2}', accept=lambda d: False) == {"b": 2}

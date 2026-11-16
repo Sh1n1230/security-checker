@@ -9,9 +9,10 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
+import yaml
 
 from security_checker import rules
 from security_checker.config.schema import SemgrepConfig
@@ -27,6 +28,39 @@ def test_every_bundled_rule_has_fixtures():
 
 def test_default_config_uses_the_bundled_llm_rules():
     assert SemgrepConfig().configs == ["p/default", "bundled:llm", "bundled:ci-lock"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/sample.py",
+        "pkg/tests/sample.py",
+        "test/sample.py",
+        "pkg/test/sample.py",
+        "conftest.py",
+        "pkg/conftest.py",
+        "test_llm.py",
+        "pkg/llm_test.py",
+    ],
+)
+def test_llm_python_rules_ignore_test_code_at_any_depth(path: str) -> None:
+    config = yaml.safe_load((rules.SEMGREP_DIR / "llm.yml").read_text(encoding="utf-8"))
+    python_rules = [rule for rule in config["rules"] if rule["languages"] == ["python"]]
+    assert len(python_rules) == 2
+    for rule in python_rules:
+        assert any(PurePosixPath(path).match(pattern) for pattern in rule["paths"]["exclude"]), (
+            rule["id"]
+        )
+
+
+def test_llm_python_rules_still_target_production_code() -> None:
+    config = yaml.safe_load((rules.SEMGREP_DIR / "llm.yml").read_text(encoding="utf-8"))
+    for rule in config["rules"]:
+        if rule["languages"] == ["python"]:
+            assert not any(
+                PurePosixPath("pkg/handler.py").match(pattern)
+                for pattern in rule["paths"]["exclude"]
+            )
 
 
 @pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep が入っていません")

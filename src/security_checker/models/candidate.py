@@ -24,7 +24,12 @@ _MASK = "\x00"
 
 
 def normalize_snippet(text: str) -> str:
-    """安定 ID 用の正規化: 文字列退避 → コメント除去 → 空白圧縮 → 小文字化."""
+    """安定 ID 用の正規化: 文字列退避 → コメント除去 → 空白圧縮 → 小文字化.
+
+    小文字化するのは、依存のキー (`PyPI:Flask@3.0` と `pypi:flask@3.0`) のように
+    表記が揺れても同じものを同じ ID にするため。コード片では、大文字小文字だけが違う
+    別々の検出が同じ正規化結果になるが、`IdFactory` が出現順の連番を付けるので ID は重ならない。
+    """
     literals: list[str] = []
 
     def stash(m: re.Match[str]) -> str:

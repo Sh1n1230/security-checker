@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import tempfile
 import time
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -259,11 +260,19 @@ async def _run_one(
         try:
             return await scanner.scan(target, ctx)
         except Exception as exc:  # 1 つの失敗で全体を落とさない (§20.2)
+            # レポートには型名と短いメッセージだけを残す. 調査に要る場所は debug ログに出す
+            log.event(
+                "scanner.internal_error",
+                level="debug",
+                scanner=scanner.name,
+                error_type=type(exc).__name__,
+                traceback=traceback.format_exc(),
+            )
             return ScanResult(
                 scanner=scanner.name,
                 category=scanner.category,
                 status=ScanStatus.FAILED,
-                reason=f"内部エラー: {exc}",
+                reason=f"内部エラー ({type(exc).__name__}): {exc}",
             )
 
 

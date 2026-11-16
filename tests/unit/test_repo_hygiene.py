@@ -11,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from security_checker.config.schema import Config, ContextConfig, RepoHygieneConfig
-from security_checker.context.builder import ContextBuilder
+from security_checker.context.builder import NOTE_FILE_LEVEL, ContextBuilder
 from security_checker.github.pr import DiffScope
 from security_checker.models.enums import ScanStatus, Severity
 from security_checker.models.task import RepoFacts
@@ -350,7 +350,7 @@ async def test_values_never_reach_the_report_or_the_review_task(tmp_path):
         task = builder.build(candidate)
         assert task.code_context.primary is None
         assert LITERAL_VALUE not in task.model_dump_json()
-        assert any("ファイル全体" in note for note in task.notes)
+        assert NOTE_FILE_LEVEL in task.notes
 
 
 # --- 差分モード ------------------------------------------------------------------------
