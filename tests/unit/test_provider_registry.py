@@ -13,7 +13,6 @@ from security_checker.providers.http.dialects.ollama_chat import DEFAULT_NUM_CTX
 from security_checker.providers.presets.loader import HttpPreset, load_http_presets
 from security_checker.providers.registry import (
     build_http_provider,
-    build_provider,
     resolve_api_key,
     resolve_capabilities,
     resolve_headers,
@@ -152,13 +151,10 @@ def test_broken_user_preset_is_config_error(tmp_path):
         load_http_presets(tmp_path)
 
 
-def test_unknown_transport_lists_what_is_available():
-    config = ReviewerConfig(
-        name="r1", transport="http", dialect="openai_chat", base_url="https://x/v1", model="m"
-    )
-    unknown = config.model_copy(update={"transport": "carrier-pigeon"})
-    with pytest.raises(ConfigError, match="http, process"):
-        build_provider(unknown, environ={})
+def test_unknown_transport_is_rejected_by_the_schema():
+    # 自作の Provider は transport: plugin + plugin: <名前> で指す. transport に名前は書けない
+    with pytest.raises(ValueError, match="'http', 'process' or 'plugin'"):
+        ReviewerConfig(name="r1", transport="carrier-pigeon")
 
 
 # --- 方言の形から決まる既定 (#232, #666) --------------------------------------------

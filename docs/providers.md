@@ -217,15 +217,36 @@ reviewers:
 
 ---
 
-## ルート 3: 新しい方言のアダプタを書く（外部パッケージ）
+## ルート 3: Provider を自作する（外部パッケージ）
 
 ここに到達するのは、**上の 2 つで表現できない API 形式が登場した場合だけ**です。
 「新しいベンダーが出たから」という理由でここに来ることはありません。
 
+`LLMProvider` (`security_checker.providers.base`) を満たすクラスを書き、**`ReviewerConfig` を受け取って
+Provider を返す関数** (クラスそのものでも構いません) を entry point に登録します。
+
 ```toml
+# 自作パッケージの pyproject.toml
 [project.entry-points."security_checker.providers"]
-my_provider = "my_plugin.provider:MyProvider"
+my_provider = "my_plugin.provider:build"     # build(reviewer: ReviewerConfig) -> LLMProvider
 ```
+
+使う側は、設定で名前を書きます。
+
+```yaml
+reviewers:
+  - name: mine
+    transport: plugin
+    plugin: my_provider        # entry point に登録した名前
+    model: <model-id>          # 以下、どの項目を読むかはプラグインが決める
+    api_key_env: MY_API_KEY
+```
+
+- **入れただけでは動きません。** 読み込むのは、設定の `plugin` に書いた名前だけです
+  (依存に入っただけのパッケージが、黙って Provider として動かないようにするため)。
+- 登録されていない名前と、読み込みに失敗したプラグインは設定エラー (exit 2) です。
+- `security-checker providers list` に登録済みの名前が出ます。`providers check` で疎通を確かめられます。
+- 金額は `pricing.yml` の `model` の単価で数えます。並列度の既定は http と同じです。
 
 `security_checker.testing.ProviderContractTests` を継承すれば、自作 Provider が契約を
 満たしているか検証できます。`capabilities` の妥当性、`usage` の充足、`aclose()` を常に検証します。

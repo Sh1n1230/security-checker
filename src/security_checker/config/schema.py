@@ -209,7 +209,8 @@ class ReviewerConfig(StrictModel):
     """
 
     name: str
-    transport: Literal["http", "process"]
+    #: `plugin` は entry point で登録した自作 Provider を使う (`plugin` に名前を書く)
+    transport: Literal["http", "process", "plugin"]
     #: false なら読み込み時に外す. 手元で共有の Reviewer を止めるために使う
     enabled: bool = True
     weight: float = Field(default=1.0, ge=0.0)
@@ -243,6 +244,10 @@ class ReviewerConfig(StrictModel):
     capabilities: ReviewerCapabilities = ReviewerCapabilities()
     seed: int | None = None
 
+    # plugin transport: entry point (security_checker.providers) に登録した名前。
+    # ここに書いたものだけを読み込む (依存に入っただけのパッケージを Provider として動かさない)
+    plugin: str | None = None
+
     # process transport
     preset: str | None = None
     command: list[str] | None = None
@@ -261,6 +266,13 @@ class ReviewerConfig(StrictModel):
 
     @model_validator(mode="after")
     def _validate_transport(self) -> ReviewerConfig:
+        if (self.transport == "plugin") != (self.plugin is not None):
+            raise ValueError(
+                f"reviewer '{self.name}': plugin は transport: plugin のときに (だけ) 書きます"
+            )
+        if self.transport == "plugin":
+            # どの項目を使うかはプラグインが決める. ここでは形を縛らない
+            return self
         if self.transport == "http":
             if self.dialect == "text_io":
                 raise ValueError(
