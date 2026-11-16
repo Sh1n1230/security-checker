@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,7 @@ from security_checker.config.schema import BudgetConfig
 from security_checker.errors import ExitCode
 from security_checker.models.enums import Severity
 from security_checker.models.verdict import Usage
-from security_checker.providers.check import ProviderCatalog
+from security_checker.providers.check import CheckResult, ProviderCatalog
 from security_checker.providers.detect import Detection
 from security_checker.run import _remaining_budget, output_relative
 
@@ -147,3 +148,27 @@ def test_remaining_budget_is_none_once_money_or_tokens_run_out():
     assert (left.max_usd, left.max_total_tokens) == (0.75, 600)
     assert _remaining_budget(budget, Usage(estimated_usd=1.0)) is None
     assert _remaining_budget(budget, Usage(input_tokens=1000, estimated_usd=0.1)) is None
+
+
+def test_providers_check_uses_one_event_loop_for_all_reviewers(tmp_path, monkeypatch):
+    loops: set[int] = set()
+
+    async def fake_check(reviewer: Any, *, probe: bool) -> CheckResult:
+        loops.add(id(asyncio.get_running_loop()))
+        return CheckResult(name=reviewer.name, transport=reviewer.transport)
+
+    monkeypatch.setattr(cli, "check_reviewer", fake_check)
+    reviewers = "\n".join(
+        f"  - {{name: r{i}, transport: process, command: [tool{i}]}}" for i in range(3)
+    )
+    (tmp_path / "security-checker.yml").write_text(
+        f"version: 1\nreviewers:\n{reviewers}\n", encoding="utf-8"
+    )
+    result = runner.invoke(app, ["providers", "check", "--path", str(tmp_path)])
+    assert len(loops) == 1
+    # 表示は設定に書いた順
+    assert [line.split()[1] for line in result.output.splitlines() if "(process)" in line] == [
+        "r0",
+        "r1",
+        "r2",
+    ]

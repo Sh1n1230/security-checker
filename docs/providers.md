@@ -78,7 +78,7 @@ reviewers:
     dialect: ollama_chat
     base_url: http://localhost:11434
     model: <model-id>
-    num_ctx: 16384          # 文脈長。省略時は 8192
+    num_ctx: 16384          # 文脈長。省略時は 8192。入力はこの中に収まるよう切り詰めます
     keep_alive: 10m         # 連続レビューでのモデル再ロードを避ける（任意）
 ```
 
@@ -123,6 +123,17 @@ reviewers:
 
 `json_schema` で送って 400 が返れば `json_mode` に、それも駄目なら `prompt_only` に自動で降格します。
 降格したことは `degraded_to` とトレースに残ります。未知のエンドポイントでも「まず動く」ようにするためです。
+
+**どこから始めるか**は次の順で決まります (後のものが優先)。
+
+1. 既定は `json_mode` (最も多くのエンドポイントが受け付ける)
+2. 方言の形から決まる値 — `anthropic_messages` は `json_schema` (この形に `json_mode` は無く、
+   ツール呼び出しの強制で構造化出力を得るため)
+3. プリセットの `capabilities`
+4. 設定の `reviewers[].capabilities.structured_output`
+
+つまり、プリセットに一致しない `openai_chat` のエンドポイントは `json_mode` から始まり、`json_schema` は試しません。
+スキーマを強制できるエンドポイントなら `capabilities.structured_output: json_schema` を書いてください。
 
 ---
 

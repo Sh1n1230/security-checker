@@ -39,6 +39,8 @@ BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 60.0
 #: rpm / tpm を数える窓 (秒)
 WINDOW_S = 60.0
+#: process transport の既定の並列度. CLI を同時に何本も起動すると、手元の資源と提供元の制限に当たる
+PROCESS_DEFAULT_CONCURRENCY = 1
 CIRCUIT_BREAKER_FAILURES = 5
 DEFAULT_DEADLINE_S = 1800.0
 #: rate_limit.rpm を書いていない Reviewer の初期値. 429 を受けるまでは絞らない
@@ -166,8 +168,14 @@ def build_runtime(
     default_concurrency: int,
     quota_store: QuotaStore | None = None,
 ) -> ReviewerRuntime:
-    """設定から実行状態を作る. rate_limit の宣言をスケジューラが尊重する."""
-    concurrency = min(config.concurrency, default_concurrency)
+    """設定から実行状態を作る. rate_limit の宣言をスケジューラが尊重する.
+
+    並列度は `reviewers[].concurrency` を優先する。省略時は、http が `default_concurrency`
+    (`concurrency.reviews_per_provider`)、process が 1 (コマンドを同時に何本も起動しない)。
+    """
+    concurrency = config.concurrency or (
+        PROCESS_DEFAULT_CONCURRENCY if config.transport == "process" else default_concurrency
+    )
     limits = config.rate_limit
     return ReviewerRuntime(
         reviewer=reviewer,

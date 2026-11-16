@@ -51,7 +51,7 @@
 | キー | 既定 | 説明 |
 |---|---|---|
 | `mode` | `auto` | `auto` (PR の文脈なら差分のみ) / `full` / `diff`。CLI の `--base` / `--full` で上書き |
-| `exclude` | vendor・node_modules など | 除外する glob。gitignore と同じ解釈 (`tests` はどの階層の tests にも一致、先頭か途中に `/` があればルート起点、一致したディレクトリの配下も除外)。全スキャナと `.security-checker-ignore` で共通。設定ファイルに書いても CLI の `--exclude` でも既定の一覧を**置き換え** (追加ではない) ます。既定に足したいときは既定の項目も書き写してください。`**/.git/**` と `**/.security-checker/**` だけは常に除外します |
+| `exclude` | vendor・node_modules・.venv・ツールのキャッシュなど | 除外する glob。gitignore と同じ解釈 (`tests` はどの階層の tests にも一致、先頭か途中に `/` があればルート起点、一致したディレクトリの配下も除外)。全スキャナと `.security-checker-ignore` で共通。設定ファイルに書いても CLI の `--exclude` でも既定の一覧を**置き換え** (追加ではない) ます。既定に足したいときは既定の項目も書き写してください。`**/.git/**` と `**/.security-checker/**` だけは常に除外します |
 
 ### scanners
 
@@ -63,7 +63,6 @@
 | `osv.enabled` | `true` | 依存の既知脆弱性 (別名をまとめて 1 件にする)。osv-scanner が未導入なら `skipped` |
 | `trivy.enabled` / `scanners` | `false` / `[config]` | `config` (誤設定) / `vuln` (依存)。`secret` は受け付けない |
 | `scanners.plugins.<名前>` | | entry point で登録した自作スキャナを有効にする ([scanners.md](scanners.md)) |
-| `*.timeout_s` / `extra_args` | | タイムアウトと追加引数 |
 | `*.timeout_s` / `extra_args` | | スキャナのプロセス全体の上限 (秒) と追加引数。出力の先や形式を変えるフラグは使えません (警告します) |
 
 詳細は [scanners.md](scanners.md)。
@@ -79,7 +78,8 @@
 | `headers` / `headers_env` | http 用の追加ヘッダ。秘密を含むヘッダは `headers_env` に**環境変数名**を書く (`X-Api-Key: MY_ENV`)。`headers` の値は `config show` とトレースでは伏せる |
 | `command` / `preset` / `prompt_via` | process 用 |
 | `weight` | `weighted` 集約での重み |
-| `timeout_s` / `concurrency` / `max_output_tokens` / `seed` | 呼び出しの制御 |
+| `timeout_s` / `max_output_tokens` / `seed` | 呼び出しの制御 |
+| `concurrency` | この Reviewer に同時に送る数。省略時は http が `concurrency.reviews_per_provider`、process が `1` |
 | `rate_limit.rpm` / `tpm` / `rpd` | 毎分のリクエスト数・トークン数、1 日のリクエスト数 |
 | `capabilities.*` | 構造化出力の方式などの明示指定 (自動判定より優先) |
 
@@ -93,7 +93,7 @@
 |---|---|---|
 | `strategy` | `consensus` | `consensus` / `weighted` / `judge` |
 | `consensus.min_votes` / `min_ratio` / `severity` | `2` / `0.5` / `median` | 票は常に過半数が必要です。`min_ratio` は 0.5 より上げるときに使い、0.5 未満は効かないので警告します |
-| `weighted.threshold` | `0.6` | |
+| `weighted.threshold` | `0.6` | 重み付きスコアがこれ以上なら脆弱、マイナス側でこれ以下なら誤検出。`0` より大きく `1` 以下 (`0` は設定エラー) |
 | `judge.reviewer` | | Judge 役の Reviewer 名 (一次レビューには参加しない) |
 | `judge.fallback` | `consensus` | Judge が失敗したとき / Judge に回さない候補の戦略 |
 | `judge.only_on_disagreement` | `true` | 判断が割れた候補だけを Judge に回す |
@@ -119,7 +119,7 @@
 | `budget.max_usd` / `max_total_tokens` | `1.0` / `2,000,000` | 超える見込みになったら新規の呼び出しを止め、部分結果を出す。送信の直前に、使用量・送信中の分・次の呼び出しの見積り (出力は上限で数える) の合計で判定する |
 | `budget.deadline_s` | `1800` | レビューの実行時間の上限 (秒)。Judge の段も含む。超えたら新規の呼び出しを止め、部分結果を出す。送信中の呼び出しは待つので、`reviewers[].timeout_s` の分だけ超えることがある |
 | `budget.on_exceed` | `stop_and_report` | `warn_and_continue` にすると止めない |
-| `concurrency.scanners` / `reviews_per_provider` | `4` / `4` | |
+| `concurrency.scanners` / `reviews_per_provider` | `4` / `4` | 同時に動かすスキャナの数 / http の Reviewer 1 体に同時に送る数の既定。`reviewers[].concurrency` を書いた Reviewer はそちらが優先。実際の送信数は `rate_limit` でも抑えられます |
 | `context.window_lines` / `max_tokens_per_task` | `40` / `8000` | LLM に渡す文脈。`max_tokens_per_task` はプロンプト全体の上限で、本文以外に約 1,500 トークン使います。Reviewer の `max_context_tokens − max_output_tokens` のほうが小さければ、そちらに合わせます |
 | `context.max_callers` | `3` | **未実装**。呼び出し元のコードはまだ文脈に含めない (既定値と `0` 以外を書くと警告) |
 

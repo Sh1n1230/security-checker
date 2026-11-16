@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
+from security_checker.context.redact import redact_known_patterns
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category, ScanStatus
 from security_checker.processes import POSIX, terminate
@@ -171,10 +172,15 @@ def probe_command(command: str, version_args: tuple[str, ...] = ("--version",)) 
 
 
 def excerpt(data: bytes, limit: int = STDERR_EXCERPT_LIMIT) -> str | None:
-    """stderr の先頭を安全に抜き出す."""
+    """stderr の先頭を抜き出す. 既知形式のキーと URL の資格情報は伏せる (§19.1).
+
+    スキャナのエラー出力は、解析に失敗した行や proxy の URL をそのまま含みうる。
+    report.json と CI の artifact に残るので、切り詰める前に伏せる
+    (切り詰めた位置でキーが途中で切れると、形式に一致しなくなるため)。
+    """
     if not data:
         return None
-    text = data.decode("utf-8", "replace").strip()
+    text = redact_known_patterns(data.decode("utf-8", "replace").strip())
     if not text:
         return None
     return text if len(text) <= limit else text[:limit] + " …(truncated)"

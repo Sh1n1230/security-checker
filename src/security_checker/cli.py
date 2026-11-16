@@ -32,7 +32,7 @@ from security_checker.config.loader import (
     available_presets,
     load_config,
 )
-from security_checker.config.schema import Config
+from security_checker.config.schema import Config, ReviewerConfig
 from security_checker.context.budget import estimate_tokens
 from security_checker.context.redact import redact_known_patterns
 from security_checker.errors import ConfigError, ExitCode, SecurityCheckerError
@@ -57,7 +57,7 @@ from security_checker.observability.explain import load_report
 from security_checker.observability.explain import render as render_explanation
 from security_checker.policy.baseline import write_baseline
 from security_checker.policy.suppress import SuppressionRules, load_rules
-from security_checker.providers.check import catalog, check_reviewer
+from security_checker.providers.check import CheckResult, catalog, check_reviewer
 from security_checker.providers.detect import Detection, detect_all
 from security_checker.report.json_writer import write_json
 from security_checker.report.markdown import write_markdown
@@ -1038,8 +1038,8 @@ def comment(
     )
     console.print(
         f"inline: 投稿 {result.inline_posted} / 投稿済み {result.inline_already_posted} / "
-        f"diff 外 {result.inline_outside_diff} / 上限超過 {result.inline_over_limit} / "
-        f"拒否 {result.inline_rejected}"
+        f"diff 外 {result.inline_outside_diff} / patch なし {result.inline_no_patch} / "
+        f"上限超過 {result.inline_over_limit} / 拒否 {result.inline_rejected}"
     )
 
 
@@ -1100,8 +1100,8 @@ def providers_check(
         )
     console = _console()
     failed = False
-    for reviewer in reviewers:
-        result = asyncio.run(check_reviewer(reviewer, probe=not no_probe))
+    # 1 つのイベントループで、すべての Reviewer を並行に確かめる (表示は設定の順)
+    for result in asyncio.run(_check_all(reviewers, probe=not no_probe)):
         mark = "[green]✓[/green]" if result.ok else "[red]✗[/red]"
         console.print(f"{mark} [bold]{escape(result.name)}[/bold] ({result.transport})")
         for step in result.steps:
@@ -1113,6 +1113,10 @@ def providers_check(
             console.print(f"    [yellow]→[/yellow] {escape(suggestion)}", highlight=False)
         failed = failed or not result.ok
     raise typer.Exit(code=int(ExitCode.EXECUTION_ERROR if failed else ExitCode.OK))
+
+
+async def _check_all(reviewers: list[ReviewerConfig], *, probe: bool) -> list[CheckResult]:
+    return list(await asyncio.gather(*(check_reviewer(r, probe=probe) for r in reviewers)))
 
 
 @app.command("explain")

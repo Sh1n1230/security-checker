@@ -28,6 +28,18 @@ def test_id_ignores_comments_and_case():
     assert normalize_snippet("Foo()  # 危険") == normalize_snippet("foo()")
 
 
+def test_findings_that_differ_only_in_case_still_get_distinct_ids():
+    # 小文字化は依存のキーの表記揺れを吸収するためのもの. コード片が衝突したら、
+    # 出現順の連番で区別する (ID は重ならないが、順序に依存する)
+    factory = IdFactory()
+    upper = factory.make("semgrep", "r", "a.py", "API_KEY = x")
+    lower = factory.make("semgrep", "r", "a.py", "api_key = x")
+    assert upper != lower
+    assert candidate_id("osv", "GHSA-1", "uv.lock", "PyPI:Flask@3.0") == candidate_id(
+        "osv", "GHSA-1", "uv.lock", "pypi:flask@3.0"
+    )
+
+
 def test_string_literals_are_not_stripped_as_comments():
     # `//` inside a URL is not a comment. Stripping it made these two snippets
     # normalize to the same text, so two different findings shared one stable ID
