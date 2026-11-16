@@ -146,7 +146,9 @@ output:
 | 0 | ポリシー違反なし |
 | 1 | `fail_on` 以上の検出、または `min_score` 未満 |
 | 2 | 設定エラー |
-| 3 | 実行エラー(`--strict` 時にスキャナが失敗した) |
+| 3 | 実行エラー(`--strict` 時にスキャナの失敗・Reviewer の無効化・未レビューの候補がある) |
+
+コマンドごとの条件は [docs/exit-codes.md](docs/exit-codes.md) にまとめています。
 
 **1 と 3 を分けているのが v1 との最大の違いです。** v1 には「スキャナが失敗しても 0 件成功として扱われ、
 スコアが満点に見える」欠陥がありました。v2 は `skipped`(未導入)と `failed`(異常終了)を区別し、
@@ -220,7 +222,12 @@ v1 の入力(`min-score` / `upload-sarif` / `token` / `url`)も受け付けま�
 | `contrib/host-audit/check_updates.sh` | OS/brewの未適用アップデートとバックアップ状態を確認 |
 | `contrib/host-audit/run_all.sh [dir] [--domain d]` | 上記の環境系チェックを一括実行(定期実行向け) |
 
-いずれも問題検出時は exit 1 を返すので、cron や CI に組み込めます。
+いずれも問題検出時は exit 1、必要なコマンドが無いなどで検査できなかったときは exit 2 を返すので、
+cron や CI に組み込めます (`run_all.sh` は exit 2 を「未実行」として通過と区別します)。
+
+pre-push フックが守るブランチは既定で `main` / `master` です。リポジトリごとに
+`git config security-checker.protectedBranches 'main|release/.*'` (または環境変数
+`SECURITY_CHECKER_PROTECTED_BRANCHES`) で正規表現を変えられます。
 
 ### Windows版 (contrib/host-audit/windows/)
 
@@ -283,6 +290,7 @@ cp -r skills/security-check skills/security-fix ~/.claude/skills/
   プリセットの足し方（コードを書かずに新しい LLM を足す方法）
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — 行動規範（Contributor Covenant v2.1）
 - [SECURITY.md](SECURITY.md) — **脆弱性は公開 Issue ではなく非公開で報告してください**
+- [docs/README.md](docs/README.md) — ドキュメントの目次
 - [docs/DESIGN.md](docs/DESIGN.md) — 「なぜそうなっているか」はここに書いてあります
 - [docs/NEXT-STEPS.md](docs/NEXT-STEPS.md) — 残作業と、決める必要があること
 
