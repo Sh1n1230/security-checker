@@ -14,12 +14,12 @@ from security_checker.config.schema import Config
 from security_checker.errors import ExitCode
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, FindingStatus, ScanStatus, Severity
-from security_checker.models.report import Report, ScannerRun
 from security_checker.models.finding import SuppressionReason
 from security_checker.models.report import (
     Report,
     ReportWarning,
     ReviewerRun,
+    ScannerRun,
     SuppressedCandidate,
     TargetInfo,
 )
@@ -123,8 +123,6 @@ async def test_no_scanners_configured(tmp_path):
 
 def reviewed_report(**overrides: Any) -> Report:
     from security_checker.models.enums import FindingStatus
-    from security_checker.models.finding import SuppressionReason
-    from security_checker.models.report import ReviewerRun, SuppressedCandidate
     from security_checker.models.verdict import Usage
 
     confirmed = make_candidate("c1", path="a.py")
@@ -210,7 +208,6 @@ def test_unknown_cost_and_many_warnings(tmp_path):
 
 
 def test_diff_mode_label(tmp_path):
-    from security_checker.models.report import TargetInfo
 
     report = make_report(
         [], target=TargetInfo(root="/r", mode="diff", changed_files=3, base="origin/main")
@@ -219,7 +216,7 @@ def test_diff_mode_label(tmp_path):
     assert "diff mode vs origin/main, 3 files" in output
 
 
-def test_scanners_are_separated_and_redacted_findings_are_marked(tmp_path, candidate):
+def test_scanners_are_separated_and_redacted_findings_are_marked(candidate):
     masked = candidate.model_copy(update={"redacted": True})
     report = make_report(
         [masked],
@@ -229,6 +226,6 @@ def test_scanners_are_separated_and_redacted_findings_are_marked(tmp_path, candi
             ScannerRun(scanner="gitleaks", category=Category.SECRET, status=ScanStatus.OK),
         ],
     )
-    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]), tmp_path)
+    output = capture(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]))
     assert "semgrep ✓ 0  gitleaks ✓ 0" in output
     assert "値はマスクして保存・送信" in output
