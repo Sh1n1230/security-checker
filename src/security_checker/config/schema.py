@@ -296,7 +296,8 @@ class ConsensusConfig(StrictModel):
 class WeightedConfig(StrictModel):
     """weighted 戦略の閾値."""
 
-    threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    #: 0 は書けない. 0 だと、誰も脆弱と言っていない候補 (スコア 0) まで likely になる
+    threshold: float = Field(default=0.6, gt=0.0, le=1.0)
 
 
 class JudgeConfig(StrictModel):

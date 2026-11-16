@@ -93,7 +93,7 @@
 |---|---|---|
 | `strategy` | `consensus` | `consensus` / `weighted` / `judge` |
 | `consensus.min_votes` / `min_ratio` / `severity` | `2` / `0.5` / `median` | 票は常に過半数が必要です。`min_ratio` は 0.5 より上げるときに使い、0.5 未満は効かないので警告します |
-| `weighted.threshold` | `0.6` | |
+| `weighted.threshold` | `0.6` | 重み付きスコアがこれ以上なら脆弱、マイナス側でこれ以下なら誤検出。`0` より大きく `1` 以下 (`0` は設定エラー) |
 | `judge.reviewer` | | Judge 役の Reviewer 名 (一次レビューには参加しない) |
 | `judge.fallback` | `consensus` | Judge が失敗したとき / Judge に回さない候補の戦略 |
 | `judge.only_on_disagreement` | `true` | 判断が割れた候補だけを Judge に回す |
