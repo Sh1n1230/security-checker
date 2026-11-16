@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from io import StringIO
 
 from security_checker.config.schema import Config
 from security_checker.errors import ExitCode
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, ScanStatus, Severity
+from security_checker.observability import logging as log
 from security_checker.report.json_writer import write_json
 from security_checker.run import run_scan
 from security_checker.scanners import registry
@@ -83,6 +85,34 @@ async def test_scanner_exception_is_contained(tmp_path):
     statuses = {run.scanner: run.status for run in outcome.report.scanners}
     assert statuses == {"boom": ScanStatus.FAILED, "fine": ScanStatus.OK}
     assert len(outcome.report.candidates) == 1
+    failure = next(run for run in outcome.report.scanners if run.scanner == "boom")
+    assert failure.reason == "内部エラー: RuntimeError: 想定外"
+
+    path = write_json(outcome.report, outcome.output_dir)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    scanner = next(run for run in raw["scanners"] if run["scanner"] == "boom")
+    assert scanner["reason"] == failure.reason
+
+
+async def test_scanner_exception_writes_traceback_only_in_debug_log(tmp_path):
+    stream = StringIO()
+    log.configure(level="debug", fmt="json", stream=stream)
+    try:
+        await run_scan(
+            Config(),
+            tmp_path,
+            base_dir=tmp_path,
+            scanners=[FakeScanner("broken", raises=KeyError("missing"))],
+        )
+    finally:
+        log.disable()
+
+    entries = [json.loads(line) for line in stream.getvalue().splitlines()]
+    trace = next(entry for entry in entries if entry["event"] == "scanner.internal_error")
+    assert trace["level"] == "debug"
+    assert trace["scanner"] == "broken"
+    assert "KeyError" in trace["traceback"]
+    assert "raise" in trace["traceback"]
 
 
 async def test_report_json_roundtrip(tmp_path):

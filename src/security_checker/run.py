@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import tempfile
 import time
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -21,6 +22,7 @@ from security_checker.aggregate.judge import anonymize, apply_judgement, needs_j
 from security_checker.aggregate.registry import build_aggregator
 from security_checker.context.builder import ContextBuilder
 from security_checker.context.facts import collect_repo_facts
+from security_checker.context.redact import redact_known_patterns
 from security_checker.errors import ConfigError
 from security_checker.github.pr import DiffScope, head_commit, repo_prefix
 from security_checker.ids import new_run_id
@@ -259,11 +261,19 @@ async def _run_one(
         try:
             return await scanner.scan(target, ctx)
         except Exception as exc:  # 1 つの失敗で全体を落とさない (§20.2)
+            log.event(
+                "scanner.internal_error",
+                level="debug",
+                scanner=scanner.name,
+                traceback="".join(traceback.format_exception(exc)),
+            )
+            message = redact_known_patterns(str(exc)).splitlines()
+            summary = message[0][:200] if message else ""
             return ScanResult(
                 scanner=scanner.name,
                 category=scanner.category,
                 status=ScanStatus.FAILED,
-                reason=f"内部エラー: {exc}",
+                reason=f"内部エラー: {type(exc).__name__}: {summary}",
             )
 
 
