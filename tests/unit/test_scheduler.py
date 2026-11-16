@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
@@ -33,6 +31,10 @@ from security_checker.review.scheduler import (
     build_runtime,
 )
 from security_checker.testing import ScriptedProvider, SlowProvider, verdict_payload
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
 
 
 def make_task(index: int = 0) -> ReviewTask:

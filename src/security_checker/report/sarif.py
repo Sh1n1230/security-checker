@@ -22,15 +22,18 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from security_checker.context.redact import redact_known_patterns
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
-from security_checker.models.finding import Finding
-from security_checker.models.report import Report
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.candidate import Candidate
+    from security_checker.models.finding import Finding
+    from security_checker.models.report import Report
 
 SARIF_VERSION = "2.1.0"
 SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"

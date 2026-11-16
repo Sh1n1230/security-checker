@@ -78,13 +78,55 @@ include = ["src/**/*.py", "tests/**/*.py", "pyproject.toml"]
 extend-exclude = ["tests/fixtures/vulnerable-app", "tests/fixtures/bundled-rules"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "ASYNC", "S"]
-ignore = ["S603", "S607"]
+select = [
+  "E", "F", "I", "N", "UP", "B", "SIM", "RUF", "ASYNC", "S",
+  "D1",      # 公開している API には docstring を書く
+  "ANN401",  # 引数を Any で受けない (mypy --strict の検査が効かなくなる)
+  "ARG",     # 使わない引数
+  "C90",     # 循環的複雑度
+  "FBT",     # 真偽値はキーワードで渡す
+  "FURB", "PERF", "PIE", "PYI", "RET501",
+  "ISC",
+  "PLC0207", "PLC0415", "PLR2004", "PLW2901",
+  "PT018",
+  "PTH201",
+  "T20",     # 出力は Console か cli._emit を通す
+  "TC",      # 型注釈にしか使わない import は TYPE_CHECKING の下に置く
+]
+ignore = [
+  "S603", "S607",
+  # __init__ の説明はクラスの docstring に書く。特殊メソッドは名前が仕様
+  "D105", "D107",
+]
 # 日本語の文中で使う記号 (「transport × dialect」など) を誤検知させない
 allowed-confusables = ["×", "－", "–"]
 
+# 採用しないルールと理由:
+# - EM / TRY003: 利用者向けの文言を例外で運び、cli._fail で 1 回だけ表示する設計。
+#   文言を変数に分けても読みやすくならず、トレースバックを利用者に見せることもない (#686)
+# - ERA001: 日本語の説明コメントの括弧や代入の例を、コメントアウトしたコードと誤検知する (#688)
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.flake8-type-checking]
+# pydantic は実行時に型注釈を評価する。モデルのフィールドに使う型は TYPE_CHECKING に移さない
+runtime-evaluated-base-classes = [
+  "pydantic.BaseModel",
+  "security_checker.config.schema.StrictModel",
+  "security_checker.config.schema.ScannerConfig",
+]
+
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+# テストは pytest の流儀に従う: assert・フィクスチャを受け取るだけの引数・期待値の数値・
+# 真偽値の位置引数。docstring は必須にしない (テスト名が説明)
+"tests/**" = ["S101", "D1", "ANN401", "ARG", "FBT", "PLR2004"]
+# typer は関数の引数の型注釈と既定値を実行時に読んで CLI を組み立てる。
+# オプションの真偽値の既定値 (FBT002) と、注釈に使う型の import (TC) はその書き方に従う
+"src/security_checker/cli.py" = ["FBT002", "TC"]
+# 方言と偽の実装は Protocol のシグネチャに合わせて引数を受け取る。使わない引数があってよい
+"src/security_checker/providers/http/dialects/*.py" = ["ARG002"]
+"src/security_checker/testing/fakes.py" = ["ARG002"]
 # 契約テストはテストコードそのものを提供するモジュール
 # (S108: シェル経由でないことを示すための固定パス。実際には作られないことを検証している)
 "src/security_checker/testing/provider_contract.py" = ["S101", "S108"]

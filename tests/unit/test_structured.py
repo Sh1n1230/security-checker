@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from security_checker.models.candidate import Candidate, Location
@@ -136,9 +138,6 @@ def test_evidence_within_context_is_kept():
 
 def test_schema_sent_to_the_llm_has_no_internal_descriptions():
     """pydantic の docstring (日本語の内部メモ) をプロンプトに送らない (#290)."""
-    import json
-
-    from security_checker.review.structured import verdict_schema
 
     text = json.dumps(verdict_schema(), ensure_ascii=False)
     assert '"description"' not in text

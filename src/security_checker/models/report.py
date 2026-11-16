@@ -168,17 +168,21 @@ class Report(BaseModel):
 
     @property
     def has_failed_scanner(self) -> bool:
+        """異常終了したスキャナが 1 つでもあるか."""
         return any(run.status is ScanStatus.FAILED for run in self.scanners)
 
     def dump(self) -> dict[str, Any]:
+        """report.json に書く形の dict."""
         return self.model_dump(mode="json", exclude_none=False)
 
 
 def utcnow() -> datetime:
+    """タイムゾーン付きの現在時刻 (UTC)."""
     return datetime.now(UTC)
 
 
 def count_by_status(findings: list[Finding]) -> dict[str, int]:
+    """status ごとの指摘の数. 0 件の status もキーに含める."""
     counts = {status.value: 0 for status in FindingStatus}
     for finding in findings:
         counts[finding.status.value] += 1
@@ -186,6 +190,7 @@ def count_by_status(findings: list[Finding]) -> dict[str, int]:
 
 
 def count_by_severity(candidates: list[Candidate]) -> dict[str, int]:
+    """スキャナの報告した重大度ごとの候補の数."""
     counts = {severity.value: 0 for severity in Severity}
     for candidate in candidates:
         key = (candidate.severity_reported or Severity.INFO).value

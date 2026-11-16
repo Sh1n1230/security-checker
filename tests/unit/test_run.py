@@ -10,6 +10,7 @@ from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, ScanStatus, Severity
 from security_checker.report.json_writer import write_json
 from security_checker.run import run_scan
+from security_checker.scanners import registry
 from security_checker.testing.fakes import FakeScanner
 
 
@@ -106,7 +107,6 @@ async def test_raw_dir_is_created(tmp_path):
 
 async def test_unimplemented_scanners_are_reported_as_config_warning(tmp_path, monkeypatch):
     """設定で有効なのにアダプタが無い (プラグインの読み込み失敗など) ときは警告にする."""
-    from security_checker.scanners import registry
 
     monkeypatch.setattr(
         registry,

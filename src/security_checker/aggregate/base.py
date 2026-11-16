@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import math
 import statistics
-from collections.abc import Callable, Sequence
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from security_checker.config.schema import AggregationConfig
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Agreement, FindingStatus, Severity
-from security_checker.models.verdict import ReviewVerdict
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+    from security_checker.config.schema import AggregationConfig
+    from security_checker.models.candidate import Candidate
+    from security_checker.models.verdict import ReviewVerdict
 
 SEVERITY_NUMBER = {
     Severity.NONE: 0,

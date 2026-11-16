@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from rich.console import Console
@@ -16,12 +16,16 @@ from typer.testing import CliRunner
 from security_checker import cli
 from security_checker.cli import app
 from security_checker.errors import ConfigError, ExitCode
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import ScanStatus
 from security_checker.policy.engine import PolicyDecision
 from security_checker.report.terminal import render
 from security_checker.testing import FakeScanner
 from tests.factories import make_candidate, make_report
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.candidate import Candidate
 
 runner = CliRunner()
 
@@ -66,7 +70,7 @@ def test_dry_run_shows_code_with_brackets_verbatim(tmp_path, monkeypatch):
 def test_terminal_candidate_table_keeps_brackets_in_paths():
     console = Console(record=True, width=200)
     report = make_report([slug_candidate()])
-    render(report, PolicyDecision(exit_code=ExitCode.OK), Path("out"), console=console)
+    render(report, PolicyDecision(exit_code=ExitCode.OK), console=console)
     text = console.export_text()
     assert "app/[slug]/page.tsx:3" in text
 

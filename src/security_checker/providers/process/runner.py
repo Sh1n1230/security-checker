@@ -28,6 +28,7 @@ from security_checker.providers.base import (
     HealthStatus,
     StructuredMode,
 )
+from security_checker.providers.detect import command_version
 from security_checker.providers.errors import (
     ProviderError,
     ProviderResponseError,
@@ -98,6 +99,7 @@ class ProcessProvider:
 
     @property
     def capabilities(self) -> Capabilities:
+        """この Provider が使える機能."""
         return self._capabilities
 
     async def complete(self, req: CompletionRequest) -> CompletionResponse:
@@ -109,8 +111,6 @@ class ProcessProvider:
 
     async def health_check(self) -> HealthStatus:
         """到達性の確認. 起動対象を実際には走らせず、存在とバージョンだけを見る."""
-        from security_checker.providers.detect import command_version
-
         if not self.command:
             return HealthStatus(ok=False, detail="command が空です")
         found = command_version(self.command[0])
@@ -120,7 +120,7 @@ class ProcessProvider:
 
     async def aclose(self) -> None:
         """プロセスは 1 回ごとに完結するため、保持する資源はない."""
-        return None
+        return
 
     # --- 内部 -------------------------------------------------------------
 
@@ -199,10 +199,12 @@ class ProcessProvider:
         if not result.created_paths:
             return []
         return [
-            f"{self.name}: Reviewer が隔離ディレクトリに書き込みを行いました "
-            f"({', '.join(result.created_paths)})。"
-            "隔離ディレクトリの外への書き込みは検知できません。"
-            "書き込み能力を無効化するフラグを command に加えてください"
+            (
+                f"{self.name}: Reviewer が隔離ディレクトリに書き込みを行いました "
+                f"({', '.join(result.created_paths)})。"
+                "隔離ディレクトリの外への書き込みは検知できません。"
+                "書き込み能力を無効化するフラグを command に加えてください"
+            )
         ]
 
     def _trace_params(self, result: SandboxResult) -> dict[str, Any]:

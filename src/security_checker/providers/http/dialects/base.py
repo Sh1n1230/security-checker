@@ -6,12 +6,14 @@ transport.py が持ち、認証やリトライの都合が方言側に漏れな�
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
 from security_checker.models.verdict import Usage
-from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
+
+if TYPE_CHECKING:
+    from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 
 #: 思考トークンを持つモデルでは、出力の上限を思考で使い切って本文が切れる。
 #: reasoning を宣言している場合だけ、その分の余裕を足す (§9.6)
@@ -61,7 +63,8 @@ class Dialect(Protocol):
         """送信先 URL. モデル名を URL に含める形もあるため model を受け取る."""
         ...
 
-    def headers(self, api_key: str | None) -> dict[str, str]: ...
+    def headers(self, api_key: str | None) -> dict[str, str]:
+        """認証を含む HTTP ヘッダを返す."""
 
     def build_payload(
         self,
@@ -70,11 +73,14 @@ class Dialect(Protocol):
         model: str,
         capabilities: Capabilities,
         mode: StructuredMode,
-    ) -> dict[str, Any]: ...
+    ) -> dict[str, Any]:
+        """CompletionRequest をこの方言のリクエスト本文にする."""
 
-    def parse_response(self, payload: dict[str, Any]) -> DialectResponse: ...
+    def parse_response(self, payload: dict[str, Any]) -> DialectResponse:
+        """応答の本文から、テキスト・構造化出力・使用量を取り出す."""
 
-    def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]: ...
+    def health_payload(self, model: str, capabilities: Capabilities) -> dict[str, Any]:
+        """疎通確認用の最小のリクエスト本文 (出力は 1 トークン)."""
 
     def is_auth_error(self, status: int, body: str) -> bool:
         """401/403 以外で返る認証エラーか. 鍵の不備を別のコードで返す形のために置く."""

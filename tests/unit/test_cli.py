@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from typer.testing import CliRunner
 
 from security_checker.cli import app
 from security_checker.errors import ExitCode
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 runner = CliRunner()
 

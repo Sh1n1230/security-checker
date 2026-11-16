@@ -39,6 +39,7 @@ class UntrustedOverrides:
     osv_config: Path
 
     def gitleaks_args(self) -> list[str]:
+        """検査対象の .gitleaks.toml・.gitleaksignore・gitleaks:allow 注釈を効かせない引数."""
         return [
             "--config",
             str(self.gitleaks_config),
@@ -48,13 +49,16 @@ class UntrustedOverrides:
         ]
 
     def semgrep_args(self) -> list[str]:
+        """検査対象のコード内の nosemgrep 注釈を無効にする引数."""
         return ["--disable-nosem"]
 
     def trivy_args(self) -> list[str]:
+        """検査対象の trivy.yaml と .trivyignore を読ませない引数."""
         # 空文字列は「読み込まない」(trivy の公式の指定方法)
         return ["--config", str(self.trivy_config), "--ignorefile", ""]
 
     def osv_args(self) -> list[str]:
+        """検査対象の osv-scanner.toml を読ませず、こちらの設定を使わせる引数."""
         return ["--config", str(self.osv_config)]
 
 

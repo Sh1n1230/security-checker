@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
@@ -24,6 +23,9 @@ from security_checker.models.enums import FindingStatus
 from security_checker.models.report import TargetInfo
 from security_checker.report.sarif import render_sarif
 from tests.factories import make_candidate, make_finding, make_report
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def git(root: Path, *args: str) -> str:

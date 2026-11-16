@@ -11,24 +11,18 @@
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from security_checker.config.schema import Config
 from security_checker.context.builder import ContextBuilder
 from security_checker.context.facts import collect_repo_facts
 from security_checker.context.slicer import resolve_inside
 from security_checker.errors import ConfigError
-from security_checker.eval.dataset import Dataset, EvalCase
 from security_checker.eval.metrics import CaseOutcome, Metrics, evaluate_outcomes
-from security_checker.models.candidate import Candidate
-from security_checker.models.finding import Finding
-from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import VerdictStatus
-from security_checker.observability.cost import PriceTable
 from security_checker.report import sanitize as md
 from security_checker.run import (
     ReviewerSetup,
@@ -37,6 +31,14 @@ from security_checker.run import (
     review_and_aggregate,
     smallest_input_limit,
 )
+
+if TYPE_CHECKING:
+    from security_checker.config.schema import Config
+    from security_checker.eval.dataset import Dataset, EvalCase
+    from security_checker.models.candidate import Candidate
+    from security_checker.models.finding import Finding
+    from security_checker.models.task import ReviewTask
+    from security_checker.observability.cost import PriceTable
 
 
 class EvalResult(BaseModel):
@@ -179,24 +181,34 @@ def to_markdown(result: EvalResult) -> str:
         "",
         f"- Reviewer: {', '.join(md.code_span(r) for r in result.reviewers) or '(なし)'}",
         f"- 集約戦略: {result.aggregation}",
-        f"- ケース数: {metrics.cases} "
-        f"(採点外: エラー {metrics.errors} / 未レビュー {metrics.not_reviewed})",
+        (
+            f"- ケース数: {metrics.cases} "
+            f"(採点外: エラー {metrics.errors} / 未レビュー {metrics.not_reviewed})"
+        ),
         "",
         "## 指標",
         "",
         "| 指標 | 値 | 位置づけ |",
         "|---|---|---|",
-        f"| **Recall (検出率)** | {_pct(metrics.recall)} | "
-        "**主指標**。陽性全体のうち自動で検出した割合。保留は検出に数えない |",
-        f"| 判定した中での Recall | {_pct(metrics.answered_recall)} | "
-        "参考値。保留が増えると上がるので比較に使わない |",
+        (
+            f"| **Recall (検出率)** | {_pct(metrics.recall)} | "
+            "**主指標**。陽性全体のうち自動で検出した割合。保留は検出に数えない |"
+        ),
+        (
+            f"| 判定した中での Recall | {_pct(metrics.answered_recall)} | "
+            "参考値。保留が増えると上がるので比較に使わない |"
+        ),
         f"| Precision | {_pct(metrics.precision)} | 副指標。ノイズの少なさ |",
         f"| F1 | {_pct(metrics.f1)} | 総合 |",
-        f"| **FP 削減率** | {_pct(metrics.fp_reduction)} | "
-        "このツールの価値そのもの。保留した陰性は削減に数えない |",
+        (
+            f"| **FP 削減率** | {_pct(metrics.fp_reduction)} | "
+            "このツールの価値そのもの。保留した陰性は削減に数えない |"
+        ),
         f"| **見逃した真陽性** | {metrics.missed_true_positives} 件 | **0 に近いことが必須条件** |",
-        f"| review_required 率 | {_pct(metrics.review_required_rate)} | "
-        f"高すぎると実用性が下がる (人間に渡した FP {metrics.deferred_negatives} 件) |",
+        (
+            f"| review_required 率 | {_pct(metrics.review_required_rate)} | "
+            f"高すぎると実用性が下がる (人間に渡した FP {metrics.deferred_negatives} 件) |"
+        ),
         f"| Severity MAE | {_num(metrics.severity_mae)} | 重大度判定の質 |",
         f"| CWE 一致率 | {_pct(metrics.cwe_match_rate)} | 分類の質 |",
         f"| コスト | {_usd(metrics)} | 実運用可能性 |",
@@ -206,10 +218,14 @@ def to_markdown(result: EvalResult) -> str:
         "",
         "| | 脆弱と報告 | 誤検知と判断 | 人間に委ねた |",
         "|---|---|---|---|",
-        f"| 正解: 脆弱 | {metrics.true_positives} | **{metrics.false_negatives}** "
-        f"| {metrics.deferred_positives} |",
-        f"| 正解: 問題なし | {metrics.false_positives} | {metrics.true_negatives} "
-        f"| {metrics.deferred_negatives} |",
+        (
+            f"| 正解: 脆弱 | {metrics.true_positives} | **{metrics.false_negatives}** "
+            f"| {metrics.deferred_positives} |"
+        ),
+        (
+            f"| 正解: 問題なし | {metrics.false_positives} | {metrics.true_negatives} "
+            f"| {metrics.deferred_negatives} |"
+        ),
         "",
     ]
 
@@ -247,7 +263,3 @@ def _usd(metrics: Metrics) -> str:
     if metrics.total_usd is None:
         return "—"
     return f"${metrics.total_usd:.4f}"
-
-
-def outcomes_by_case(outcomes: Sequence[CaseOutcome]) -> dict[str, CaseOutcome]:
-    return {outcome.case_id: outcome for outcome in outcomes}

@@ -38,6 +38,7 @@ class PresetMatch(BaseModel):
     model: str | None = None  # 正規表現
 
     def matches(self, base_url: str, model: str) -> bool:
+        """base_url のホストと model が、このプリセットの条件に当たるか."""
         if self.host is not None:
             host = urlparse(base_url).hostname or ""
             if host != self.host:

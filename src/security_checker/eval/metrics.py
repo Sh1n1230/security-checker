@@ -14,12 +14,15 @@ FP 削減の分子には入れない。どちらかを緩めると、判断を�
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from security_checker.aggregate.base import SEVERITY_NUMBER
 from security_checker.models.enums import FindingStatus, Severity
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 #: review_required の割合の既定の上限. 半分以上を人間に渡す構成は自動レビューとして評価しない
 DEFAULT_MAX_DEFERRED_RATE = 0.5
@@ -53,22 +56,27 @@ class CaseOutcome(BaseModel):
 
     @property
     def reported(self) -> bool:
+        """脆弱として報告したか (confirmed / likely)."""
         return self.status in REPORTED_AS_VULNERABLE
 
     @property
     def dismissed(self) -> bool:
+        """誤検出として切り捨てたか."""
         return self.status in DISMISSED
 
     @property
     def deferred(self) -> bool:
+        """結論を出さず人に回したか (review_required / inconclusive)."""
         return self.status in DEFERRED
 
     @property
     def errored(self) -> bool:
+        """Reviewer 側のエラーで判定できなかったか."""
         return self.status is FindingStatus.ERROR
 
     @property
     def not_reviewed(self) -> bool:
+        """予算や上限でレビューされなかったか."""
         return self.status is FindingStatus.NOT_REVIEWED
 
 

@@ -18,11 +18,13 @@ import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from security_checker.errors import ConfigError, SecurityCheckerError
-from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category
+
+if TYPE_CHECKING:
+    from security_checker.models.candidate import Candidate
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 _BINARY_RE = re.compile(r"^Binary files .* differ$")
@@ -44,6 +46,7 @@ class DiffScope:
     changed_files: frozenset[str] = frozenset()
 
     def overlaps(self, path: str, start: int, end: int) -> bool:
+        """指定した行範囲が、このファイルの追加行と重なるか."""
         return any(lo <= end and start <= hi for lo, hi in self.added.get(path, ()))
 
     def is_commentable(self, path: str, line: int) -> bool:
@@ -80,6 +83,35 @@ class DiffScope:
         return inside, outside
 
 
+@dataclass
+class _FileHeader:
+    """1 ファイル分のヘッダ (`diff --git` から最初のハンクまで) から読み取ったパス."""
+
+    #: `diff --git` 行から取ったパス. `---`/`+++` の無いバイナリの差分で使う
+    git_path: str | None = None
+    old: str | None = None
+    new: str | None = None
+
+    def consume(self, line: str, changed: set[str]) -> bool:
+        """ヘッダの行なら読み取って True を返す. 変更されたファイルは `changed` に足す."""
+        if _BINARY_RE.match(line):
+            # バイナリ (jar・wheel など) は行を持たないが、変更されたことは数える
+            if self.git_path is not None:
+                changed.add(self.git_path)
+            return True
+        if line.startswith("--- "):
+            self.old = _strip_prefix(line[4:])
+            return True
+        if line.startswith("+++ "):
+            self.new = _strip_prefix(line[4:])
+            # 削除されたファイルも「変更された」に数える (依存の削除など)
+            path = self.new if self.new is not None else self.old
+            if path is not None:
+                changed.add(path)
+            return True
+        return False
+
+
 def parse_unified_diff(text: str) -> tuple[dict[str, tuple[tuple[int, int], ...]], set[str]]:
     """`git diff --unified=0` の出力から、追加行の範囲と変更ファイルを取り出す.
 
@@ -88,43 +120,31 @@ def parse_unified_diff(text: str) -> tuple[dict[str, tuple[tuple[int, int], ...]
     """
     added: dict[str, list[tuple[int, int]]] = {}
     changed: set[str] = set()
-    current: str | None = None
-    old_path: str | None = None
+    header = _FileHeader()
     # `diff --git` 行の無い素の unified diff も受け付けるよう、先頭はヘッダとして扱う
     in_header = True
-    # `diff --git` 行から取ったパス. `---`/`+++` の無いバイナリの差分で使う
-    header_path: str | None = None
     for line in text.splitlines():
         if line.startswith("diff --git "):
             in_header = True
-            current = old_path = None
-            header_path = _header_path(line[len("diff --git ") :])
+            header = _FileHeader(git_path=_header_path(line[len("diff --git ") :]))
             continue
-        if in_header and _BINARY_RE.match(line):
-            # バイナリ (jar・wheel など) は行を持たないが、変更されたことは数える
-            if header_path is not None:
-                changed.add(header_path)
-            continue
-        if in_header and line.startswith("--- "):
-            old_path = _strip_prefix(line[4:])
-            continue
-        if in_header and line.startswith("+++ "):
-            current = _strip_prefix(line[4:])
-            if current is not None:
-                changed.add(current)
-            elif old_path is not None:
-                # 削除されたファイルも「変更された」に数える (依存の削除など)
-                changed.add(old_path)
+        if in_header and header.consume(line, changed):
             continue
         match = _HUNK_RE.match(line)
-        if match:
-            in_header = False
-        if match and current is not None:
-            start = int(match.group(1))
-            count = int(match.group(2)) if match.group(2) is not None else 1
-            if count > 0:
-                added.setdefault(current, []).append((start, start + count - 1))
+        if match is None:
+            continue
+        in_header = False
+        span = _added_span(match)
+        if header.new is not None and span is not None:
+            added.setdefault(header.new, []).append(span)
     return {path: tuple(ranges) for path, ranges in added.items()}, changed
+
+
+def _added_span(hunk: re.Match[str]) -> tuple[int, int] | None:
+    """ハンクヘッダの新しい側の行範囲. 追加行が無ければ None."""
+    start = int(hunk.group(1))
+    count = int(hunk.group(2)) if hunk.group(2) is not None else 1
+    return (start, start + count - 1) if count > 0 else None
 
 
 def _strip_prefix(raw: str) -> str | None:

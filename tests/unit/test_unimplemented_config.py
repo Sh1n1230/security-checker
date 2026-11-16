@@ -15,32 +15,32 @@ from security_checker.config.unimplemented import unimplemented_warnings
 
 def test_nothing_is_reported_for_the_defaults():
     """既定値のままなら警告は出ない (ノイズにしない)."""
-    assert unimplemented_warnings(Config(), {}) == []
+    assert unimplemented_warnings(Config()) == []
 
 
 def test_sarif_format_is_no_longer_reported():
     """P4 で実装した. 実装済みの項目を警告し続けると、警告そのものが信用されなくなる."""
     config = Config.model_validate({"output": {"formats": ["terminal", "json", "sarif"]}})
-    assert unimplemented_warnings(config, {}) == []
+    assert unimplemented_warnings(config) == []
 
 
 def test_baseline_is_no_longer_reported():
     config = Config.model_validate({"policy": {"baseline": ".security-checker-baseline.json"}})
-    assert unimplemented_warnings(config, {}) == []
+    assert unimplemented_warnings(config) == []
 
 
 def test_diff_mode_is_no_longer_reported():
     diff = Config.model_validate({"target": {"mode": "diff"}})
-    assert unimplemented_warnings(diff, {}) == []
+    assert unimplemented_warnings(diff) == []
 
 
 def test_github_section_is_no_longer_reported():
     config = Config()
-    assert unimplemented_warnings(config, {"github.comment": "file:security-checker.yml"}) == []
+    assert unimplemented_warnings(config) == []
 
 
 def test_logging_section_is_no_longer_reported():
-    assert unimplemented_warnings(Config(), {"logging.format": "cli"}) == []
+    assert unimplemented_warnings(Config()) == []
 
 
 def test_num_ctx_names_the_reviewer():
@@ -58,7 +58,7 @@ def test_num_ctx_names_the_reviewer():
             ]
         }
     )
-    messages = unimplemented_warnings(config, {})
+    messages = unimplemented_warnings(config)
     assert any("'local'" in message and "num_ctx" in message for message in messages)
 
 
@@ -76,16 +76,16 @@ def test_plain_config_has_no_warnings(tmp_path):
 def test_target_root_is_reported():
     """検査対象は CLI の引数で決まる. target.root は書いても効かない."""
     config = Config.model_validate({"target": {"root": "src"}})
-    messages = unimplemented_warnings(config, {})
+    messages = unimplemented_warnings(config)
     assert any("target.root" in message for message in messages)
 
 
 def test_max_callers_is_reported_until_callers_are_collected():
     """呼び出し元はまだ集めていない. 増やしても文脈は変わらない (#92)."""
     config = Config.model_validate({"context": {"max_callers": 5}})
-    assert any("context.max_callers" in m for m in unimplemented_warnings(config, {}))
+    assert any("context.max_callers" in m for m in unimplemented_warnings(config))
     # 0 は実際の挙動 (呼び出し元を渡さない) と一致するので警告しない
-    assert unimplemented_warnings(Config.model_validate({"context": {"max_callers": 0}}), {}) == []
+    assert unimplemented_warnings(Config.model_validate({"context": {"max_callers": 0}})) == []
 
 
 def test_bundled_presets_do_not_set_max_callers(tmp_path):
@@ -109,7 +109,7 @@ def test_http_only_fields_on_process_transport_are_reported():
             ]
         }
     )
-    messages = unimplemented_warnings(config, {})
+    messages = unimplemented_warnings(config)
     for field in ("base_url", "api_key_env", "headers"):
         assert any("'cli'" in message and field in message for message in messages), field
 
@@ -130,7 +130,7 @@ def test_process_only_fields_on_http_transport_are_reported():
             ]
         }
     )
-    messages = unimplemented_warnings(config, {})
+    messages = unimplemented_warnings(config)
     for field in ("command", "prompt_via"):
         assert any("'api'" in message and field in message for message in messages), field
 
@@ -157,7 +157,7 @@ def test_fields_that_match_the_transport_are_not_reported():
             ]
         }
     )
-    assert unimplemented_warnings(config, {}) == []
+    assert unimplemented_warnings(config) == []
 
 
 def test_min_ratio_below_a_majority_is_reported():

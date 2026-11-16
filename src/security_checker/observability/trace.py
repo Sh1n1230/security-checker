@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from security_checker.context.redact import redact_known_patterns
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 def sha256_text(text: str) -> str:
+    """文字列の SHA-256 (16 進)."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -27,6 +30,7 @@ class TraceWriter:
         self._index = 0
 
     def write_run(self, payload: dict[str, Any]) -> Path | None:
+        """実行全体の記録 (run.json) を書く. 無効なら何もしない."""
         if not self.enabled:
             return None
         self.root.mkdir(parents=True, exist_ok=True)
@@ -35,6 +39,7 @@ class TraceWriter:
         return path
 
     def write_call(self, payload: dict[str, Any]) -> Path | None:
+        """LLM 呼び出し 1 回分の記録を calls/ に書く. 無効なら何もしない."""
         if not self.enabled:
             return None
         calls = self.root / "calls"

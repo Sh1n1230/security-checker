@@ -12,8 +12,7 @@ import os
 import signal
 import stat
 import sys
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -25,6 +24,9 @@ from security_checker.scanners.osv import _fixed_version, parse_osv
 from security_checker.scanners.semgrep import parse_semgrep, redact_semgrep_payload
 from security_checker.scanners.trivy import TrivyScanner
 from security_checker.scanners.untrusted import residual_warnings
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def semgrep_result(

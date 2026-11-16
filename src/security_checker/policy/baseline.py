@@ -14,11 +14,14 @@ import json
 import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from security_checker.errors import ConfigError
-from security_checker.models.candidate import Candidate
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from security_checker.models.candidate import Candidate
 
 BASELINE_VERSION = 2
 #: 読めるが、秘密の値までは照合できない形式
@@ -80,9 +83,11 @@ def load_baseline(path: Path) -> Baseline:
     warnings: tuple[str, ...] = ()
     if version in LEGACY_VERSIONS:
         warnings = (
-            f"{path} は古い形式 (version {version}) です。"
-            "同じ場所で値を差し替えた秘密も抑制されます。"
-            "`security-checker baseline update` で更新してください",
+            (
+                f"{path} は古い形式 (version {version}) です。"
+                "同じ場所で値を差し替えた秘密も抑制されます。"
+                "`security-checker baseline update` で更新してください"
+            ),
         )
     return Baseline(
         ids=frozenset(ids),
@@ -130,6 +135,7 @@ def _existing_salt(path: Path) -> str | None:
 
 
 def write_baseline(path: Path, candidates: list[Candidate], *, tool_version: str) -> Path:
+    """いまの候補を baseline として書き出す."""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = render_baseline(candidates, tool_version=tool_version, salt=_existing_salt(path))
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

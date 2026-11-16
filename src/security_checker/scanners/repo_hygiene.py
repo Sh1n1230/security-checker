@@ -16,9 +16,8 @@ import fnmatch
 import json
 import time
 from pathlib import Path, PurePosixPath
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
-from security_checker.config.schema import RepoHygieneConfig
 from security_checker.models.candidate import Candidate, IdFactory, Location
 from security_checker.models.enums import Category, Severity
 from security_checker.scanners.base import (
@@ -30,6 +29,9 @@ from security_checker.scanners.base import (
     run_command,
 )
 from security_checker.scanners.filters import is_excluded
+
+if TYPE_CHECKING:
+    from security_checker.config.schema import RepoHygieneConfig
 
 SCANNER_NAME = "repo-hygiene"
 RULE_TRACKED_IGNORED = "tracked-ignored-file"
@@ -84,7 +86,7 @@ def key_file_severity(data: bytes) -> Severity:
     return Severity.MEDIUM
 
 
-def literal_mcp_keys(payload: Any) -> list[str]:
+def literal_mcp_keys(payload: object) -> list[str]:
     """`mcpServers.*.env` / `headers` のうち、値が直書きのキーを返す. 値は返さない.
 
     `${VAR}` を含む値と空文字は直書きとして扱わない。
@@ -124,6 +126,7 @@ class RepoHygieneScanner(BaseScanner):
         super().__init__(settings)
 
     async def scan(self, target: Target, ctx: ScanContext) -> ScanResult:
+        """スキャナを実行して結果を正規化する. 未導入 (skipped) と失敗 (failed) は区別して返す."""
         status = self.probe()
         if not status.available:
             return self.skipped(status.reason or "git が利用できません", unavailable=True)

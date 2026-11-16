@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import ReviewJudgement
+
+if TYPE_CHECKING:
+    from security_checker.models.task import ReviewTask
 
 FENCE_MARKERS = ("```json", "```JSON", "```")
 
@@ -31,12 +33,12 @@ def verdict_schema() -> dict[str, Any]:
     return hardened if isinstance(hardened, dict) else {}
 
 
-def _inline_refs(node: Any, defs: dict[str, Any]) -> Any:
+def _inline_refs(node: object, defs: dict[str, Any]) -> object:
     if isinstance(node, dict):
         ref = node.get("$ref")
         if isinstance(ref, str) and ref.startswith("#/$defs/"):
-            target = defs.get(ref.split("/")[-1], {})
-            merged = {**_inline_refs(target, defs)}
+            target = _inline_refs(defs.get(ref.split("/")[-1], {}), defs)
+            merged = dict(target) if isinstance(target, dict) else {}
             merged.update({k: v for k, v in node.items() if k != "$ref"})
             return merged
         return {key: _inline_refs(value, defs) for key, value in node.items()}
@@ -45,7 +47,7 @@ def _inline_refs(node: Any, defs: dict[str, Any]) -> Any:
     return node
 
 
-def _harden(node: Any) -> Any:
+def _harden(node: object) -> object:
     if isinstance(node, dict):
         hardened = {
             # properties の中身はプロパティ名 → スキーマ. 名前そのもの (title など) は消さない
@@ -54,11 +56,12 @@ def _harden(node: Any) -> Any:
             else _harden(value)
             for key, value in node.items()
         }
-        if hardened.get("type") == "object" and "properties" in hardened:
+        properties = hardened.get("properties")
+        if hardened.get("type") == "object" and isinstance(properties, dict):
             hardened["additionalProperties"] = False
             # strict な json_schema モードでは「全プロパティが required」であることを
             # 求める実装があるため、省略可能な項目も null 許容にしたうえで必須にする。
-            hardened["required"] = sorted(hardened["properties"])
+            hardened["required"] = sorted(properties)
         hardened.pop("title", None)
         # pydantic は docstring を description にする. 内部向けの日本語のメモを
         # プロンプトの一部として LLM に送らない (送る説明はテンプレートで版管理する) (#290)
@@ -104,20 +107,13 @@ def _first_object(text: str) -> dict[str, Any] | None:
     """最初の「釣り合った」波括弧ブロックを探す. 文字列内の括弧は数えない."""
     depth = 0
     start = -1
-    in_string = False
-    escaped = False
-    for index, char in enumerate(text):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
+    index = 0
+    while index < len(text):
+        char = text[index]
         if char == '"':
-            in_string = True
-        elif char == "{":
+            index = _after_string(text, index)
+            continue
+        if char == "{":
             if depth == 0:
                 start = index
             depth += 1
@@ -128,7 +124,21 @@ def _first_object(text: str) -> dict[str, Any] | None:
                 if found is not None:
                     return found
                 start = -1
+        index += 1
     return None
+
+
+def _after_string(text: str, opening: int) -> int:
+    """`opening` の引用符で始まる文字列の、閉じ引用符の次の位置. 閉じていなければ末尾."""
+    index = opening + 1
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+            continue
+        if text[index] == '"':
+            return index + 1
+        index += 1
+    return len(text)
 
 
 class SchemaViolationError(Exception):

@@ -14,9 +14,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse
 
 from security_checker.providers.presets.loader import (
@@ -25,6 +24,9 @@ from security_checker.providers.presets.loader import (
     load_http_presets,
     load_process_presets,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 VERSION_TIMEOUT_S = 10
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1", "0.0.0.0")  # noqa: S104 - 判定用の文字列

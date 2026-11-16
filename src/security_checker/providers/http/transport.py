@@ -9,7 +9,8 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import Any, Literal
+from http import HTTPStatus
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 
@@ -29,7 +30,9 @@ from security_checker.providers.errors import (
     ProviderServerError,
     ProviderTimeoutError,
 )
-from security_checker.providers.http.dialects import Dialect
+
+if TYPE_CHECKING:
+    from security_checker.providers.http.dialects import Dialect
 
 ERROR_BODY_LIMIT = 500
 
@@ -66,6 +69,7 @@ class HttpProvider:
 
     @property
     def capabilities(self) -> Capabilities:
+        """この Provider が使える機能."""
         return self._capabilities
 
     @property
@@ -89,7 +93,7 @@ class HttpProvider:
                 # 降格で解決しうるのは 400 だけ。404 や 413 は何度送っても同じ
                 weaker = (
                     next_weaker_mode(mode)
-                    if req.json_schema is not None and exc.status == 400
+                    if req.json_schema is not None and exc.status == HTTPStatus.BAD_REQUEST
                     else None
                 )
                 if weaker is None:
@@ -114,6 +118,7 @@ class HttpProvider:
             )
 
     async def health_check(self) -> HealthStatus:
+        """出力 1 トークンのリクエストを送り、到達と認証を確かめる."""
         started = time.monotonic()
         try:
             await self._post(
@@ -124,6 +129,7 @@ class HttpProvider:
         return HealthStatus(ok=True, latency_ms=int((time.monotonic() - started) * 1000))
 
     async def aclose(self) -> None:
+        """自分で作った HTTP クライアントを閉じる. 渡されたものは閉じない."""
         if self._owns_client:
             await self._client.aclose()
 
@@ -160,27 +166,30 @@ class HttpProvider:
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         status = response.status_code
-        if status < 400:
+        if status < HTTPStatus.BAD_REQUEST:
             return
         detail = _excerpt(response.text)
-        if status in (401, 403) or self.dialect_impl.is_auth_error(status, response.text):
+        if status in (
+            HTTPStatus.UNAUTHORIZED,
+            HTTPStatus.FORBIDDEN,
+        ) or self.dialect_impl.is_auth_error(status, response.text):
             raise ProviderAuthError(
                 f"{self.name}: 認証に失敗しました ({status})。"
                 f"api_key_env に指定した環境変数の値を確認してください: {detail}",
                 provider=self.name,
             )
-        if status == 429:
+        if status == HTTPStatus.TOO_MANY_REQUESTS:
             raise ProviderRateLimitError(
                 f"{self.name}: レート制限に達しました: {detail}",
                 provider=self.name,
                 retry_after=_retry_after(response),
             )
-        if status == 408:
+        if status == HTTPStatus.REQUEST_TIMEOUT:
             raise ProviderTimeoutError(
                 f"{self.name}: サーバがタイムアウトを返しました (408): {detail}",
                 provider=self.name,
             )
-        if status >= 500:
+        if status >= HTTPStatus.INTERNAL_SERVER_ERROR:
             raise ProviderServerError(
                 f"{self.name}: サーバエラー ({status}): {detail}", provider=self.name
             )

@@ -12,6 +12,7 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
+from security_checker import cli
 from security_checker.cli import app
 from security_checker.config.schema import Config
 from security_checker.errors import ExitCode
@@ -23,7 +24,7 @@ runner = CliRunner()
 @pytest.fixture(autouse=True)
 def no_detection(monkeypatch):
     """検出結果は実行環境 (PATH・環境変数) で変わる. テストは環境に依存させない."""
-    monkeypatch.setattr("security_checker.cli.detect_all", lambda: [])
+    monkeypatch.setattr("security_checker.cli.detect_all", list)
 
 
 @pytest.fixture
@@ -202,8 +203,6 @@ def test_init_local_warns_when_git_does_not_ignore_it(tmp_path):
 
 
 def test_windows_command_keeps_backslashes(monkeypatch):
-    from security_checker import cli
-
     monkeypatch.setattr("security_checker.cli.os.name", "nt")
     assert cli._split_command('"C:\\Program Files\\x\\cmd.exe" --flag') == [
         "C:\\Program Files\\x\\cmd.exe",

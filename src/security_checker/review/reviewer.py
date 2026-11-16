@@ -8,13 +8,11 @@ from __future__ import annotations
 
 import time
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from security_checker.language import DEFAULT_LANGUAGE
 from security_checker.models.enums import Severity
-from security_checker.models.task import ReviewTask
 from security_checker.models.verdict import ReviewVerdict, Usage, VerdictStatus
-from security_checker.observability.cost import ModelPrice
 from security_checker.observability.trace import sha256_text
 from security_checker.providers.base import (
     CompletionRequest,
@@ -29,6 +27,10 @@ from security_checker.review.structured import (
     parse_judgement,
     verdict_schema,
 )
+
+if TYPE_CHECKING:
+    from security_checker.models.task import ReviewTask
+    from security_checker.observability.cost import ModelPrice
 
 #: レビューは再現性を優先する (§11.5)
 REVIEW_TEMPERATURE = 0.0
@@ -100,6 +102,7 @@ class Reviewer:
 
     @property
     def model(self) -> str:
+        """Provider が使うモデル名. 分からなければ 'unknown'."""
         return getattr(self.provider, "model", "unknown")
 
     async def review(
