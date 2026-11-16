@@ -288,7 +288,13 @@ def scan(
         typer.Option("--strict/--no-strict", help="スキャナの失敗を exit 3 にする (既定: 有効)"),
     ] = None,
     exclude: Annotated[
-        list[str] | None, typer.Option("--exclude", help="除外パターン (複数指定可)")
+        list[str] | None,
+        typer.Option(
+            "--exclude",
+            help=(
+                "除外パターン (複数指定可)。設定と既定の target.exclude を置き換える (追加ではない)"
+            ),
+        ),
     ] = None,
     output_dir: Annotated[
         Path | None,
@@ -358,7 +364,13 @@ def review(
         int | None, typer.Option("--max-candidates", min=1, help="レビューする候補の上限")
     ] = None,
     exclude: Annotated[
-        list[str] | None, typer.Option("--exclude", help="除外パターン (複数指定可)")
+        list[str] | None,
+        typer.Option(
+            "--exclude",
+            help=(
+                "除外パターン (複数指定可)。設定と既定の target.exclude を置き換える (追加ではない)"
+            ),
+        ),
     ] = None,
     output_dir: Annotated[
         Path | None,

@@ -74,11 +74,15 @@
 | キー | 説明 |
 |---|---|
 | `name` / `transport` | 必須。`transport` は `http` / `process` |
-| `dialect` / `base_url` / `model` / `api_key_env` | http 用。キーは**環境変数名**だけを書く |
+| `enabled` | `false` にすると読み込み時に外す (既定 `true`)。共有の Reviewer を手元でだけ止めるときに local 層で使う |
+| `preset` | 同梱またはユーザーのプリセット名。**http でも process でも使えます**。http では `dialect` と `base_url`、process では `command` を省略できる |
+| `dialect` / `base_url` / `model` / `api_key_env` | http 用。キーは**環境変数名**だけを書く。`dialect` は `openai_chat` / `anthropic_messages` / `gemini_generate` / `ollama_chat` |
+| `num_ctx` / `keep_alive` | `ollama_chat` 方言専用。文脈長 (既定 `8192`。入力はこの中に収まるよう切り詰める) と、モデルを保持する時間 (例 `10m`)。他の方言に書くと警告 |
 | `headers` / `headers_env` | http 用の追加ヘッダ。秘密を含むヘッダは `headers_env` に**環境変数名**を書く (`X-Api-Key: MY_ENV`)。`headers` の値は `config show` とトレースでは伏せる |
-| `command` / `preset` / `prompt_via` | process 用 |
-| `weight` | `weighted` 集約での重み |
-| `timeout_s` / `max_output_tokens` / `seed` | 呼び出しの制御 |
+| `command` / `prompt_via` / `parse` | process 用。`prompt_via` は `stdin` (既定) / `file`、`parse` は `json_in_stdout` のみ。process の `dialect` は `text_io` だけなので書く必要はない |
+| `weight` | `weighted` 集約での重み (既定 `1.0`) |
+| `timeout_s` | 1 回の呼び出しの上限。既定は http `120`、process `300` |
+| `max_output_tokens` / `seed` | 出力の上限 (既定 `2000`) と、指定できる Provider でだけ使う seed (既定なし) |
 | `concurrency` | この Reviewer に同時に送る数。省略時は http が `concurrency.reviews_per_provider`、process が `1` |
 | `rate_limit.rpm` / `tpm` / `rpd` | 毎分のリクエスト数・トークン数、1 日のリクエスト数 |
 | `capabilities.*` | 構造化出力の方式などの明示指定 (自動判定より優先) |
@@ -121,6 +125,7 @@
 | `budget.on_exceed` | `stop_and_report` | `warn_and_continue` にすると止めない |
 | `concurrency.scanners` / `reviews_per_provider` | `4` / `4` | 同時に動かすスキャナの数 / http の Reviewer 1 体に同時に送る数の既定。`reviewers[].concurrency` を書いた Reviewer はそちらが優先。実際の送信数は `rate_limit` でも抑えられます |
 | `context.window_lines` / `max_tokens_per_task` | `40` / `8000` | LLM に渡す文脈。`max_tokens_per_task` はプロンプト全体の上限で、本文以外に約 1,500 トークン使います。Reviewer の `max_context_tokens − max_output_tokens` のほうが小さければ、そちらに合わせます |
+| `context.include_repo_facts` | `true` | 言語・フレームワーク・入口ファイルなどの推定をプロンプトに載せる。`false` で載せない |
 | `context.max_callers` | `3` | **未実装**。呼び出し元のコードはまだ文脈に含めない (既定値と `0` 以外を書くと警告) |
 
 ### 相対パスの基準
@@ -141,6 +146,31 @@ security-checker scan ../other-repo -o ../other-repo/.security-checker
 ```
 
 CI ではどのみちカレントディレクトリがリポジトリルートなので、既定値のままで問題ありません。
+
+### コストと `pricing.yml`
+
+金額の見積りと `budget.max_usd` は、**価格表 `pricing.yml`** を読んで計算します。同梱の価格表はありません
+(単価は提供元が頻繁に変えるため)。置かなければ金額はすべて `unknown` になり、`budget.max_usd` は
+価格の分かる呼び出しにしか効きません。その場合は起動時に警告が出ます。
+
+```yaml
+# pricing.yml — 100 万トークンあたりの USD
+models:
+  <model-id>:
+    input_per_1m: 3.0
+    output_per_1m: 15.0
+```
+
+| 項目 | 内容 |
+|---|---|
+| 探す場所 | 設定ファイルと同じディレクトリの `pricing.yml` → `$XDG_CONFIG_HOME/security-checker/pricing.yml` (未設定なら `~/.config/security-checker/pricing.yml`)。**最初に見つかった 1 つだけ**を使い、合成はしない |
+| モデル名 | `reviewers[].model` と**完全一致**で引く。日付付きの名前や別名は、その名前でも書く |
+| 書式 | `models:` の下にモデル名 → `input_per_1m` / `output_per_1m`。`models:` を省いてトップレベルに並べてもよい。負の値・未知のキーは設定エラー (exit 2) |
+| 数え方 | 入力と出力の 2 種類だけ。キャッシュされた入力や思考トークンを別の単価で数える項目は無い (思考トークンは出力に数える) |
+| ローカル | `ollama_chat` 方言の Reviewer は、価格表に無ければ 0 円として数える (手元で動かす前提の方言のため) |
+| 使う場面 | `review`・`review --estimate`・`eval` |
+
+単価が変わったら自分で書き換えてください。ファイルに日付の欄は無いので、古い単価のままでも警告は出ません。
 
 ### output / github / logging
 
