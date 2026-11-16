@@ -85,6 +85,15 @@ def _trace_dir(report: Report, report_path: Path | None) -> Path | None:
 
 def render(result: Explanation) -> str:
     """人間向けのテキスト."""
+    lines = [
+        *_candidate_lines(result),
+        *(_finding_lines(result.finding) if result.finding is not None else []),
+        *_call_lines(result),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _candidate_lines(result: Explanation) -> list[str]:
     c = result.candidate
     lines = [
         f"候補 {c.id}",
@@ -99,58 +108,62 @@ def render(result: Explanation) -> str:
         lines += [f"抑制: {result.suppressed.reason.value}{note}", ""]
     if result.outside_diff:
         lines += ["diff の範囲外のためレビューしていません", ""]
-    finding = result.finding
-    if finding is not None:
-        lines += [
-            (
-                f"判定: {finding.status.value}  severity {finding.severity.value}  "
-                f"confidence {finding.confidence:.2f}  agreement {finding.agreement.value}"
-            ),
-            f"  {finding.summary}",
-        ]
-        if finding.aggregation is not None:
-            agg = finding.aggregation
-            lines.append(
-                f"  集約: {agg.strategy} ({agg.votes_vulnerable}/{agg.votes_total} が脆弱と判定)"
-            )
-            judge = agg.detail.get("judge")
-            if isinstance(judge, dict):
-                lines.append(f"  Judge ({judge.get('reviewer')}): {judge.get('rationale')}")
-            elif agg.detail.get("fallback_used"):
-                lines.append(f"  Judge は使われませんでした: {agg.detail['fallback_used']}")
-        lines.append("")
-        for verdict in finding.verdicts:
-            lines.append(
-                f"- {verdict.reviewer} ({verdict.model}) status={verdict.status.value} "
-                f"vulnerable={verdict.vulnerable} severity={verdict.severity.value} "
-                f"confidence={verdict.confidence:.2f} fp={verdict.false_positive_probability:.2f}"
-            )
-            lines.append(f"    {verdict.reasoning}")
-            if verdict.attack_path:
-                lines.append(f"    攻撃経路: {' → '.join(verdict.attack_path)}")
-        lines.append("")
+    return lines
 
+
+def _finding_lines(finding: Finding) -> list[str]:
+    lines = [
+        (
+            f"判定: {finding.status.value}  severity {finding.severity.value}  "
+            f"confidence {finding.confidence:.2f}  agreement {finding.agreement.value}"
+        ),
+        f"  {finding.summary}",
+    ]
+    if finding.aggregation is not None:
+        agg = finding.aggregation
+        lines.append(
+            f"  集約: {agg.strategy} ({agg.votes_vulnerable}/{agg.votes_total} が脆弱と判定)"
+        )
+        judge = agg.detail.get("judge")
+        if isinstance(judge, dict):
+            lines.append(f"  Judge ({judge.get('reviewer')}): {judge.get('rationale')}")
+        elif agg.detail.get("fallback_used"):
+            lines.append(f"  Judge は使われませんでした: {agg.detail['fallback_used']}")
+    lines.append("")
+    for verdict in finding.verdicts:
+        lines.append(
+            f"- {verdict.reviewer} ({verdict.model}) status={verdict.status.value} "
+            f"vulnerable={verdict.vulnerable} severity={verdict.severity.value} "
+            f"confidence={verdict.confidence:.2f} fp={verdict.false_positive_probability:.2f}"
+        )
+        lines.append(f"    {verdict.reasoning}")
+        if verdict.attack_path:
+            lines.append(f"    攻撃経路: {' → '.join(verdict.attack_path)}")
+    lines.append("")
+    return lines
+
+
+def _call_lines(result: Explanation) -> list[str]:
     if result.trace_dir is None:
-        lines.append("呼び出し記録 (trace) が見つかりません")
-    elif not result.calls:
-        lines.append(f"この候補の呼び出し記録はありません ({result.trace_dir})")
-    else:
-        lines.append(f"呼び出し記録: {len(result.calls)} 件 ({result.trace_dir / 'calls'})")
-        for call in result.calls:
-            params = call.get("params") or {}
-            usage = call.get("usage") or {}
-            response = call.get("response") or {}
-            lines.append(
-                f"- {call.get('_file')} {call.get('reviewer')} ({call.get('model')}) "
-                f"attempt={call.get('attempt')} status={call.get('status')} "
-                f"{call.get('latency_ms')} ms "
-                f"in={usage.get('input_tokens')} out={usage.get('output_tokens')} "
-                f"transport={params.get('transport')} structured={params.get('structured_mode')}"
-            )
-            if call.get("degraded_to"):
-                lines.append(f"    構造化出力を {call['degraded_to']} に降格")
-            if response.get("error"):
-                lines.append(f"    エラー: {response['error']}")
-            prompt = call.get("prompt") or {}
-            lines.append(f"    prompt sha256: user={str(prompt.get('user_sha256', ''))[:16]}…")
-    return "\n".join(lines) + "\n"
+        return ["呼び出し記録 (trace) が見つかりません"]
+    if not result.calls:
+        return [f"この候補の呼び出し記録はありません ({result.trace_dir})"]
+    lines = [f"呼び出し記録: {len(result.calls)} 件 ({result.trace_dir / 'calls'})"]
+    for call in result.calls:
+        params = call.get("params") or {}
+        usage = call.get("usage") or {}
+        response = call.get("response") or {}
+        lines.append(
+            f"- {call.get('_file')} {call.get('reviewer')} ({call.get('model')}) "
+            f"attempt={call.get('attempt')} status={call.get('status')} "
+            f"{call.get('latency_ms')} ms "
+            f"in={usage.get('input_tokens')} out={usage.get('output_tokens')} "
+            f"transport={params.get('transport')} structured={params.get('structured_mode')}"
+        )
+        if call.get("degraded_to"):
+            lines.append(f"    構造化出力を {call['degraded_to']} に降格")
+        if response.get("error"):
+            lines.append(f"    エラー: {response['error']}")
+        prompt = call.get("prompt") or {}
+        lines.append(f"    prompt sha256: user={str(prompt.get('user_sha256', ''))[:16]}…")
+    return lines

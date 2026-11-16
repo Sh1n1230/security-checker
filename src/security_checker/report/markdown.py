@@ -18,6 +18,7 @@ from pathlib import Path
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
 from security_checker.models.finding import Finding
 from security_checker.models.report import Report
+from security_checker.models.verdict import ReviewVerdict
 from security_checker.policy.engine import PolicyDecision
 from security_checker.report import sanitize as md
 
@@ -230,41 +231,59 @@ def _finding_block(finding: Finding) -> list[str]:
         lines += [md.text(summary.strip()), ""]
 
     ok_verdicts = [v for v in finding.verdicts if v.status.value == "ok"]
-    if ok_verdicts:
-        lines += ["| Reviewer | 判定 | 確信度 |", "|---|---|---|"]
-        for verdict in ok_verdicts:
-            judgement = f"{verdict.severity.value}" if verdict.vulnerable else "脆弱ではない"
-            lines.append(f"| {_cell(verdict.reviewer)} | {judgement} | {verdict.confidence:.0%} |")
-        lines.append("")
-
-    for verdict in ok_verdicts:
-        if verdict.attack_path:
-            path = " → ".join(
-                _flatten(step) for step in verdict.attack_path[:MAX_ATTACK_PATH_STEPS]
-            )
-            lines += [f"**攻撃経路**: {path}", ""]
-            break
-
-    for verdict in ok_verdicts:
-        if verdict.remediation is not None and verdict.remediation.approach:
-            lines += ["**対応方針**", "", md.text(verdict.remediation.approach.strip()), ""]
-            if verdict.remediation.example:
-                lines += [*md.code_block(verdict.remediation.example.strip()), ""]
-            break
-
-    details = [v for v in ok_verdicts if v.reasoning]
-    if details:
-        lines += ["<details><summary>各 Reviewer の判断理由</summary>", ""]
-        for verdict in details:
-            reviewer = md.code_span(verdict.reviewer)
-            lines += [f"**{reviewer}** — {md.text(verdict.reasoning.strip())}", ""]
-        lines += ["</details>", ""]
+    lines += _verdict_table(ok_verdicts)
+    lines += _attack_path(ok_verdicts)
+    lines += _remediation(ok_verdicts)
+    lines += _reasons(ok_verdicts)
 
     failed = [v for v in finding.verdicts if v.status.value != "ok"]
     for verdict in failed:
         reviewer = md.code_span(verdict.reviewer)
         lines += [f"> ⚠️ {reviewer} は判定できませんでした: {verdict.status.value}", ""]
     return lines
+
+
+def _verdict_table(verdicts: list[ReviewVerdict]) -> list[str]:
+    if not verdicts:
+        return []
+    lines = ["| Reviewer | 判定 | 確信度 |", "|---|---|---|"]
+    for verdict in verdicts:
+        judgement = f"{verdict.severity.value}" if verdict.vulnerable else "脆弱ではない"
+        lines.append(f"| {_cell(verdict.reviewer)} | {judgement} | {verdict.confidence:.0%} |")
+    return [*lines, ""]
+
+
+def _attack_path(verdicts: list[ReviewVerdict]) -> list[str]:
+    """攻撃経路を挙げた最初の Reviewer のものを載せる."""
+    for verdict in verdicts:
+        if verdict.attack_path:
+            path = " → ".join(
+                _flatten(step) for step in verdict.attack_path[:MAX_ATTACK_PATH_STEPS]
+            )
+            return [f"**攻撃経路**: {path}", ""]
+    return []
+
+
+def _remediation(verdicts: list[ReviewVerdict]) -> list[str]:
+    """対応方針を書いた最初の Reviewer のものを載せる."""
+    for verdict in verdicts:
+        if verdict.remediation is not None and verdict.remediation.approach:
+            lines = ["**対応方針**", "", md.text(verdict.remediation.approach.strip()), ""]
+            if verdict.remediation.example:
+                lines += [*md.code_block(verdict.remediation.example.strip()), ""]
+            return lines
+    return []
+
+
+def _reasons(verdicts: list[ReviewVerdict]) -> list[str]:
+    details = [v for v in verdicts if v.reasoning]
+    if not details:
+        return []
+    lines = ["<details><summary>各 Reviewer の判断理由</summary>", ""]
+    for verdict in details:
+        reviewer = md.code_span(verdict.reviewer)
+        lines += [f"**{reviewer}** — {md.text(verdict.reasoning.strip())}", ""]
+    return [*lines, "</details>", ""]
 
 
 def _candidates(report: Report) -> list[str]:
