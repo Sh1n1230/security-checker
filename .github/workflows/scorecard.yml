@@ -20,6 +20,7 @@ jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       security-events: write # Code Scanning への SARIF 登録
       id-token: write # publish_results (バッジと API) の OIDC

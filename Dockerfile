@@ -33,11 +33,16 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce
 WORKDIR /opt/security-checker
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
+# 本体は wheel にしてから入れる。ビルドバックエンド (hatchling) とその依存も、
+# uv.lock の build グループの版とハッシュで検証する (`pip install .` だと検証なしで最新版が入る)
 RUN set -eux; \
     uv export --frozen --no-dev --no-emit-project --format requirements-txt -o /tmp/requirements.txt; \
+    uv export --frozen --only-group build --no-emit-project --format requirements-txt \
+        -o /tmp/build-constraints.txt; \
     pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt; \
-    pip install --no-cache-dir --no-deps .; \
-    rm /tmp/requirements.txt /usr/local/bin/uv; \
+    uv build --wheel --build-constraints /tmp/build-constraints.txt --require-hashes -o /tmp/dist; \
+    pip install --no-cache-dir --no-deps /tmp/dist/*.whl; \
+    rm -rf /tmp/requirements.txt /tmp/build-constraints.txt /tmp/dist /usr/local/bin/uv; \
     security-checker version
 
 # マウントしたリポジトリの所有者が実行ユーザーと異なっても git が拒否しないようにする。
