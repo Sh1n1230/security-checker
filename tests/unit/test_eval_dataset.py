@@ -136,3 +136,15 @@ def test_rationale_is_required(tmp_path, rationale):
     write_case(tmp_path, "0001.yaml", body)
     with pytest.raises(ConfigError, match="rationale"):
         load_dataset(tmp_path)
+
+
+def test_broken_yaml_case_is_a_config_error(tmp_path):
+    write_case(tmp_path, "bad.yaml", "candidate: [unclosed\n")
+    with pytest.raises(ConfigError, match="読み込めません"):
+        load_dataset(tmp_path)
+
+
+def test_case_that_is_not_a_mapping_is_a_config_error(tmp_path):
+    write_case(tmp_path, "list.yaml", "- a\n- b\n")
+    with pytest.raises(ConfigError, match="トップレベルはマッピング"):
+        load_dataset(tmp_path)

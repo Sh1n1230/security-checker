@@ -322,3 +322,67 @@ def test_a_preset_name_cannot_escape_the_presets_directory(tmp_path):
     assert (PRESET_DIR / f"{relative}.yml").is_file()  # 照合しなければ読めてしまう経路
     with pytest.raises(ConfigError, match="存在しません"):
         load_config(tmp_path, preset=str(relative), environ={})
+
+
+# --- 読み込みの異常系 -----------------------------------------------------------
+
+
+def test_unreadable_config_is_a_config_error(tmp_path, monkeypatch):
+    path = write_config(tmp_path, "version: 1\n")
+    original = Path.read_text
+
+    def deny(self: Path, *args: object, **kwargs: object) -> str:
+        if self == path:
+            raise PermissionError(13, "Permission denied")
+        return original(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", deny)
+    with pytest.raises(ConfigError, match="読み込めません"):
+        load_config(tmp_path, environ={})
+
+
+def test_empty_config_file_means_defaults(tmp_path):
+    write_config(tmp_path, "# 何も書いていない\n")
+    loaded = load_config(tmp_path, environ={})
+    assert loaded.config == Config()
+
+
+def test_top_level_list_is_a_config_error(tmp_path):
+    write_config(tmp_path, "- a\n- b\n")
+    with pytest.raises(ConfigError, match="トップレベルはマッピング"):
+        load_config(tmp_path, environ={})
+
+
+def test_non_list_reviewers_is_left_for_schema_validation(tmp_path):
+    write_config(tmp_path, "version: 1\nreviewers: nope\n")
+    with pytest.raises(ConfigError, match="reviewers"):
+        load_config(tmp_path, environ={})
+
+
+def test_env_prefix_alone_is_ignored():
+    assert env_overrides({"SECURITY_CHECKER__": "x", "SECURITY_CHECKER____": "y"}) == {}
+
+
+def test_env_nested_key_replaces_a_scalar_set_by_a_shorter_key():
+    overrides = env_overrides(
+        {
+            "SECURITY_CHECKER__POLICY": "strict",
+            "SECURITY_CHECKER__POLICY__FAIL_ON": "low",
+        }
+    )
+    assert overrides == {"policy": {"fail_on": "low"}}
+
+
+def test_env_value_that_is_not_yaml_is_kept_as_text():
+    overrides = env_overrides({"SECURITY_CHECKER__BUDGET__MAX_USD": "{unclosed"})
+    assert overrides == {"budget": {"max_usd": "{unclosed"}}
+
+
+def test_env_key_outside_the_schema_is_parsed_as_yaml():
+    # スキーマに無いキーは文字列とは限らないので YAML として読む (検証で弾かれる)
+    assert env_overrides({"SECURITY_CHECKER__NO_SUCH__KEY": "3"}) == {"no_such": {"key": 3}}
+
+
+def test_judge_strategy_requires_a_judge_reviewer():
+    with pytest.raises(ValueError, match=r"judge\.reviewer が必要"):
+        Config.model_validate({"aggregation": {"strategy": "judge"}})
