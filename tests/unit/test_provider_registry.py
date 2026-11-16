@@ -13,7 +13,6 @@ from security_checker.providers.http.dialects.ollama_chat import DEFAULT_NUM_CTX
 from security_checker.providers.presets.loader import HttpPreset, load_http_presets
 from security_checker.providers.registry import (
     build_http_provider,
-    build_provider,
     resolve_api_key,
     resolve_capabilities,
     resolve_headers,
