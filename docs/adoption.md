@@ -82,3 +82,20 @@ updates:
    tool `security-checker` を加えます。閾値の考え方は [github-actions.md の 6 章](github-actions.md#6-code-scanning-をマージゲートにする) を参照してください。
 4. **戻し方**: 必須化の後に誤った失敗が続く場合は、Ruleset を外さず、そのリポジトリだけ一時的に
    `fail-on: critical` に下げ、原因を Issue にします。
+
+## 安定 ID の互換性が変わったとき (2.2.0)
+
+`normalize_snippet` が、文字列リテラルの中の `//` `#` `--` をコメントとして消さなくなりました。
+`https://a.example` と `https://b.example` が別の ID になるための修正ですが、
+**同じファイル・同じルールで、これまで同じ ID だった検出の ID が変わります。**
+
+`.security-checker-baseline.json` をそのまま使うと、既存の抑制が外れて
+「新しく出た検出」としてゲートに引っかかります。上げるときは:
+
+```bash
+security-checker baseline update     # ID を作り直す
+git diff .security-checker-baseline.json   # 何件が新しい ID になったか確認する
+```
+
+差分が「抑制されていたものが同じ数だけ別 ID になった」だけなら、中身の判断は変わっていません。
+そうでない場合は、新しい ID が本当に新しい検出でないかを見てください。

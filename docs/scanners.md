@@ -7,10 +7,11 @@ LLM に脆弱性を探させないのは、見つけた・見つけないの再�
 |---|---|---|---|
 | semgrep | `sast` | コードのパターン | `brew install semgrep` / `pipx install semgrep` |
 | gitleaks | `secret` | シークレットの直書き | `brew install gitleaks` |
+| repo-hygiene | `secret` | 資格情報ファイルのコミット、`.gitignore` に載っているのに追跡されているファイル | 不要 (内蔵。git だけを使う) |
 | osv-scanner | `dependency` | 依存の既知脆弱性 (OSV データベース) | `brew install osv-scanner` |
 | trivy | `config` / `dependency` | IaC・Dockerfile・Kubernetes の誤設定、依存の脆弱性 | `brew install trivy` |
 
-無効にするには `scanners.<name>.enabled: false`。
+無効にするには `scanners.<name>.enabled: false` (repo-hygiene の設定キーは `repo_hygiene`)。
 
 GitHub Action（`action.yml`）・Docker イメージ・このリポジトリの CI は、スキャナを「最新版」ではなく
 [`scripts/scanner-versions.sh`](../scripts/scanner-versions.sh) に書いた版で取得し、そこに固定した sha256 で検証します。
@@ -26,7 +27,7 @@ GitHub Action（`action.yml`）・Docker イメージ・このリポジトリの
 |---|---|---|
 | `ok` | 実行できた (0 件を含む) | |
 | `skipped` | 導入されていない・対象が無い | 警告。スコアは `partial` |
-| `failed` | 異常終了・タイムアウト・出力が壊れている | **エラー**。`strict` なら exit 3。SARIF はアップロードしない |
+| `failed` | 異常終了・タイムアウト・出力が壊れている | **エラー**。`strict` なら exit 3 ([exit-codes.md](exit-codes.md))。SARIF はアップロードしない |
 
 v1 には「スキャナが失敗しても 0 件の成功として扱われ、満点に見える」欠陥がありました。
 v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒頭に出します。
@@ -38,7 +39,10 @@ v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒�
 - `scanners.semgrep.config` は `p/default` のようなルールセットか、ルールファイルのパス。
   複数ならリストで書きます。既定は `[p/default, bundled:llm, bundled:ci-lock]`。
 - `bundled:<名前>` は security-checker が同梱するルールです。解決先は常にパッケージ内で、
-  検査対象のツリーからは読みません。
+  検査対象のツリーからは読みません。同梱ルールの `rule_id` は `bundled.<ルールの id>` です
+  (semgrep がインストール先のパスから付ける接頭辞は外すので、環境が変わっても ID と ignore の指定は変わりません)。
+- semgrep の重大度は `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` と、古い表記の `ERROR` (= high) /
+  `WARNING` (= medium) / `INFO` (= low) を読みます。
 
   | 名前 | 内容 |
   |---|---|
@@ -51,6 +55,28 @@ v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒�
 - **検出値はマスクしてから**候補・生出力・LLM へのプロンプトに載せます (`xoxb****` のように形式だけ残す)。
   漏洩したシークレットを第三者 (外部 LLM) に再送しないためです。
 - gitleaks 8.19 以降は `gitleaks dir`、それ以前は `detect --no-git` を使います。
+
+### repo-hygiene
+
+中身のパターンを見る秘密検出では拾えないものを、git の追跡状態とファイル名で見つけます。
+外部ツールは要りません (`git ls-files` を呼ぶだけです)。**既定で有効**です。
+
+| ルール | 何を見るか | 重大度 |
+|---|---|---|
+| `tracked-ignored-file` | `.gitignore` に載っているのに追跡されているファイル (`.gitignore` に足す前にコミットした・`git add -f` した) | 資格情報らしい名前なら high、それ以外は low |
+| `credential-file-committed` | 資格情報を含みうる名前のファイルのコミット (`.env`・`.env.*`・`.mcp.json`・`.npmrc`・`.pypirc`・`.netrc`・`.git-credentials`・`credentials.json`・`client_secret*.json`・`*service-account*.json`・`id_rsa` / `id_ecdsa` / `id_ed25519`・`*.pem`・`*.key`・`*.p12`・`*.pfx`・`.claude/settings.local.json`) | medium。`*.pem` / `*.key` は秘密鍵なら high、公開鍵証明書だけなら info |
+| `mcp-config-literal-value` | `.mcp.json` の `mcpServers.*.env` / `headers` に直書きされた値 (`${VAR}` を含む値と空文字は対象外) | high |
+
+- **値はどこにも載せません。** 報告するのはパスとルール、`.mcp.json` ならキー名だけです。
+  候補はファイル単位 (行を持たない) なので、Reviewer に渡す文脈にもファイルの本文は入りません。
+- `.env.example`・`.env.sample`・`.env.template` は雛形として対象外です。
+- `target.exclude` に入っているパスは対象外です。意図して追跡しているファイルは
+  `.security-checker-ignore` で抑止します。`tracked-ignored-file` の low は、既定の
+  `fail_on: high` では落ちません。
+- git 管理外のディレクトリでは `skipped` になり、理由を出します (0 件の成功にはしません)。
+  見るのは作業ツリーの追跡状態だけで、過去のコミットに入って削除されたファイルは対象外です。
+- 差分モードでは、そのファイルが変更に含まれるときだけ報告します。
+- 外部ツールを呼ばないので `extra_args` は受け付けません。
 
 ### osv-scanner
 
@@ -84,8 +110,20 @@ v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒�
 
 ## 自作のスキャナを足す
 
+`security_checker.scanners` の entry point に登録し、設定の `scanners.plugins` に書くと、
+内蔵と同じように実行されます。適合性は公開の契約テストで確かめられます。
+
+```yaml
+scanners:
+  plugins:
+    myscan: {enabled: true, timeout_s: 300, extra_args: []}
+```
+
+**入れただけでは動きません。** 依存に入ったパッケージが黙ってスキャナとして動かないようにするためです。
+登録されているのに設定に無いプラグインは警告を出し、設定にあるのに登録されていない名前は設定エラー (exit 2) にします。
+プラグインのファクトリは `ScannerConfig` を 1 つ受け取ります。
 `security_checker.scanners` の entry point に登録すると、内蔵と同じように使えます。
-適合性は公開の契約テストで確かめられます。
+適合性は公開の契約テストで確かめられます (`pip install "security-checker[testing]"` で pytest も入ります)。
 
 ```python
 from security_checker.testing import ScannerContractTests
