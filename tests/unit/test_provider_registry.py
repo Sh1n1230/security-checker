@@ -103,7 +103,7 @@ def test_headers_env_without_the_variable_is_config_error():
         "http://localhost.evil.example/v1",
     ],
 )
-def test_http_credentials_warn_for_cleartext_non_loopback(base_url: str):
+def test_http_credentials_warn_for_cleartext_non_loopback(base_url: str) -> None:
     warnings: list[str] = []
     build_provider(
         reviewer(base_url=base_url, api_key_env="API_KEY"),
@@ -125,7 +125,7 @@ def test_http_credentials_warn_for_cleartext_non_loopback(base_url: str):
         "https://api.example.com/v1",
     ],
 )
-def test_http_credentials_do_not_warn_for_loopback_or_tls(base_url: str):
+def test_http_credentials_do_not_warn_for_loopback_or_tls(base_url: str) -> None:
     warnings: list[str] = []
     build_provider(
         reviewer(base_url=base_url, api_key_env="API_KEY"),
