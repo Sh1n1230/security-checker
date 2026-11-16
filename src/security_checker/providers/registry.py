@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import os
 from importlib.metadata import entry_points
+from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
@@ -86,6 +88,32 @@ def resolve_headers(
     return headers
 
 
+def warn_insecure_credential_transport(
+    reviewer: ReviewerConfig, base_url: str, api_key_env: str | None, warnings: list[str]
+) -> None:
+    """Warn about environment-backed secrets sent over non-loopback cleartext HTTP."""
+    if not (api_key_env or reviewer.headers_env):
+        return
+    parts = urlsplit(base_url)
+    if parts.scheme.lower() != "http":
+        return
+    try:
+        hostname = parts.hostname
+    except ValueError:
+        return
+    if not hostname or hostname.lower() == "localhost":
+        return
+    try:
+        if ip_address(hostname).is_loopback:
+            return
+    except ValueError:
+        pass
+    warnings.append(
+        f"reviewer '{reviewer.name}': HTTP endpoint {hostname!r} is not loopback. "
+        "api_key_env / headers_env credentials may be sent in plaintext; use HTTPS."
+    )
+
+
 def resolve_capabilities(
     reviewer: ReviewerConfig,
     preset: BasePreset | None,
@@ -121,6 +149,7 @@ def build_http_provider(
     environ: dict[str, str] | None = None,
     client: httpx.AsyncClient | None = None,
     presets: dict[str, HttpPreset] | None = None,
+    warnings: list[str] | None = None,
 ) -> HttpProvider:
     """`transport: http` の Reviewer から Provider を作る."""
     available = presets if presets is not None else load_http_presets()
@@ -148,14 +177,18 @@ def build_http_provider(
     api_key_env = reviewer.api_key_env or (preset.api_key_env if preset else None)
     key_source = reviewer.model_copy(update={"api_key_env": api_key_env})
     dialect = factory(options)
+    api_key = resolve_api_key(key_source, environ)
+    headers = resolve_headers(reviewer, environ)
+    if warnings is not None:
+        warn_insecure_credential_transport(reviewer, base_url, api_key_env, warnings)
     return HttpProvider(
         name=reviewer.name,
         dialect=dialect,
         base_url=base_url,
         model=reviewer.model,
         capabilities=resolve_capabilities(reviewer, preset, dialect.default_capabilities()),
-        api_key=resolve_api_key(key_source, environ),
-        extra_headers=resolve_headers(reviewer, environ),
+        api_key=api_key,
+        extra_headers=headers,
         client=client,
     )
 
@@ -238,7 +271,9 @@ def build_provider(
 ) -> LLMProvider:
     """transport に応じた Provider を作る."""
     if reviewer.transport == "http":
-        return build_http_provider(reviewer, environ=environ, client=client, presets=presets)
+        return build_http_provider(
+            reviewer, environ=environ, client=client, presets=presets, warnings=warnings
+        )
     if reviewer.transport == "process":
         return build_process_provider(reviewer, environ=environ, warnings=warnings)
     available_plugins: dict[str, Any] = plugins if plugins is not None else {}
