@@ -53,6 +53,10 @@ Changelog = "https://github.com/Sh1n1230/security-checker/blob/main/CHANGELOG.md
 Issues = "https://github.com/Sh1n1230/security-checker/issues"
 
 [dependency-groups]
+ci-lint = [
+    "shellcheck-py>=0.11.0.1",
+    "zizmor==1.32.0",
+]
 dev = [
   "jsonschema[format-nongpl]>=4.26.0",
   "mypy>=2.4.1",
