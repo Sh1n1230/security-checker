@@ -37,11 +37,19 @@ rules:
       - metavariable-regex:
           metavariable: $STEPS
           regex: '^(?![\s\S]*\buv\s+lock\b)'
+      # 環境変数 UV_LOCKED / UV_FROZEN は --locked / --frozen と同じ意味。
+      # step・job・workflow のどの階層の env に書いてあっても、その配下の run は lock を強制している
+      - pattern-not-inside: |
+          env:
+            ...
+            UV_LOCKED: $V
+            ...
+          ...
       - pattern: "run: $CMD"
       # metavariable-regex は先頭から照合するので、複数行の run: | のどこにあっても拾えるよう前置きを許す
       - metavariable-regex:
           metavariable: $CMD
-          regex: '[\s\S]*?\buv\s+sync\b(?![^\n]*--(locked|frozen)\b)'
+          regex: '[\s\S]*?\buv\s+sync\b(?!(?:[^\n\\]|\\\n|\\.)*--(locked|frozen)\b)'
 
   - id: ci-uv-sync-frozen-without-locked
     languages: [yaml]
@@ -57,7 +65,15 @@ rules:
       - metavariable-regex:
           metavariable: $STEPS
           regex: '^(?![\s\S]*\buv\s+lock\b)'
+      # 環境変数 UV_LOCKED / UV_FROZEN は --locked / --frozen と同じ意味。
+      # step・job・workflow のどの階層の env に書いてあっても、その配下の run は lock を強制している
+      - pattern-not-inside: |
+          env:
+            ...
+            UV_LOCKED: $V
+            ...
+          ...
       - pattern: "run: $CMD"
       - metavariable-regex:
           metavariable: $CMD
-          regex: '[\s\S]*?\buv\s+sync\b(?=[^\n]*--frozen\b)(?![^\n]*--locked\b)'
+          regex: '[\s\S]*?\buv\s+sync\b(?=(?:[^\n\\]|\\\n|\\.)*--frozen\b)(?!(?:[^\n\\]|\\\n|\\.)*--locked\b)'
