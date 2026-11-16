@@ -26,6 +26,7 @@ code: |
 ground_truth:
   vulnerable: true
   severity: high
+  rationale: テスト用
 """
 
 
@@ -99,3 +100,39 @@ def test_the_bundled_dataset_loads():
         assert case.ground_truth.rationale.strip(), f"{case.id}: 正解の根拠が書かれていない"
         if case.ground_truth.vulnerable:
             assert case.ground_truth.severity is not Severity.NONE
+
+
+# --- ワークスペースの外に書き出させない (#624) ------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["../../../.bashrc", "src/../../x.py", "..\\..\\x.py", "/etc/passwd", "C:\\x.py", ""],
+)
+def test_a_case_path_that_escapes_the_workspace_is_rejected(tmp_path, path):
+    write_case(tmp_path, "0001.yaml", CASE.replace("path: app.py", f"path: {path!r}"))
+    with pytest.raises(ConfigError, match="不正"):
+        load_dataset(tmp_path)
+
+
+@pytest.mark.parametrize("case_id", ["../evil", "a/b", "..", "a\\b"])
+def test_a_case_id_that_is_not_a_plain_name_is_rejected(tmp_path, case_id):
+    write_case(tmp_path, "0001.yaml", f"id: {case_id!r}\n" + CASE)
+    with pytest.raises(ConfigError, match="不正"):
+        load_dataset(tmp_path)
+
+
+def test_a_nested_relative_path_is_still_accepted(tmp_path):
+    write_case(tmp_path, "0001.yaml", CASE.replace("path: app.py", "path: src/pkg/app.py"))
+    assert load_dataset(tmp_path).cases[0].candidate.path == "src/pkg/app.py"
+
+
+@pytest.mark.parametrize("rationale", [None, '""', '"   "'])
+def test_rationale_is_required(tmp_path, rationale):
+    """rationale は必須. 省略・空・空白だけを黙って読み込まない (#235)."""
+    body = CASE.replace("  rationale: テスト用\n", "")
+    if rationale is not None:
+        body += f"  rationale: {rationale}\n"
+    write_case(tmp_path, "0001.yaml", body)
+    with pytest.raises(ConfigError, match="rationale"):
+        load_dataset(tmp_path)

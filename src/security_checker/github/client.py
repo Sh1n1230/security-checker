@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,6 +20,7 @@ import httpx
 from security_checker.config.schema import GithubConfig
 from security_checker.errors import ConfigError, SecurityCheckerError
 from security_checker.github.comment import (
+    STALE_SUMMARY,
     SUMMARY_MARKER,
     commentable_ranges,
     existing_finding_ids,
@@ -26,19 +28,26 @@ from security_checker.github.comment import (
     plan_inline,
     render_summary,
 )
+from security_checker.github.pr import DiffError, head_line_mapper
 from security_checker.models.report import Report
 
 DEFAULT_API_URL = "https://api.github.com"
 TIMEOUT_S = 30.0
 MAX_PAGES = 30
+#: 二次レート制限の Retry-After がこれ以下なら待って 1 回だけ再試行する
+MAX_RATE_LIMIT_WAIT_S = 60.0
 
 
 class GithubError(SecurityCheckerError):
     """GitHub API の呼び出しに失敗した."""
 
-    def __init__(self, message: str, status_code: int | None = None) -> None:
+    def __init__(
+        self, message: str, status_code: int | None = None, *, rate_limited: bool = False
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        #: 二次レート制限 (403 / 429). 権限不足と混同しない
+        self.rate_limited = rate_limited
 
 
 @dataclass(frozen=True)
@@ -87,7 +96,11 @@ class GithubClient:
         *,
         api_url: str = DEFAULT_API_URL,
         transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        self._sleep = sleep
+        #: MAX_PAGES で打ち切った一覧の URL. 黙って切り捨てない
+        self.truncated: list[str] = []
         self._client = httpx.Client(
             base_url=api_url.rstrip("/"),
             headers={
@@ -110,21 +123,33 @@ class GithubClient:
         self.close()
 
     def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
-        try:
-            response = self._client.request(method, url, **kwargs)
-        except httpx.HTTPError as exc:
-            raise GithubError(f"GitHub API に接続できません: {exc}") from exc
+        response = self._send(method, url, **kwargs)
+        wait = _rate_limit_wait(response)
+        if wait is not None and wait <= MAX_RATE_LIMIT_WAIT_S:
+            # 二次レート制限は短い待ちで解けることが多い. 1 回だけ待って送り直す
+            self._sleep(wait)
+            response = self._send(method, url, **kwargs)
+            wait = _rate_limit_wait(response)
         if response.status_code >= 400:
-            message = ""
-            try:
-                message = str(response.json().get("message", ""))
-            except ValueError:
-                message = response.text[:200]
+            message = _error_message(response)
+            if wait is not None:
+                raise GithubError(
+                    f"GitHub API {method} {url} がレート制限に達しました "
+                    f"({response.status_code}): {message}",
+                    status_code=response.status_code,
+                    rate_limited=True,
+                )
             raise GithubError(
                 f"GitHub API {method} {url} が {response.status_code} を返しました: {message}",
                 status_code=response.status_code,
             )
         return response
+
+    def _send(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        try:
+            return self._client.request(method, url, **kwargs)
+        except httpx.HTTPError as exc:
+            raise GithubError(f"GitHub API に接続できません: {exc}") from exc
 
     def _paginate(self, url: str) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -137,6 +162,8 @@ class GithubClient:
             items.extend(response.json())
             next_url = response.links.get("next", {}).get("url")
             params = None  # next の URL にはクエリが含まれている
+        if next_url is not None:
+            self.truncated.append(url)
         return items
 
     def issue_comments(self, pr: PullRequestContext) -> list[dict[str, Any]]:
@@ -178,6 +205,36 @@ class GithubClient:
         return result
 
 
+def _error_message(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        return response.text[:200]
+    return str(payload.get("message", "")) if isinstance(payload, dict) else ""
+
+
+def _rate_limit_wait(response: httpx.Response) -> float | None:
+    """レート制限の応答なら待つ秒数 (不明なら inf). そうでなければ None."""
+    if response.status_code not in (403, 429):
+        return None
+    headers = response.headers
+    retry_after = headers.get("retry-after")
+    if retry_after is not None:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            return float("inf")
+    if headers.get("x-ratelimit-remaining") == "0":
+        reset = headers.get("x-ratelimit-reset")
+        try:
+            return max(0.0, float(reset or "") - time.time())
+        except ValueError:
+            return float("inf")
+    if response.status_code == 429 or "rate limit" in _error_message(response).lower():
+        return float("inf")
+    return None
+
+
 @dataclass
 class CommentResult:
     """投稿結果. 何をしなかったかも理由付きで残す (黙って 0 件にしない)."""
@@ -188,6 +245,9 @@ class CommentResult:
     inline_already_posted: int = 0
     inline_outside_diff: int = 0
     inline_over_limit: int = 0
+    inline_unmapped: int = 0
+    #: GitHub が 422 で受け付けなかった inline コメント (行が diff に無いなど)
+    inline_rejected: int = 0
     warnings: list[str] = field(default_factory=list)
 
 
@@ -229,8 +289,19 @@ def post_comments(
     settings: GithubConfig,
     *,
     report_url: str | None = None,
+    allow_readonly: bool = False,
+    repo_dir: Path | None = None,
 ) -> CommentResult:
-    """sticky サマリと inline コメントを投稿する."""
+    """sticky サマリと inline コメントを投稿する.
+
+    `repo_dir` は検査したコミットと PR の head の両方を持つ git の作業ツリー (既定は
+    カレントディレクトリ)。両者が違うとき (pull_request の merge コミットを検査した場合) に
+    行番号を対応づけるためだけに使う。
+
+    403 / 404 (権限不足・PR 番号の誤り) は既定でエラーにする。`pull-requests: write` の
+    付け忘れが緑のまま気づかれないため。投稿できないと分かっている呼び出し元 (fork PR の
+    read-only トークンなど) だけが `allow_readonly` で警告に落とす。
+    """
     result = CommentResult()
     if not settings.comment:
         result.summary_action = "skipped"
@@ -239,16 +310,29 @@ def post_comments(
 
     try:
         _post_summary(client, pr, report, settings, report_url, result)
-        _post_inline(client, pr, report, settings, result)
+        _post_inline(client, pr, report, settings, result, repo_dir or Path.cwd())
     except GithubError as exc:
-        if exc.status_code in (403, 404):
+        if allow_readonly and not exc.rate_limited and exc.status_code in (403, 404):
             # fork PR の read-only トークンなど. ツールの故障ではない (§21.2)
             result.warnings.append(
                 f"PR にコメントできませんでした (権限不足の可能性。fork PR では workflow_run "
                 f"パターンを使ってください): {exc}"
             )
             return result
+        if exc.status_code in (403, 404) and not exc.rate_limited:
+            raise GithubError(
+                f"{exc} — トークンに pull-requests: write (と issues: write) があるか、"
+                "PR 番号が正しいかを確認してください。投稿できないと分かっている場面では "
+                "--allow-readonly で警告にできます",
+                status_code=exc.status_code,
+            ) from exc
         raise
+    finally:
+        result.warnings.extend(
+            f"{url} の一覧が {MAX_PAGES} ページを超えたため、それ以降を読んでいません"
+            "(重複投稿の判定や diff の範囲が不完全な可能性があります)"
+            for url in client.truncated
+        )
     return result
 
 
@@ -268,7 +352,16 @@ def _post_summary(
             settings.comment_author,
             lambda body: body.startswith(SUMMARY_MARKER),
         )
-        existing = next(iter(ours), None)
+        # 実行が重なると複数できる。最新を更新し、残りは古い結果だと書く。
+        # 人の返信がぶら下がっている可能性があるので消さない
+        existing = ours[-1] if ours else None
+        for stale in ours[:-1]:
+            client.update_issue_comment(pr, int(stale["id"]), STALE_SUMMARY)
+        if len(ours) > 1:
+            result.warnings.append(
+                f"サマリコメントが {len(ours)} 件ありました。実行が重なった可能性があります。"
+                "workflow に concurrency を設定してください (docs/github-actions.md)"
+            )
         if foreign:
             result.warnings.append(_foreign_warning(foreign, "サマリ", settings.comment_author))
 
@@ -292,6 +385,7 @@ def _post_inline(
     report: Report,
     settings: GithubConfig,
     result: CommentResult,
+    repo_dir: Path,
 ) -> None:
     if not settings.inline_comments or not report.findings:
         return
@@ -309,16 +403,50 @@ def _post_inline(
             _foreign_warning(foreign, "inline コメント", settings.comment_author)
         )
     posted = existing_finding_ids(_body(c) for c in ours)
-    plan = plan_inline(report, settings, commentable, posted)
+    sha = pr.head_sha or client.head_sha(pr)
+    try:
+        to_head = head_line_mapper(repo_dir, report.target.commit, sha)
+        plan = plan_inline(report, settings, commentable, posted, to_head=to_head)
+    except DiffError as exc:
+        # 行番号を確かめられないまま付けると、無関係な行に指摘が載る
+        result.warnings.append(
+            "PR の head と検査したコミットの行を対応づけられないため、"
+            f"inline コメントを省きます: {exc}"
+        )
+        return
+    result.inline_unmapped = plan.unmapped
+    if plan.unmapped:
+        result.warnings.append(
+            f"base 側の変更と重なる {plan.unmapped} 件は、"
+            "行を対応づけられないので inline を省きました"
+        )
     result.inline_already_posted = plan.already_posted
     result.inline_outside_diff = plan.outside_diff
     result.inline_over_limit = plan.over_limit
     if not plan.comments:
         return
-    sha = pr.head_sha or client.head_sha(pr)
-    client.create_review(
-        pr,
-        sha,
-        [{"path": c.path, "line": c.line, "side": "RIGHT", "body": c.body} for c in plan.comments],
-    )
-    result.inline_posted = len(plan.comments)
+    payload = [
+        {"path": c.path, "line": c.line, "side": "RIGHT", "body": c.body} for c in plan.comments
+    ]
+    try:
+        client.create_review(pr, sha, payload)
+        result.inline_posted = len(payload)
+        return
+    except GithubError as exc:
+        if exc.status_code != 422:
+            raise
+    # 1 件でも行が合わないと review 全体が 422 になる. 1 件ずつ送り直し、弾かれたものだけ数える
+    for comment in payload:
+        try:
+            client.create_review(pr, sha, [comment])
+        except GithubError as exc:
+            if exc.status_code != 422:
+                raise
+            result.inline_rejected += 1
+            continue
+        result.inline_posted += 1
+    if result.inline_rejected:
+        result.warnings.append(
+            f"inline コメント {result.inline_rejected} 件を GitHub が受け付けませんでした (422)。"
+            "行が PR の diff に含まれていない可能性があります"
+        )
