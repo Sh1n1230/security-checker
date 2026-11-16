@@ -18,10 +18,32 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  actions-lint:
+    # actionlint validates workflow expressions and runs ShellCheck on embedded Bash.
+    # Composite action run blocks live in action.yml, outside actionlint's scope (#651).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.12"
+
+      - name: Lint composite action Bash scripts
+        run: |
+          uv sync --group dev --locked
+          uv run python scripts/lint-composite-action.py action.yml
+
   # squash merge 後のコミットメッセージは PR タイトルになる (設計書 §31.1)。
   # release-please が CHANGELOG を生成できるよう、タイトルの形式をここで強制する。
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +77,7 @@ jobs:
   # lint と型検査は OS に依存しないので quality (Linux) だけで行い、ここではテストのみ。
   tests-os:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -87,6 +110,7 @@ jobs:
   dogfooding:
     # 自分自身を scan にかける。ここが落ちても quality とは別問題として扱えるよう job を分ける。
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -125,6 +149,7 @@ jobs:
   docker:
     # Dockerfile (スキャナ同梱イメージ) が壊れていないことの確認。公開は release.yml が行う
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -136,3 +161,57 @@ jobs:
           docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" security-checker:ci version
           docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" security-checker:ci \
             scan . --strict --fail-on critical -f json -q
+
+  # workflow・composite action・シェルスクリプトの静的解析 (#650, #652)。
+  # ツールは uv.lock の ci-lint グループで版とハッシュを固定している
+  lint-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: 検査ツールを同期
+        run: uv sync --only-group ci-lint --locked
+
+      - name: シェルスクリプト (shellcheck)
+        # action と Dockerfile が実行する install-scanners.sh と、配布している host-audit が対象
+        run: >
+          uv run --no-sync shellcheck --severity=warning
+          scripts/*.sh contrib/host-audit/*.sh
+          contrib/host-audit/hooks/pre-commit contrib/host-audit/hooks/pre-push
+
+      - name: workflow と action (zizmor)
+        # SHA 固定・persist-credentials・最小権限などの退行を止める。配布用のサンプル (ci/) も見る
+        run: uv run --no-sync zizmor --offline --config .github/zizmor.yml .github/workflows action.yml ci
+
+  # 配布物の中身の確認。公開は release.yml が行う
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: 配布物を作る
+        # release.yml と同じ手順. ビルドバックエンドも uv.lock の版とハッシュで検証する (#247)
+        run: |
+          set -euo pipefail
+          uv export --only-group build --frozen --no-emit-project \
+            --format requirements-txt -o "$RUNNER_TEMP/build-constraints.txt"
+          uv build --build-constraints "$RUNNER_TEMP/build-constraints.txt" --require-hashes
+
+      - name: sdist と wheel の中身を確かめる
+        # 開発用の設定・意図的に脆弱なデータセット・CI の定義を配布しない (#261)
+        run: uv run --no-project python scripts/check-dist.py dist
+

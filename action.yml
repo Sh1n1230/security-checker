@@ -172,7 +172,8 @@ runs:
         TRIVY_VERSION: ${{ inputs.trivy-version }}
         OSV_SCANNER_VERSION: ${{ inputs.osv-scanner-version }}
         SEMGREP_VERSION: ${{ inputs.semgrep-version }}
-      run: |
+      # GITHUB_PATH に足すのは、この step が作る RUNNER_TEMP 配下の固定の 2 つだけ (入力に由来しない)
+      run: | # zizmor: ignore[github-env]
         set -euo pipefail
         BIN="$RUNNER_TEMP/security-checker-bin"
         # スキャナは「最新版」ではなく、版と sha256 を固定して取得する (scripts/scanner-versions.sh)。

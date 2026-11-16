@@ -191,6 +191,7 @@ class ProcessProvider:
                 "stderr": _excerpt(result.stderr),
                 "exit_code": result.exit_code,
                 "created_paths": list(result.created_paths),
+                "created_paths_total": len(result.created_paths) + result.created_paths_omitted,
             },
         )
 
@@ -198,10 +199,13 @@ class ProcessProvider:
         """書込検知 (§9.7 の 4). P3 が守られたことの実測を、黙って捨てない."""
         if not result.created_paths:
             return []
+        omitted = (
+            f", ほか {result.created_paths_omitted} 件" if result.created_paths_omitted else ""
+        )
         return [
             (
                 f"{self.name}: Reviewer が隔離ディレクトリに書き込みを行いました "
-                f"({', '.join(result.created_paths)})。"
+                f"({', '.join(result.created_paths)}{omitted})。"
                 "隔離ディレクトリの外への書き込みは検知できません。"
                 "書き込み能力を無効化するフラグを command に加えてください"
             )

@@ -19,7 +19,7 @@ ALL_ZERO='^0+$' # 全ゼロ = ブランチの新規作成 or 削除 (sha1/sha256
 status=0
 
 # git は 1 行に "<local ref> <local sha> <remote ref> <remote sha>" を渡してくる
-while read -r local_ref local_sha remote_ref remote_sha; do
+while read -r _local_ref local_sha remote_ref remote_sha; do
   [[ -n "${remote_ref:-}" ]] || continue
   branch="${remote_ref#refs/heads/}"
 

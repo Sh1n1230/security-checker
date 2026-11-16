@@ -21,9 +21,11 @@ file_perm() {
 echo "=== ファイル権限検査 ==="
 
 # ~/.ssh の権限 (秘密鍵は 600、ディレクトリは 700 が原則)
+# shellcheck disable=SC2088  # 表示用の文字列. ~ を展開させる意図は無い
 section "~/.ssh"
 if [[ -d "$HOME/.ssh" ]]; then
   perm=$(file_perm "$HOME/.ssh")
+  # shellcheck disable=SC2088  # 表示用の文字列 (そのまま貼って実行できる形で見せる)
   [[ "$perm" != "700" ]] && report "~/.ssh の権限が $perm (700 にすべき): chmod 700 ~/.ssh"
   while IFS= read -r key; do
     kperm=$(file_perm "$key")
