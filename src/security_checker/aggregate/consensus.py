@@ -14,7 +14,7 @@ from security_checker.aggregate.base import (
     AggregationOutcome,
     aggregate_severity,
 )
-from security_checker.config.schema import AggregationConfig
+from security_checker.config.schema import MAJORITY_RATIO, AggregationConfig
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Agreement, FindingStatus, Severity
 from security_checker.models.verdict import ReviewVerdict, VerdictStatus
@@ -24,6 +24,8 @@ SUMMARY_LIMIT = 200
 SUMMARY_HEAD_LIMIT = 160
 SINGLE_CONFIRMED_CONFIDENCE = 0.8
 SINGLE_LIKELY_CONFIDENCE = 0.5
+#: 合意が high でも、confidence の平均がこれ未満なら confirmed にしない
+CONFIRMED_MEAN_CONFIDENCE = 0.8
 
 
 class ConsensusAggregator:
@@ -82,11 +84,15 @@ class ConsensusAggregator:
             return partial_outcome(self.name, valid[0], verdicts, candidate)
 
         # 半々は「過半数」ではなく判断が割れた状態 (§13.1)。min_ratio が低くても likely にしない
-        if votes >= cfg.consensus.min_votes and ratio >= cfg.consensus.min_ratio and ratio > 0.5:
+        if (
+            votes >= cfg.consensus.min_votes
+            and ratio >= cfg.consensus.min_ratio
+            and ratio > MAJORITY_RATIO
+        ):
             mean_confidence = statistics.fmean(v.confidence for v in vulnerable)
             status = (
                 FindingStatus.CONFIRMED
-                if agreement is Agreement.HIGH and mean_confidence >= 0.8
+                if agreement is Agreement.HIGH and mean_confidence >= CONFIRMED_MEAN_CONFIDENCE
                 else FindingStatus.LIKELY
             )
             return self._outcome(

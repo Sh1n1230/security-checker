@@ -776,7 +776,8 @@ def _split_command(command: str) -> list[str]:
 
 
 def _unquote(token: str) -> str:
-    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+    quoted = len(token) > 1 and token[0] == token[-1]
+    if quoted and token[0] in "\"'":
         return token[1:-1]
     return token
 

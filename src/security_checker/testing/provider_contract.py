@@ -131,11 +131,11 @@ class ProviderContractTests:
     @pytest.mark.asyncio
     async def test_rate_limit_carries_retry_after(self) -> None:
         provider = self._http_provider(
-            lambda _: httpx.Response(429, text="slow", headers={"Retry-After": "12"})
+            lambda _: httpx.Response(429, text="slow", headers={"Retry-After": str(RETRY_AFTER_S)})
         )
         with pytest.raises(ProviderRateLimitError) as excinfo:
             await provider.complete(self.make_request())
-        assert excinfo.value.retry_after == 12.0
+        assert excinfo.value.retry_after == float(RETRY_AFTER_S)
         await provider.aclose()
 
     @pytest.mark.asyncio
@@ -229,6 +229,8 @@ EARLY_EXIT_SPAWNER_SCRIPT = (
 )
 
 CHILD_REAP_DEADLINE_S = 10.0
+#: 429 の応答に付ける Retry-After (秒). 値そのものに意味は無い
+RETRY_AFTER_S = 12
 
 
 def python_command(script: str, *args: str) -> list[str]:

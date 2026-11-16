@@ -34,6 +34,13 @@ from security_checker.scanners.filters import is_excluded
 EXIT_NO_PACKAGES = 128
 MAX_REFERENCES = 5
 
+#: CVSS v3 の定性評価の帯 (下限の高い順). 0 より大きく最小の帯に届かなければ low
+_CVSS_BANDS: tuple[tuple[float, Severity], ...] = (
+    (9.0, Severity.CRITICAL),
+    (7.0, Severity.HIGH),
+    (4.0, Severity.MEDIUM),
+)
+
 #: OSV の database_specific.severity (GHSA の表記) → Severity
 _TEXT_SEVERITY = {
     "CRITICAL": Severity.CRITICAL,
@@ -47,12 +54,9 @@ _CVE_RE = re.compile(r"^CVE-\d{4}-\d+$")
 
 def severity_from_score(score: float) -> Severity:
     """CVSS の基本値 → Severity (CVSS v3 の定性評価の帯)."""
-    if score >= 9.0:
-        return Severity.CRITICAL
-    if score >= 7.0:
-        return Severity.HIGH
-    if score >= 4.0:
-        return Severity.MEDIUM
+    for floor, severity in _CVSS_BANDS:
+        if score >= floor:
+            return severity
     if score > 0.0:
         return Severity.LOW
     return Severity.NONE

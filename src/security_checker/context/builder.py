@@ -29,6 +29,8 @@ from security_checker.models.task import (
 
 MIN_WINDOW_LINES = 6
 SECRET_MIN_LENGTH = 8
+#: 引用符で区切った断片がこの数以下なら、閉じた引用符の組は 1 つも無い
+_UNQUOTED_PARTS = 2
 
 
 class ContextBuilder:
@@ -261,7 +263,7 @@ def _mask_quoted(line: str) -> str:
     result = line
     for quote in ('"', "'"):
         parts = result.split(quote)
-        if len(parts) < 3:
+        if len(parts) <= _UNQUOTED_PARTS:
             continue
         for index in range(1, len(parts), 2):
             value = parts[index]

@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+from http import HTTPStatus
 from typing import Any
 
 from security_checker.models.verdict import Usage
@@ -150,12 +151,12 @@ class AnthropicMessagesDialect:
     def explain_error(self, status: int, body: str) -> str | None:
         """次に取れる行動が分かる場合だけ文章にする (§20.2)."""
         lowered = body.lower()
-        if status == 404 and "model" in lowered:
+        if status == HTTPStatus.NOT_FOUND and "model" in lowered:
             return (
                 "model に指定した ID がこのエンドポイントに存在しません。"
                 "設定の model を確認してください"
             )
-        if status == 400 and "max_tokens" in lowered:
+        if status == HTTPStatus.BAD_REQUEST and "max_tokens" in lowered:
             return (
                 "出力トークンの上限がモデルの許容範囲を超えています。"
                 "max_output_tokens を下げてください"

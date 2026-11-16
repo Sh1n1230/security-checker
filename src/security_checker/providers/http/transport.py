@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from http import HTTPStatus
 from typing import Any, Literal
 
 import httpx
@@ -89,7 +90,7 @@ class HttpProvider:
                 # 降格で解決しうるのは 400 だけ。404 や 413 は何度送っても同じ
                 weaker = (
                     next_weaker_mode(mode)
-                    if req.json_schema is not None and exc.status == 400
+                    if req.json_schema is not None and exc.status == HTTPStatus.BAD_REQUEST
                     else None
                 )
                 if weaker is None:
@@ -160,27 +161,30 @@ class HttpProvider:
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         status = response.status_code
-        if status < 400:
+        if status < HTTPStatus.BAD_REQUEST:
             return
         detail = _excerpt(response.text)
-        if status in (401, 403) or self.dialect_impl.is_auth_error(status, response.text):
+        if status in (
+            HTTPStatus.UNAUTHORIZED,
+            HTTPStatus.FORBIDDEN,
+        ) or self.dialect_impl.is_auth_error(status, response.text):
             raise ProviderAuthError(
                 f"{self.name}: 認証に失敗しました ({status})。"
                 f"api_key_env に指定した環境変数の値を確認してください: {detail}",
                 provider=self.name,
             )
-        if status == 429:
+        if status == HTTPStatus.TOO_MANY_REQUESTS:
             raise ProviderRateLimitError(
                 f"{self.name}: レート制限に達しました: {detail}",
                 provider=self.name,
                 retry_after=_retry_after(response),
             )
-        if status == 408:
+        if status == HTTPStatus.REQUEST_TIMEOUT:
             raise ProviderTimeoutError(
                 f"{self.name}: サーバがタイムアウトを返しました (408): {detail}",
                 provider=self.name,
             )
-        if status >= 500:
+        if status >= HTTPStatus.INTERNAL_SERVER_ERROR:
             raise ProviderServerError(
                 f"{self.name}: サーバエラー ({status}): {detail}", provider=self.name
             )

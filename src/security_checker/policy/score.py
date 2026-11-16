@@ -25,15 +25,14 @@ DEDUCTION = {
     Severity.NONE: 0,
 }
 CATEGORY_CAP = 40
+#: ランクの下限 (高い順). どれにも届かなければ D
+RANK_FLOORS: tuple[tuple[Literal["A", "B", "C"], int], ...] = (("A", 90), ("B", 70), ("C", 50))
 
 
 def rank_for(value: int) -> Literal["A", "B", "C", "D"]:
-    if value >= 90:
-        return "A"
-    if value >= 70:
-        return "B"
-    if value >= 50:
-        return "C"
+    for rank, floor in RANK_FLOORS:
+        if value >= floor:
+            return rank
     return "D"
 
 

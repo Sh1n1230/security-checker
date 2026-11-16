@@ -12,6 +12,7 @@ import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Self
 
@@ -130,7 +131,7 @@ class GithubClient:
             self._sleep(wait)
             response = self._send(method, url, **kwargs)
             wait = _rate_limit_wait(response)
-        if response.status_code >= 400:
+        if response.status_code >= HTTPStatus.BAD_REQUEST:
             message = _error_message(response)
             if wait is not None:
                 raise GithubError(
@@ -215,7 +216,7 @@ def _error_message(response: httpx.Response) -> str:
 
 def _rate_limit_wait(response: httpx.Response) -> float | None:
     """レート制限の応答なら待つ秒数 (不明なら inf). そうでなければ None."""
-    if response.status_code not in (403, 429):
+    if response.status_code not in (HTTPStatus.FORBIDDEN, HTTPStatus.TOO_MANY_REQUESTS):
         return None
     headers = response.headers
     retry_after = headers.get("retry-after")
@@ -230,7 +231,10 @@ def _rate_limit_wait(response: httpx.Response) -> float | None:
             return max(0.0, float(reset or "") - time.time())
         except ValueError:
             return float("inf")
-    if response.status_code == 429 or "rate limit" in _error_message(response).lower():
+    if (
+        response.status_code == HTTPStatus.TOO_MANY_REQUESTS
+        or "rate limit" in _error_message(response).lower()
+    ):
         return float("inf")
     return None
 
@@ -433,14 +437,14 @@ def _post_inline(
         result.inline_posted = len(payload)
         return
     except GithubError as exc:
-        if exc.status_code != 422:
+        if exc.status_code != HTTPStatus.UNPROCESSABLE_ENTITY:
             raise
     # 1 件でも行が合わないと review 全体が 422 になる. 1 件ずつ送り直し、弾かれたものだけ数える
     for comment in payload:
         try:
             client.create_review(pr, sha, [comment])
         except GithubError as exc:
-            if exc.status_code != 422:
+            if exc.status_code != HTTPStatus.UNPROCESSABLE_ENTITY:
                 raise
             result.inline_rejected += 1
             continue

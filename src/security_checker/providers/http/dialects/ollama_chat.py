@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from typing import Any
 
 from security_checker.models.verdict import Usage
@@ -122,7 +123,7 @@ class OllamaChatDialect:
 
     def explain_error(self, status: int, body: str) -> str | None:
         """モデル未取得を、実行できるコマンドの案内に変える (§9.4)."""
-        if status == 404 and "not found" in body.lower():
+        if status == HTTPStatus.NOT_FOUND and "not found" in body.lower():
             return (
                 "モデルが見つかりません。先にモデルを取得してください (例: `ollama pull <model>`)"
             )

@@ -41,6 +41,8 @@ SEVERITY_MAP = {
 }
 #: semgrep CE (未ログイン) が extra.lines に入れる固定の文字列. スニペットとしては使えない
 _LOGIN_PLACEHOLDER = "requires login"
+#: semgrep は「検出あり」でも 0 か 1 を返す. これ以上は実行の失敗
+_FAILURE_EXIT_CODE = 2
 #: 同梱ルールの check_id に semgrep が前置する、インストール先から作った接頭辞の終わり
 _BUNDLED_RULE_PREFIX = "security_checker.rules.semgrep."
 CONFIDENCE_MAP = {"HIGH": 0.9, "MEDIUM": 0.6, "LOW": 0.3}
@@ -285,7 +287,7 @@ class SemgrepScanner(BaseScanner):
                 version=status.version,
             )
         # semgrep は「検出あり」でも 0 を返す。2 以上が実行失敗。
-        if result.exit_code is None or result.exit_code >= 2:
+        if result.exit_code is None or result.exit_code >= _FAILURE_EXIT_CODE:
             return self.failed(
                 "semgrep の実行に失敗しました",
                 exit_code=result.exit_code,

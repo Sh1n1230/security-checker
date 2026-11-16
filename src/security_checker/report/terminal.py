@@ -32,6 +32,8 @@ STATUS_MARK = {
 }
 MAX_ROWS = 50
 MAX_FINDING_PANELS = 20
+#: 冒頭に並べる警告の数. 残りは件数だけ出す
+MAX_NOTICES = 5
 
 # review_required を confirmed の直後に置く。割れた判断こそ人間が見るべきもの (§18.2)。
 FINDING_SECTIONS: tuple[tuple[FindingStatus, str, str], ...] = (
@@ -249,10 +251,12 @@ def render(
     notices = [w for w in report.warnings if w.level == "warn"]
     for warning in errors:
         console.print(Text(f"  ⚠ {warning.source}: {_one_line(warning.message)}", style="bold red"))
-    for warning in notices[:5]:
+    for warning in notices[:MAX_NOTICES]:
         console.print(Text(f"  · {warning.source}: {_one_line(warning.message)}", style="yellow"))
-    if len(notices) > 5:
-        console.print(Text(f"  · ほか {len(notices) - 5} 件の警告 (report.json 参照)", style="dim"))
+    if len(notices) > MAX_NOTICES:
+        console.print(
+            Text(f"  · ほか {len(notices) - MAX_NOTICES} 件の警告 (report.json 参照)", style="dim")
+        )
 
     if report.findings:
         _render_findings(console, report)

@@ -260,6 +260,10 @@ class ReviewerConfig(StrictModel):
         return self
 
 
+#: 「脆弱」の比率がこれを超えて初めて過半数とみなす. 半々は判断が割れた状態 (§13.1)
+MAJORITY_RATIO = 0.5
+
+
 class ConsensusConfig(StrictModel):
     min_votes: int = Field(default=2, ge=1)
     min_ratio: float = Field(default=0.5, ge=0.0, le=1.0)

@@ -97,6 +97,8 @@ AUTH_DEPENDENCIES = {
 }
 SKIP_DIRS = {".git", "node_modules", "vendor", "__pycache__", ".venv", "dist", "build"}
 MAX_FILES = 4000
+#: プロンプトに載せる入口ファイルの数
+MAX_ENTRYPOINTS = 10
 
 
 def _directory_excluded(relative: str, patterns: list[str]) -> bool:
@@ -142,7 +144,7 @@ def collect_repo_facts(root: Path, exclude: Sequence[str] = ()) -> RepoFacts:
             language = LANGUAGE_BY_SUFFIX.get(path.suffix)
             if language:
                 languages[language] = languages.get(language, 0) + 1
-            if name in ENTRYPOINT_NAMES and len(entrypoints) < 10:
+            if name in ENTRYPOINT_NAMES and len(entrypoints) < MAX_ENTRYPOINTS:
                 entrypoints.append(relative)
             if name in DEPLOYMENT_FILES:
                 hint = DEPLOYMENT_FILES[name]

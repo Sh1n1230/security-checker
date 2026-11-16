@@ -34,6 +34,8 @@ SYSTEM_PROMPT_TOKENS = PROMPT_OVERHEAD_TOKENS
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 60.0
+#: rpm / tpm を数える窓 (秒)
+WINDOW_S = 60.0
 CIRCUIT_BREAKER_FAILURES = 5
 DEFAULT_DEADLINE_S = 1800.0
 #: rate_limit.rpm を書いていない Reviewer の初期値. 429 を受けるまでは絞らない
@@ -56,7 +58,7 @@ class RateLimiter:
         while True:
             async with self._lock:
                 now = time.monotonic()
-                while self._events and now - self._events[0] >= 60.0:
+                while self._events and now - self._events[0] >= WINDOW_S:
                     self._events.popleft()
                 if len(self._events) < self.rpm:
                     self._events.append(now)
@@ -94,7 +96,7 @@ class TokenLimiter:
         while True:
             async with self._lock:
                 now = time.monotonic()
-                while self._events and now - self._events[0][0] >= 60.0:
+                while self._events and now - self._events[0][0] >= WINDOW_S:
                     self._events.popleft()
                 used = sum(count for _, count in self._events)
                 if not self._events or used + tokens <= self.tpm:

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from typing import Any
 
 from security_checker.models.verdict import Usage
@@ -137,19 +138,19 @@ class GeminiGenerateDialect:
 
     def is_auth_error(self, status: int, body: str) -> bool:
         # この形は鍵の不備を 401 ではなく 400 で返す
-        return status == 400 and "api key" in body.lower()
+        return status == HTTPStatus.BAD_REQUEST and "api key" in body.lower()
 
     def explain_error(self, status: int, body: str) -> str | None:
         lowered = body.lower()
-        if status == 400 and "api key" in lowered:
+        if status == HTTPStatus.BAD_REQUEST and "api key" in lowered:
             # この形は鍵の不備を 401 ではなく 400 で返すため、認証エラーに見えない
             return "API キーが受け付けられませんでした。api_key_env の環境変数を確認してください"
-        if status == 404 and "model" in lowered:
+        if status == HTTPStatus.NOT_FOUND and "model" in lowered:
             return (
                 "model に指定した ID がこのエンドポイントに存在しません。"
                 "設定の model を確認してください"
             )
-        if status == 400 and "response_schema" in lowered.replace(
+        if status == HTTPStatus.BAD_REQUEST and "response_schema" in lowered.replace(
             "responseschema", "response_schema"
         ):
             return (
