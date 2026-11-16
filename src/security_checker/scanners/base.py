@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
+from security_checker.context.redact import redact_known_patterns
 from security_checker.models.candidate import Candidate
 from security_checker.models.enums import Category, ScanStatus
 from security_checker.processes import POSIX, terminate
@@ -170,13 +171,14 @@ def probe_command(command: str, version_args: tuple[str, ...] = ("--version",)) 
     return ToolStatus(available=True, version=version)
 
 
-def excerpt(data: bytes, limit: int = STDERR_EXCERPT_LIMIT) -> str | None:
+def excerpt(data: bytes | str | None, limit: int = STDERR_EXCERPT_LIMIT) -> str | None:
     """stderr の先頭を安全に抜き出す."""
     if not data:
         return None
-    text = data.decode("utf-8", "replace").strip()
+    text = (data.decode("utf-8", "replace") if isinstance(data, bytes) else data).strip()
     if not text:
         return None
+    text = redact_known_patterns(text)
     return text if len(text) <= limit else text[:limit] + " …(truncated)"
 
 
@@ -228,7 +230,7 @@ class BaseScanner:
         raw_path: Path | None = None,
     ) -> ScanResult:
         """異常終了の結果を作る. stderr は先頭だけを残す."""
-        stderr_text = excerpt(stderr) if isinstance(stderr, bytes) else stderr
+        stderr_text = excerpt(stderr)
         return ScanResult(
             scanner=self.name,
             category=self.category,
@@ -253,7 +255,7 @@ class BaseScanner:
         stderr: bytes | str | None = None,
     ) -> ScanResult:
         """正常終了の結果を作る. 壊れたエントリの警告も一緒に返す."""
-        stderr_text = excerpt(stderr) if isinstance(stderr, bytes) else stderr
+        stderr_text = excerpt(stderr)
         return ScanResult(
             scanner=self.name,
             category=self.category,

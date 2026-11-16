@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -14,11 +15,12 @@ import pytest
 
 from security_checker.config.schema import GitleaksConfig, OsvConfig, SemgrepConfig, TrivyConfig
 from security_checker.errors import ConfigError
-from security_checker.models.enums import ScanStatus, Severity
+from security_checker.models.enums import Category, ScanStatus, Severity
 from security_checker.scanners import gitleaks, osv, registry, semgrep, trivy, untrusted
 from security_checker.scanners.base import (
     CommandResult,
     ScanContext,
+    ScanResult,
     Target,
     ToolStatus,
     excerpt,
@@ -80,6 +82,35 @@ def test_version_probe_failure_keeps_the_tool_available(monkeypatch):
 
 def test_whitespace_only_stderr_has_no_excerpt():
     assert excerpt(b" \n\t ") is None
+
+
+@pytest.mark.parametrize("as_bytes", [True, False])
+def test_scanner_stderr_excerpt_redacts_credentials_before_report_serialization(as_bytes):
+    api_key = "ghp_" + "aB12" * 10
+    proxy_value = "synthetic-proxy-password"
+    stderr = f"scanner failed: {api_key} via https://user:{proxy_value}@proxy.example.org"
+    value = stderr.encode() if as_bytes else stderr
+    safe = excerpt(value)
+    assert safe is not None
+    serialized = ScanResult(
+        scanner="synthetic", category=Category.SAST, status=ScanStatus.FAILED, stderr_excerpt=safe
+    ).model_dump_json()
+    assert api_key not in serialized
+    assert proxy_value not in serialized
+    assert "ghp_" in serialized
+    assert "https://user:********@proxy.example.org" in serialized
+    assert json.loads(serialized)["stderr_excerpt"] == safe
+
+
+def test_scanner_stderr_excerpt_redacts_before_truncating():
+    token = "ghp_" + "A1b2" * 10
+    stderr = ("x" * 1980 + " " + token + " more").encode()
+    safe = excerpt(stderr)
+    assert safe is not None
+    assert token not in safe
+    assert "ghp_" in safe
+    assert "*" in safe
+    assert len(safe) <= 2020
 
 
 def test_relative_path_drops_a_leading_dot_slash(tmp_path):
