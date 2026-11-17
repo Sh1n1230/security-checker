@@ -52,3 +52,50 @@ export async function statusOnly(url: string) {
     ],
   });
 }
+
+export async function reviewCommentAsInstructions(octokit: any) {
+  const comments = await octokit.rest.pulls.listReviewComments({ owner: "a", repo: "b", pull_number: 1 });
+  const reviewBody = comments.data[0].body;
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ruleid: llm-third-party-text-in-system-prompt-js
+      { role: "system", content: reviewBody },
+    ],
+  });
+}
+
+export async function issueListingAsUserMessage(octokit: any) {
+  const issues = await octokit.rest.issues.listForRepo({ owner: "a", repo: "b" });
+  const issueBody = issues.data[0].body;
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ruleid: llm-third-party-text-in-user-message-js
+      { role: "user", content: issueBody },
+    ],
+  });
+}
+
+export async function graphqlCommentAsInstructions(octokit: any) {
+  const result = await octokit.graphql("query { repository { issue { body } } }");
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ruleid: llm-third-party-text-in-system-prompt-js
+      { role: "system", content: result.repository.issue.body },
+    ],
+  });
+}
+
+export async function constantWithOctokitPresent(octokit: any) {
+  const count = 12;
+  await octokit.rest.pulls.listReviewComments({ owner: "a", repo: "b", pull_number: 1 });
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ok: llm-third-party-text-in-system-prompt-js
+      { role: "system", content: `Processed ${count} items` },
+    ],
+  });
+}
