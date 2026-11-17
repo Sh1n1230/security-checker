@@ -6,12 +6,12 @@ capability の決定順序: 利用者の明示指定 → プリセットデー�
 from __future__ import annotations
 
 import os
-from importlib.metadata import entry_points
-from typing import TYPE_CHECKING, Any
+from importlib.metadata import EntryPoint, entry_points
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from security_checker.errors import ConfigError
+from security_checker.errors import ConfigError, SecurityCheckerError
 from security_checker.providers.base import (
     Capabilities,
     CapabilityOverrides,
@@ -42,16 +42,37 @@ if TYPE_CHECKING:
 ENTRY_POINT_GROUP = "security_checker.providers"
 
 
-def discover_plugin_providers() -> tuple[dict[str, Callable[..., LLMProvider]], list[str]]:
-    """外部パッケージが提供する Provider を探す. 読み込み失敗は警告にして続行する."""
-    found: dict[str, Callable[..., LLMProvider]] = {}
-    warnings: list[str] = []
-    for entry in entry_points(group=ENTRY_POINT_GROUP):
-        try:
-            found[entry.name] = entry.load()
-        except Exception as exc:  # プラグイン側の任意の失敗を封じ込める
-            warnings.append(f"provider プラグイン '{entry.name}' の読み込みに失敗しました: {exc}")
-    return found, warnings
+def discover_plugin_providers() -> dict[str, EntryPoint]:
+    """外部パッケージが登録した Provider を探す. 読み込むのは設定に書かれたものだけ."""
+    return {entry.name: entry for entry in entry_points(group=ENTRY_POINT_GROUP)}
+
+
+def build_plugin_provider(
+    reviewer: ReviewerConfig, plugins: Mapping[str, EntryPoint] | None = None
+) -> LLMProvider:
+    """`transport: plugin` の Reviewer から Provider を作る.
+
+    entry point の先は `factory(reviewer: ReviewerConfig) -> LLMProvider`。
+    未登録の名前と読み込みの失敗は設定エラーにする (黙って別の Provider に落とさない)。
+    """
+    available = plugins if plugins is not None else discover_plugin_providers()
+    entry = available.get(reviewer.plugin or "")
+    if entry is None:
+        raise ConfigError(
+            f"reviewer '{reviewer.name}': plugin '{reviewer.plugin}' は entry point "
+            f"({ENTRY_POINT_GROUP}) に登録されていません。"
+            f"登録済み: {', '.join(sorted(available)) or '(なし)'}"
+        )
+    try:
+        factory: Callable[[ReviewerConfig], LLMProvider] = entry.load()
+        return factory(reviewer)
+    except SecurityCheckerError:
+        raise
+    except Exception as exc:  # プラグイン側の任意の失敗を、原因の分かる設定エラーにする
+        raise ConfigError(
+            f"reviewer '{reviewer.name}': plugin '{entry.name}' を読み込めません "
+            f"({type(exc).__name__}): {exc}"
+        ) from exc
 
 
 def resolve_api_key(reviewer: ReviewerConfig, environ: dict[str, str] | None = None) -> str | None:
@@ -233,7 +254,7 @@ def build_provider(
     environ: dict[str, str] | None = None,
     client: httpx.AsyncClient | None = None,
     presets: dict[str, HttpPreset] | None = None,
-    plugins: dict[str, Callable[..., LLMProvider]] | None = None,
+    plugins: Mapping[str, EntryPoint] | None = None,
     warnings: list[str] | None = None,
 ) -> LLMProvider:
     """transport に応じた Provider を作る."""
@@ -241,13 +262,4 @@ def build_provider(
         return build_http_provider(reviewer, environ=environ, client=client, presets=presets)
     if reviewer.transport == "process":
         return build_process_provider(reviewer, environ=environ, warnings=warnings)
-    available_plugins: dict[str, Any] = plugins if plugins is not None else {}
-    factory = available_plugins.get(reviewer.transport)
-    if factory is not None:
-        provider: LLMProvider = factory(reviewer)
-        return provider
-    raise ConfigError(
-        f"reviewer '{reviewer.name}': transport '{reviewer.transport}' は未実装です。"
-        f"利用可能: http, process"
-        + (f", {', '.join(sorted(available_plugins))}" if available_plugins else "")
-    )
+    return build_plugin_provider(reviewer, plugins)

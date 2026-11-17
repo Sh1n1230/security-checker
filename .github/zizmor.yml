@@ -1,0 +1,6 @@
+# zizmor (GitHub Actions の静的解析) の設定。CI の lint-ci ジョブが使う。
+rules:
+  self-repository:
+    # security.yml は、このリポジトリ自身の action.yml を `uses: ./` で呼ぶ (dogfooding)。
+    # チェックアウトしたままの定義を使うのが目的なので、この書き方のままにする
+    disable: true

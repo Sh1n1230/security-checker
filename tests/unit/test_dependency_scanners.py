@@ -205,6 +205,29 @@ async def test_osv_vulnerabilities_found_is_ok(fake_bin, tmp_path, raw_fixture):
     assert str(tmp_path) not in result.raw_path.read_text(encoding="utf-8")
 
 
+async def test_osv_raw_artifact_redacts_escaped_windows_absolute_paths(
+    fake_bin, tmp_path, raw_fixture
+):
+    payload = osv_payload(raw_fixture, tmp_path)
+    payload["results"][0]["source"]["path"] = r"C:\Users\Alice\ConfidentialProject\requirements.txt"
+    (tmp_path / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+    fake_command(
+        fake_bin,
+        "osv-scanner",
+        VERSION_GUARD + f"cat '{tmp_path}/payload.json'\nexit 1\n",
+    )
+
+    result = await OsvScanner(OsvConfig()).scan(Target(root=tmp_path), ctx(tmp_path))
+    assert result.status is ScanStatus.OK
+    assert result.raw_path is not None
+    artifact_text = result.raw_path.read_text(encoding="utf-8")
+    assert "Alice" not in artifact_text
+    artifact = json.loads(artifact_text)
+    assert artifact["results"][0]["source"]["path"] == "requirements.txt"
+    assert artifact["results"][1]["source"]["path"] == "requirements.txt"
+    assert artifact["results"][2]["source"]["path"] == "sub/requirements.txt"
+
+
 async def test_osv_vulnerable_exit_with_empty_output_is_failed(fake_bin, tmp_path):
     fake_command(fake_bin, "osv-scanner", VERSION_GUARD + "echo '{}'\nexit 1\n")
     result = await OsvScanner(OsvConfig()).scan(Target(root=tmp_path), ctx(tmp_path))

@@ -1075,11 +1075,12 @@ def providers_list() -> None:
             console.print("  [dim](なし)[/dim]")
         for name, source in presets.items():
             console.print(f"  {escape(name)} [dim]({escape(str(source))})[/dim]")
-    console.print("[bold]プラグイン[/bold] (entry_points: security_checker.providers)")
+    console.print(
+        "[bold]プラグイン[/bold] (entry_points: security_checker.providers。"
+        "使うには transport: plugin と plugin: <名前> を書く)"
+    )
     for name in found.plugins or ["(なし)"]:
         console.print(Text(f"  {name}"))
-    for message in found.warnings:
-        err_console.print(f"[yellow]警告[/yellow]: {escape(message)}", highlight=False)
 
 
 @providers_app.command("check")

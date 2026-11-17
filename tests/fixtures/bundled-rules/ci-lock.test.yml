@@ -29,3 +29,67 @@ jobs:
       - run: uv lock --upgrade
       # ok: ci-uv-sync-without-locked
       - run: uv sync
+
+  continuation:
+    runs-on: ubuntu-latest
+    steps:
+      # 行継続で次の行に書いた --locked も見る (#285)
+      # ok: ci-uv-sync-without-locked
+      - run: |
+          uv sync \
+            --locked --group dev
+      # ruleid: ci-uv-sync-without-locked
+      - run: |
+          uv sync \
+            --group dev
+
+  step-env:
+    runs-on: ubuntu-latest
+    steps:
+      # 環境変数 UV_LOCKED は --locked と同じ意味 (#286)
+      # ok: ci-uv-sync-without-locked
+      - run: uv sync
+        env:
+          UV_LOCKED: "1"
+
+  job-env:
+    runs-on: ubuntu-latest
+    env:
+      UV_LOCKED: "1"
+    steps:
+      # ok: ci-uv-sync-without-locked
+      - run: uv sync
+
+  env-not-truthy:
+    runs-on: ubuntu-latest
+    env:
+      UV_LOCKED: "0"
+    steps:
+      # 値が真でなければ lock は強制されていない. 書くだけで指摘を消せない
+      # ruleid: ci-uv-sync-without-locked
+      - run: uv sync
+
+  env-expression:
+    runs-on: ubuntu-latest
+    env:
+      UV_LOCKED: ${{ vars.LOCKED }}
+    steps:
+      # 式は値が分からないので、外さない
+      # ruleid: ci-uv-sync-without-locked
+      - run: uv sync
+
+  env-true:
+    runs-on: ubuntu-latest
+    env:
+      UV_LOCKED: true
+    steps:
+      # ok: ci-uv-sync-without-locked
+      - run: uv sync
+
+  env-one-unquoted:
+    runs-on: ubuntu-latest
+    env:
+      UV_LOCKED: 1
+    steps:
+      # ok: ci-uv-sync-without-locked
+      - run: uv sync
