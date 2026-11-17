@@ -168,6 +168,12 @@ rules:
       - patterns:
           - pattern: '$CLIENT.responses.create({..., instructions: $PROMPT, ...})'
           - focus-metavariable: $PROMPT
+      # Vercel AI SDK: system instructions can be supplied to either generation API.
+      - patterns:
+          - pattern-either:
+              - pattern: 'generateText({..., system: $PROMPT, ...})'
+              - pattern: 'streamText({..., system: $PROMPT, ...})'
+          - focus-metavariable: $PROMPT
 
   - id: llm-third-party-text-in-user-message-js
     languages: [javascript, typescript]
@@ -187,4 +193,12 @@ rules:
           - focus-metavariable: $PROMPT
       - patterns:
           - pattern: '$CLIENT.responses.create({..., input: $PROMPT, ...})'
+          - focus-metavariable: $PROMPT
+      # Vercel AI SDK: prompt and messages carry user-supplied context.
+      - patterns:
+          - pattern-either:
+              - pattern: 'generateText({..., prompt: $PROMPT, ...})'
+              - pattern: 'streamText({..., prompt: $PROMPT, ...})'
+              - pattern: 'generateText({..., messages: $PROMPT, ...})'
+              - pattern: 'streamText({..., messages: $PROMPT, ...})'
           - focus-metavariable: $PROMPT
