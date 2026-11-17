@@ -73,14 +73,12 @@
 
 | キー | 説明 |
 |---|---|
-| `name` / `transport` | 必須。`transport` は `http` / `process` |
+| `name` / `transport` | 必須。`transport` は `http` / `process` / `plugin` |
+| `plugin` | `transport: plugin` のとき必須。entry point (`security_checker.providers`) に登録した自作 Provider の名前 ([providers.md](providers.md)) |
 | `enabled` | `false` にすると読み込み時に外す (既定 `true`)。共有の Reviewer を手元でだけ止めるときに local 層で使う |
 | `preset` | 同梱またはユーザーのプリセット名。**http でも process でも使えます**。http では `dialect` と `base_url`、process では `command` を省略できる |
 | `dialect` / `base_url` / `model` / `api_key_env` | http 用。キーは**環境変数名**だけを書く。`dialect` は `openai_chat` / `anthropic_messages` / `gemini_generate` / `ollama_chat` |
 | `num_ctx` / `keep_alive` | `ollama_chat` 方言専用。文脈長 (既定 `8192`。入力はこの中に収まるよう切り詰める) と、モデルを保持する時間 (例 `10m`)。他の方言に書くと警告 |
-| `name` / `transport` | 必須。`transport` は `http` / `process` / `plugin` |
-| `plugin` | `transport: plugin` のとき必須。entry point (`security_checker.providers`) に登録した自作 Provider の名前 ([providers.md](providers.md)) |
-| `dialect` / `base_url` / `model` / `api_key_env` | http 用。キーは**環境変数名**だけを書く |
 | `headers` / `headers_env` | http 用の追加ヘッダ。秘密を含むヘッダは `headers_env` に**環境変数名**を書く (`X-Api-Key: MY_ENV`)。`headers` の値は `config show` とトレースでは伏せる |
 | `command` / `prompt_via` / `parse` | process 用。`prompt_via` は `stdin` (既定) / `file`、`parse` は `json_in_stdout` のみ。process の `dialect` は `text_io` だけなので書く必要はない |
 | `weight` | `weighted` 集約での重み (既定 `1.0`) |
