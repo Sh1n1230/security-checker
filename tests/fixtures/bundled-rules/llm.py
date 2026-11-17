@@ -2,6 +2,7 @@
 import anthropic
 import openai
 import requests
+import httpx
 from bs4 import BeautifulSoup
 from github import Github
 
@@ -48,6 +49,48 @@ def responses_api(url):
     body = requests.get(url, timeout=10).json()
     # ruleid: llm-third-party-text-in-user-message
     return client.responses.create(model="m", input=body["text"])
+
+
+def requests_session_source(url):
+    session = requests.Session()
+    page = session.get(url, timeout=10).text
+    # ruleid: llm-third-party-text-in-system-prompt
+    return claude.messages.create(model="m", max_tokens=100, system=page, messages=[])
+
+
+def requests_session_context(url):
+    with requests.Session() as session:
+        body = session.post(url, data={"q": "test"}).text
+        # ruleid: llm-third-party-text-in-user-message
+        return client.responses.create(model="m", input=body)
+
+
+def httpx_client_source(url):
+    transport = httpx.Client()
+    page = transport.get(url).json()["text"]
+    # ruleid: llm-third-party-text-in-system-prompt
+    return claude.messages.create(model="m", max_tokens=100, system=page, messages=[])
+
+
+async def httpx_async_client_context(url):
+    async with httpx.AsyncClient() as transport:
+        page = (await transport.get(url)).text
+        # ruleid: llm-third-party-text-in-user-message
+        return client.responses.create(model="m", input=page)
+
+
+def unrelated_get_is_not_an_http_source(url, cache):
+    session = requests.Session()
+    page = cache.get(url)
+    # ok: llm-third-party-text-in-system-prompt
+    return claude.messages.create(model="m", max_tokens=100, system=page, messages=[])
+
+
+def session_status_is_not_untrusted_text(url):
+    session = requests.Session()
+    status = session.get(url).status_code
+    # ok: llm-third-party-text-in-system-prompt
+    return claude.messages.create(model="m", max_tokens=100, system=f"status: {status}", messages=[])
 
 
 def constants_only():
