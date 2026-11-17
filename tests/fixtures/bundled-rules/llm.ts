@@ -85,3 +85,17 @@ export async function trustedConstantWithThirdPartyClients() {
     ],
   });
 }
+
+export async function statusOnly(url: string) {
+  // 応答の本文ではない数値は、第三者のテキストではない (#281)
+  const res = await fetch(url);
+  const status = res.status;
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ok: llm-third-party-text-in-system-prompt-js
+      { role: "system", content: `The last check returned ${status}.` },
+      { role: "user", content: "Go." },
+    ],
+  });
+}
