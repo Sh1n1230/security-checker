@@ -415,7 +415,7 @@ id = sha256(
     scanner + "\x00" +
     rule_id + "\x00" +
     path + "\x00" +
-    normalize(snippet or package_ref)      # 空白圧縮・コメント除去・小文字化
+    normalize(snippet or package_ref)      # 空白圧縮・コメント除去 (大文字小文字は保持)
 ).hexdigest()[:16]
 ```
 

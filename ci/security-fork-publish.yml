@@ -29,6 +29,8 @@ jobs:
       github.event.workflow_run.event == 'pull_request'
       && github.event.workflow_run.head_repository.full_name != github.repository
     runs-on: ubuntu-latest
+    # 固まったときに 6 時間 (既定) ランナーを占有しない。LLM レビューの所要時間に合わせて調整する
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write

@@ -36,6 +36,7 @@ from security_checker.providers.presets.loader import (
     resolve_http_preset,
 )
 from security_checker.providers.process import runner, sandbox
+from security_checker.testing import ScriptedProvider
 
 BASE_URL = "http://endpoint.test/v1"
 
@@ -221,13 +222,52 @@ class _Entry:
         return self._loaded
 
 
-def test_broken_provider_plugin_is_a_warning_and_the_rest_still_load(monkeypatch):
-    entries = [_Entry("good", HttpProvider), _Entry("broken", ImportError("missing dep"))]
+# --- 自作 Provider (transport: plugin) ----------------------------------------------
+
+
+def plugin_reviewer(plugin: str = "mine") -> ReviewerConfig:
+    return ReviewerConfig(name="p1", transport="plugin", plugin=plugin, model="m")
+
+
+def test_a_configured_plugin_builds_the_provider_from_the_reviewer_config():
+    built: list[ReviewerConfig] = []
+
+    def factory(reviewer: ReviewerConfig) -> ScriptedProvider:
+        built.append(reviewer)
+        return ScriptedProvider([])
+
+    entries: dict[str, Any] = {"mine": _Entry("mine", factory)}
+    provider = registry.build_provider(plugin_reviewer(), plugins=entries)
+    assert isinstance(provider, ScriptedProvider)
+    assert built[0].model == "m"
+
+
+def test_installed_plugins_are_listed_without_being_loaded(monkeypatch):
+    # 依存に入っただけのパッケージを import しない. 読み込むのは設定に書いたものだけ
+    entries = [_Entry("unused", AssertionError("読み込まれた"))]
     monkeypatch.setattr(registry, "entry_points", lambda group: entries)
-    found, warnings = registry.discover_plugin_providers()
-    assert found == {"good": HttpProvider}
-    assert len(warnings) == 1
-    assert "broken" in warnings[0]
+    assert sorted(registry.discover_plugin_providers()) == ["unused"]
+
+
+def test_an_unregistered_plugin_name_is_a_config_error_listing_what_exists():
+    entries: dict[str, Any] = {"other": _Entry("other", ScriptedProvider)}
+    with pytest.raises(ConfigError, match=r"plugin 'mine' は .*登録済み: other"):
+        registry.build_provider(plugin_reviewer(), plugins=entries)
+
+
+def test_a_plugin_that_fails_to_load_is_a_config_error_with_the_cause():
+    entries: dict[str, Any] = {"mine": _Entry("mine", ImportError("missing dep"))}
+    with pytest.raises(
+        ConfigError, match=r"plugin 'mine' を読み込めません \(ImportError\): missing"
+    ):
+        registry.build_provider(plugin_reviewer(), plugins=entries)
+
+
+def test_plugin_name_and_transport_must_come_together():
+    with pytest.raises(ValueError, match="transport: plugin のときに"):
+        ReviewerConfig(name="p1", transport="plugin")
+    with pytest.raises(ValueError, match="transport: plugin のときに"):
+        http_reviewer(plugin="mine")
 
 
 # --- 検出 -------------------------------------------------------------------------

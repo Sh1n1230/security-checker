@@ -138,6 +138,8 @@ def _literal_sensitive_header_warnings(reviewer: ReviewerConfig) -> list[str]:
 
 def _transport_mismatch(reviewer: ReviewerConfig) -> list[str]:
     """transport に合わない項目は、書いても Provider に渡らない. そのことを伝える."""
+    if reviewer.transport == "plugin":
+        return []  # どの項目を読むかはプラグインが決める
     defaults = ReviewerConfig.model_fields
     ignored = _HTTP_ONLY if reviewer.transport == "process" else _PROCESS_ONLY
     return [

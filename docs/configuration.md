@@ -73,7 +73,8 @@
 
 | キー | 説明 |
 |---|---|
-| `name` / `transport` | 必須。`transport` は `http` / `process` |
+| `name` / `transport` | 必須。`transport` は `http` / `process` / `plugin` |
+| `plugin` | `transport: plugin` のとき必須。entry point (`security_checker.providers`) に登録した自作 Provider の名前 ([providers.md](providers.md)) |
 | `dialect` / `base_url` / `model` / `api_key_env` | http 用。キーは**環境変数名**だけを書く |
 | `headers` / `headers_env` | http 用の追加ヘッダ。秘密を含むヘッダは `headers_env` に**環境変数名**を書く (`X-Api-Key: MY_ENV`)。`headers` の値は `config show` とトレースでは伏せる |
 | `command` / `preset` / `prompt_via` | process 用 |
