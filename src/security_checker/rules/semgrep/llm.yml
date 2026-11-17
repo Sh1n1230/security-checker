@@ -78,6 +78,10 @@ rules:
       - patterns:
           - pattern: $FUNC(..., system_instruction=$PROMPT, ...)
           - focus-metavariable: $PROMPT
+      # Ollama's generate API carries system instructions separately from prompt.
+      - patterns:
+          - pattern: ollama.generate(..., system=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
       # Chat 形式のメッセージ: {"role": "system" | "developer", "content": ...}
       - patterns:
           - pattern-either:
@@ -109,6 +113,10 @@ rules:
       # Google Gen AI: models.generate_content(contents=...)
       - patterns:
           - pattern: $CLIENT.models.generate_content(..., contents=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
+      # Ollama generate's prompt is the user-supplied request, not the system role.
+      - patterns:
+          - pattern: ollama.generate(..., prompt=$PROMPT, ...)
           - focus-metavariable: $PROMPT
       # LangChain: invoke / ainvoke に文字列やメッセージを渡す。
       # invoke は検索 (retriever)・パーサ・ツール・タスクランナーにもある名前なので、
