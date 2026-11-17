@@ -18,6 +18,7 @@ concurrency:
 jobs:
   pr-title:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       pull-requests: read # PR タイトルの取得のみ。書き込みは与えない
     steps:
