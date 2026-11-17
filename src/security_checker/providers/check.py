@@ -191,13 +191,13 @@ class ProviderCatalog:
     dialects: list[str]
     http_presets: dict[str, str]
     process_presets: dict[str, str]
+    #: entry point に登録されている名前. 読み込むのは設定の `plugin` に書いたものだけ
     plugins: list[str]
-    warnings: list[str]
 
 
 def catalog() -> ProviderCatalog:
     """使える Provider の一覧. 推奨順は付けない (中立性 §9.8)."""
-    plugins, warnings = discover_plugin_providers()
+    plugins = discover_plugin_providers()
     http: Mapping[str, object] = load_http_presets()
     process: Mapping[str, object] = load_process_presets()
     return ProviderCatalog(
@@ -207,5 +207,4 @@ def catalog() -> ProviderCatalog:
             name: getattr(p, "source", "bundled") for name, p in sorted(process.items())
         },
         plugins=sorted(plugins),
-        warnings=warnings,
     )

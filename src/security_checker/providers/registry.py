@@ -6,14 +6,14 @@ capability の決定順序: 利用者の明示指定 → プリセットデー�
 from __future__ import annotations
 
 import os
-from importlib.metadata import entry_points
+from importlib.metadata import EntryPoint, entry_points
 from ipaddress import ip_address
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
-from security_checker.errors import ConfigError
+from security_checker.errors import ConfigError, SecurityCheckerError
 from security_checker.providers.base import (
     Capabilities,
     CapabilityOverrides,
@@ -44,16 +44,37 @@ if TYPE_CHECKING:
 ENTRY_POINT_GROUP = "security_checker.providers"
 
 
-def discover_plugin_providers() -> tuple[dict[str, Callable[..., LLMProvider]], list[str]]:
-    """外部パッケージが提供する Provider を探す. 読み込み失敗は警告にして続行する."""
-    found: dict[str, Callable[..., LLMProvider]] = {}
-    warnings: list[str] = []
-    for entry in entry_points(group=ENTRY_POINT_GROUP):
-        try:
-            found[entry.name] = entry.load()
-        except Exception as exc:  # プラグイン側の任意の失敗を封じ込める
-            warnings.append(f"provider プラグイン '{entry.name}' の読み込みに失敗しました: {exc}")
-    return found, warnings
+def discover_plugin_providers() -> dict[str, EntryPoint]:
+    """外部パッケージが登録した Provider を探す. 読み込むのは設定に書かれたものだけ."""
+    return {entry.name: entry for entry in entry_points(group=ENTRY_POINT_GROUP)}
+
+
+def build_plugin_provider(
+    reviewer: ReviewerConfig, plugins: Mapping[str, EntryPoint] | None = None
+) -> LLMProvider:
+    """`transport: plugin` の Reviewer から Provider を作る.
+
+    entry point の先は `factory(reviewer: ReviewerConfig) -> LLMProvider`。
+    未登録の名前と読み込みの失敗は設定エラーにする (黙って別の Provider に落とさない)。
+    """
+    available = plugins if plugins is not None else discover_plugin_providers()
+    entry = available.get(reviewer.plugin or "")
+    if entry is None:
+        raise ConfigError(
+            f"reviewer '{reviewer.name}': plugin '{reviewer.plugin}' は entry point "
+            f"({ENTRY_POINT_GROUP}) に登録されていません。"
+            f"登録済み: {', '.join(sorted(available)) or '(なし)'}"
+        )
+    try:
+        factory: Callable[[ReviewerConfig], LLMProvider] = entry.load()
+        return factory(reviewer)
+    except SecurityCheckerError:
+        raise
+    except Exception as exc:  # プラグイン側の任意の失敗を、原因の分かる設定エラーにする
+        raise ConfigError(
+            f"reviewer '{reviewer.name}': plugin '{entry.name}' を読み込めません "
+            f"({type(exc).__name__}): {exc}"
+        ) from exc
 
 
 def resolve_api_key(reviewer: ReviewerConfig, environ: dict[str, str] | None = None) -> str | None:
@@ -91,7 +112,10 @@ def resolve_headers(
 def warn_insecure_credential_transport(
     reviewer: ReviewerConfig, base_url: str, api_key_env: str | None, warnings: list[str]
 ) -> None:
-    """Warn about environment-backed secrets sent over non-loopback cleartext HTTP."""
+    """ローカル以外のホストへ平文の HTTP で資格情報を送る設定なら、警告を足す.
+
+    API キーやヘッダの値が経路上で読める。警告には値を載せない (ホスト名だけ)。
+    """
     if not (api_key_env or reviewer.headers_env):
         return
     parts = urlsplit(base_url)
@@ -109,8 +133,8 @@ def warn_insecure_credential_transport(
     except ValueError:
         pass
     warnings.append(
-        f"reviewer '{reviewer.name}': HTTP endpoint {hostname!r} is not loopback. "
-        "api_key_env / headers_env credentials may be sent in plaintext; use HTTPS."
+        f"reviewer '{reviewer.name}': base_url が http:// で、ホスト {hostname} はローカルではありません。"
+        "api_key_env / headers_env の値が平文 (plaintext) で送られます。https:// を使ってください"
     )
 
 
@@ -266,7 +290,7 @@ def build_provider(
     environ: dict[str, str] | None = None,
     client: httpx.AsyncClient | None = None,
     presets: dict[str, HttpPreset] | None = None,
-    plugins: dict[str, Callable[..., LLMProvider]] | None = None,
+    plugins: Mapping[str, EntryPoint] | None = None,
     warnings: list[str] | None = None,
 ) -> LLMProvider:
     """transport に応じた Provider を作る."""
@@ -276,13 +300,4 @@ def build_provider(
         )
     if reviewer.transport == "process":
         return build_process_provider(reviewer, environ=environ, warnings=warnings)
-    available_plugins: dict[str, Any] = plugins if plugins is not None else {}
-    factory = available_plugins.get(reviewer.transport)
-    if factory is not None:
-        provider: LLMProvider = factory(reviewer)
-        return provider
-    raise ConfigError(
-        f"reviewer '{reviewer.name}': transport '{reviewer.transport}' は未実装です。"
-        f"利用可能: http, process"
-        + (f", {', '.join(sorted(available_plugins))}" if available_plugins else "")
-    )
+    return build_plugin_provider(reviewer, plugins)

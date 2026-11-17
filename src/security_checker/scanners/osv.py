@@ -151,6 +151,30 @@ def parse_osv(
     return candidates, warnings
 
 
+def _redacted_artifact_path(path: str, root: Path) -> str:
+    """Remove host-specific absolute paths from persisted OSV results on every OS."""
+    normalized = path.replace("\\", "/")
+    normalized_root = str(root.resolve()).replace("\\", "/").rstrip("/")
+    prefix = normalized_root + "/"
+    if normalized.casefold().startswith(prefix.casefold()):
+        return normalized[len(prefix) :]
+    # Path.is_absolute() on Linux does not recognize Windows drive/UNC paths.
+    if normalized.startswith("/") or re.match(r"^(?:[A-Za-z]:/|//)", normalized):
+        return normalized.rstrip("/").rsplit("/", 1)[-1]
+    return normalized.removeprefix("./")
+
+
+def _redact_osv_artifact(payload: object, root: Path) -> object:
+    """Only rewrite OSV source path fields, leaving vulnerability data intact."""
+    results = as_dict(payload).get("results")
+    for result in results if isinstance(results, list) else []:
+        source = as_dict(as_dict(result).get("source"))
+        path = source.get("path")
+        if isinstance(path, str):
+            source["path"] = _redacted_artifact_path(path, root)
+    return payload
+
+
 def _package_candidates(
     entry: dict[str, Any],
     manifest: str,
@@ -310,9 +334,11 @@ class OsvScanner(BaseScanner):
             )
 
         candidates, warnings = parse_osv(payload, target.root, exclude=ctx.exclude)
-        # 生出力の絶対パスを相対にして残す (レポートに絶対パスを書かない §6.1)
+        # Parse first, then redact structured path fields before persisting an artifact.
+        # Raw string replacement misses escaped Windows paths in JSON (§6.1).
         raw_path.write_text(
-            text.replace(str(target.root.resolve()) + "/", "").replace(str(target.root) + "/", ""),
+            json.dumps(_redact_osv_artifact(payload, target.root), ensure_ascii=False, indent=2)
+            + "\n",
             encoding="utf-8",
         )
         return self.ok(

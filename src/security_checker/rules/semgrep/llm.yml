@@ -56,6 +56,15 @@ rules:
       - pattern: $X.get_comments(...)
       - pattern: $X.get_issue_comments(...)
       - pattern: $X.get_review_comments(...)
+    # 応答の本文ではない値 (状態コード・成否・件数・数値に変換したもの) は、第三者が書いたテキストではない。
+    # 区切りで囲む関数は、ここでは何も認めない (冒頭のコメント)
+    pattern-sanitizers: &python-sanitizers
+      - pattern: $R.status_code
+      - pattern: $R.ok
+      - pattern: len(...)
+      - pattern: int(...)
+      - pattern: float(...)
+      - pattern: bool(...)
     pattern-sinks:
       # Anthropic: messages.create(system=...)
       - patterns:
@@ -88,6 +97,7 @@ rules:
     paths: *test-paths
     mode: taint
     pattern-sources: *python-sources
+    pattern-sanitizers: *python-sanitizers
     pattern-sinks:
       - patterns:
           - pattern: '{..., "role": "user", ..., "content": $PROMPT, ...}'
@@ -100,11 +110,17 @@ rules:
       - patterns:
           - pattern: $CLIENT.models.generate_content(..., contents=$PROMPT, ...)
           - focus-metavariable: $PROMPT
-      # LangChain: invoke / ainvoke に文字列やメッセージを渡す
+      # LangChain: invoke / ainvoke に文字列やメッセージを渡す。
+      # invoke は検索 (retriever)・パーサ・ツール・タスクランナーにもある名前なので、
+      # 受け手の名前から LLM ではないと分かるものだけを外す。
+      # 「LLM らしい名前だけ見る」形にはしない (gpt.invoke や無名の変数を見逃すため)
       - patterns:
           - pattern-either:
               - pattern: $LLM.invoke($PROMPT, ...)
               - pattern: $LLM.ainvoke($PROMPT, ...)
+          - metavariable-regex:
+              metavariable: $LLM
+              regex: '(?i)^(?!.*(retriev|vector|store|index|search|pars|tool|runner|task|rpc|lambda|func)).*$'
           - focus-metavariable: $PROMPT
 
   - id: llm-third-party-text-in-system-prompt-js
@@ -115,13 +131,17 @@ rules:
       テキスト中の命令でモデルの振る舞いを書き換えられます (間接プロンプトインジェクション)。
       第三者のテキストは system に入れず、user メッセージ側で区切りを付けて渡してください。
     metadata: *metadata
-    paths:
+    paths: &js-test-paths
       exclude:
-        - "/tests/"
-        - "*.spec.ts"
-        - "*.test.ts"
-        - "*.spec.js"
-        - "*.test.js"
+        - "tests/**"
+        - "**/tests/**"
+        - "test/**"
+        - "**/test/**"
+        - "__tests__/**"
+        - "**/__tests__/**"
+        # *.test.ts・*.spec.tsx・*.test.mjs・*.test.cjs など
+        - "*.test.*"
+        - "*.spec.*"
     mode: taint
     pattern-sources: &js-sources
       - pattern: fetch(...)
@@ -129,6 +149,13 @@ rules:
       - pattern: $OCTOKIT.rest.issues.get(...)
       - pattern: $OCTOKIT.rest.issues.listComments(...)
       - pattern: $OCTOKIT.rest.pulls.get(...)
+    pattern-sanitizers: &js-sanitizers
+      - pattern: $R.status
+      - pattern: $R.ok
+      - pattern: $X.length
+      - pattern: Number(...)
+      - pattern: parseInt(...)
+      - pattern: parseFloat(...)
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -150,15 +177,10 @@ rules:
       テキスト中の命令に従うおそれがあります (間接プロンプトインジェクション)。
       区切りで囲み、データであり指示ではないことを明示してください。
     metadata: *metadata
-    paths:
-      exclude:
-        - "/tests/"
-        - "*.spec.ts"
-        - "*.test.ts"
-        - "*.spec.js"
-        - "*.test.js"
+    paths: *js-test-paths
     mode: taint
     pattern-sources: *js-sources
+    pattern-sanitizers: *js-sanitizers
     pattern-sinks:
       - patterns:
           - pattern: '{..., role: "user", ..., content: $PROMPT, ...}'
