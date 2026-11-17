@@ -59,3 +59,37 @@ jobs:
     steps:
       # ok: ci-uv-sync-without-locked
       - run: uv sync
+
+  env-not-truthy:
+    runs-on: ubuntu-latest
+    env:
+      UV_LOCKED: "0"
+    steps:
+      # 値が真でなければ lock は強制されていない. 書くだけで指摘を消せない
+      # ruleid: ci-uv-sync-without-locked
+      - run: uv sync
+
+  env-expression:
+    runs-on: ubuntu-latest
+    env:
+      UV_LOCKED: ${{ vars.LOCKED }}
+    steps:
+      # 式は値が分からないので、外さない
+      # ruleid: ci-uv-sync-without-locked
+      - run: uv sync
+
+  env-true:
+    runs-on: ubuntu-latest
+    env:
+      UV_LOCKED: true
+    steps:
+      # ok: ci-uv-sync-without-locked
+      - run: uv sync
+
+  env-one-unquoted:
+    runs-on: ubuntu-latest
+    env:
+      UV_LOCKED: 1
+    steps:
+      # ok: ci-uv-sync-without-locked
+      - run: uv sync

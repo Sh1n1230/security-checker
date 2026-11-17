@@ -76,18 +76,25 @@ def status_only(url):
     )
 
 
-def unrelated_invoke(url, my_task_runner, retriever):
+def unrelated_invoke(url, my_task_runner, retriever, output_parser):
     # invoke という名前のメソッドは LLM に限らない (#282)
     page = requests.get(url, timeout=10).text
     # ok: llm-third-party-text-in-user-message
     my_task_runner.invoke(page)
     # ok: llm-third-party-text-in-user-message
+    output_parser.invoke(page)
+    # ok: llm-third-party-text-in-user-message
     return retriever.invoke(page)
 
 
-def langchain_invoke(url, llm, chat_model):
+def langchain_invoke(url, llm, chat_model, gpt, pipeline):
     page = requests.get(url, timeout=10).text
     # ruleid: llm-third-party-text-in-user-message
     llm.invoke(page)
     # ruleid: llm-third-party-text-in-user-message
-    return chat_model.invoke(page)
+    chat_model.invoke(page)
+    # LLM らしくない名前でも、LLM でないと分かる名前でなければ見る
+    # ruleid: llm-third-party-text-in-user-message
+    gpt.invoke(page)
+    # ruleid: llm-third-party-text-in-user-message
+    return pipeline.invoke(page)

@@ -111,15 +111,16 @@ rules:
           - pattern: $CLIENT.models.generate_content(..., contents=$PROMPT, ...)
           - focus-metavariable: $PROMPT
       # LangChain: invoke / ainvoke に文字列やメッセージを渡す。
-      # invoke は検索 (retriever)・パーサ・RPC クライアントにもある名前なので、
-      # 受け手の名前が LLM・チャットモデル・チェーン・エージェントを指すものに限る
+      # invoke は検索 (retriever)・パーサ・ツール・タスクランナーにもある名前なので、
+      # 受け手の名前から LLM ではないと分かるものだけを外す。
+      # 「LLM らしい名前だけ見る」形にはしない (gpt.invoke や無名の変数を見逃すため)
       - patterns:
           - pattern-either:
               - pattern: $LLM.invoke($PROMPT, ...)
               - pattern: $LLM.ainvoke($PROMPT, ...)
           - metavariable-regex:
               metavariable: $LLM
-              regex: '(?i).*(llm|model|chat|chain|agent)'
+              regex: '(?i)^(?!.*(retriev|vector|store|index|search|pars|tool|runner|task|rpc|lambda|func)).*$'
           - focus-metavariable: $PROMPT
 
   - id: llm-third-party-text-in-system-prompt-js
