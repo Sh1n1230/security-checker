@@ -148,7 +148,11 @@ rules:
       - pattern: axios.$METHOD(...)
       - pattern: $OCTOKIT.rest.issues.get(...)
       - pattern: $OCTOKIT.rest.issues.listComments(...)
+      - pattern: $OCTOKIT.rest.issues.listForRepo(...)
       - pattern: $OCTOKIT.rest.pulls.get(...)
+      - pattern: $OCTOKIT.rest.pulls.listReviewComments(...)
+      - pattern: $OCTOKIT.rest.pulls.listReviews(...)
+      - pattern: $OCTOKIT.graphql(...)
     pattern-sanitizers: &js-sanitizers
       - pattern: $R.status
       - pattern: $R.ok
