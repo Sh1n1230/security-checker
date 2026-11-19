@@ -482,6 +482,8 @@ async def test_cancellation_returns_the_verdicts_finished_so_far():
     assert result.reviewed_candidate_ids == {"c0"}
     assert [v.status for v in result.verdicts["c0"]] == [VerdictStatus.OK]
     assert run.cancelling() == 0  # 取り消しは受け止めた. 後続の処理は続けられる
+
+
 # --- トレースは提供元への呼び出しと 1 対 1 (§24.2, #316) ----------------------------
 
 
