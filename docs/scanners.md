@@ -83,7 +83,11 @@ v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒�
 - **既定で有効**です (osv-scanner が入っていなければ `skipped`)。送信を避けたい場合は
   `scanners.osv.enabled: false` にしてください。
 - `osv-scanner scan source --recursive` を実行します。依存の問い合わせのため、
-  **パッケージ名とバージョンが OSV の API に送られます** (コードは送りません)。
+  **パッケージ名とバージョンが外部に送られます** (コードは送りません)。送り先は 2 つです。
+  - **OSV の API** — 既知の脆弱性の照会
+  - **deps.dev の API** — 推移的な依存の解決 (osv-scanner の既定。対象は `pom.xml` と `requirements.txt`)
+- deps.dev への送信だけを止めるなら `scanners.osv.extra_args: ["--no-resolve"]` を指定します
+  (その場合、ロックファイルに書かれていない推移的な依存は検査されません)。
 - 意図して残す脆弱性は、リポジトリの `osv-scanner.toml` に期限つきで書いて抑止します。
 
   ```toml

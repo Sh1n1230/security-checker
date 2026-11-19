@@ -1,5 +1,9 @@
 // semgrep --test 用の fixture (src/security_checker/rules/semgrep/llm.yml)。実行はしない。
 import OpenAI from "openai";
+import got from "got";
+import ky from "ky";
+import * as undici from "undici";
+import { generateText, streamText } from "ai";
 
 const client = new OpenAI();
 
@@ -39,6 +43,50 @@ export async function constantsOnly() {
   });
 }
 
+export async function gotAsInstructions(url: string) {
+  const response = await got(url);
+  return client.responses.create({
+    model: "m",
+    // ruleid: llm-third-party-text-in-system-prompt-js
+    instructions: response.body,
+  });
+}
+
+export async function kyAsSystemPrompt(url: string) {
+  const page = await ky.get(url).text();
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ruleid: llm-third-party-text-in-system-prompt-js
+      { role: "system", content: page },
+    ],
+  });
+}
+
+export async function undiciAsUserMessage(url: string) {
+  const response = await undici.request(url);
+  const page = await response.body.text();
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ruleid: llm-third-party-text-in-user-message-js
+      { role: "user", content: page },
+    ],
+  });
+}
+
+export async function trustedConstantWithThirdPartyClients() {
+  // Merely importing the HTTP clients must not taint unrelated local text.
+  const local = "Fixed internal instruction";
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ok: llm-third-party-text-in-system-prompt-js
+      { role: "system", content: local },
+    ],
+  });
+}
+
 export async function statusOnly(url: string) {
   // 応答の本文ではない数値は、第三者のテキストではない (#281)
   const res = await fetch(url);
@@ -50,5 +98,105 @@ export async function statusOnly(url: string) {
       { role: "system", content: `The last check returned ${status}.` },
       { role: "user", content: "Go." },
     ],
+  });
+}
+
+export async function reviewCommentAsInstructions(octokit: any) {
+  const comments = await octokit.rest.pulls.listReviewComments({ owner: "a", repo: "b", pull_number: 1 });
+  const reviewBody = comments.data[0].body;
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ruleid: llm-third-party-text-in-system-prompt-js
+      { role: "system", content: reviewBody },
+    ],
+  });
+}
+
+export async function issueListingAsUserMessage(octokit: any) {
+  const issues = await octokit.rest.issues.listForRepo({ owner: "a", repo: "b" });
+  const issueBody = issues.data[0].body;
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ruleid: llm-third-party-text-in-user-message-js
+      { role: "user", content: issueBody },
+    ],
+  });
+}
+
+export async function graphqlCommentAsInstructions(octokit: any) {
+  const result = await octokit.graphql("query { repository { issue { body } } }");
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ruleid: llm-third-party-text-in-system-prompt-js
+      { role: "system", content: result.repository.issue.body },
+    ],
+  });
+}
+
+export async function constantWithOctokitPresent(octokit: any) {
+  const count = 12;
+  await octokit.rest.pulls.listReviewComments({ owner: "a", repo: "b", pull_number: 1 });
+  return client.chat.completions.create({
+    model: "m",
+    messages: [
+      // ok: llm-third-party-text-in-system-prompt-js
+      { role: "system", content: `Processed ${count} items` },
+    ],
+  });
+}
+
+export async function vercelSystemInstructions(url: string) {
+  const page = await fetch(url).then((response) => response.text());
+  return generateText({
+    model: "test-model",
+    // ruleid: llm-third-party-text-in-system-prompt-js
+    system: page,
+    // ok: llm-third-party-text-in-user-message-js
+    prompt: "Summarize this page.",
+  });
+}
+
+export async function vercelStreamSystemInstructions(url: string) {
+  const page = await fetch(url).then((response) => response.text());
+  return streamText({
+    model: "test-model",
+    // ruleid: llm-third-party-text-in-system-prompt-js
+    system: page,
+    // ok: llm-third-party-text-in-user-message-js
+    prompt: "Summarize this page.",
+  });
+}
+
+export async function vercelUserPrompt(url: string) {
+  const page = await fetch(url).then((response) => response.text());
+  return generateText({
+    model: "test-model",
+    // ok: llm-third-party-text-in-system-prompt-js
+    system: "Summarize only.",
+    // ruleid: llm-third-party-text-in-user-message-js
+    prompt: page,
+  });
+}
+
+export async function vercelStreamMessages(url: string) {
+  const page = await fetch(url).then((response) => response.text());
+  return streamText({
+    model: "test-model",
+    // ruleid: llm-third-party-text-in-user-message-js
+    messages: [{ role: "user", content: page }],
+  });
+}
+
+export async function vercelConstantOnly() {
+  const safe = "A constant, not external text";
+  return generateText({
+    model: "test-model",
+    // ok: llm-third-party-text-in-system-prompt-js
+    system: safe,
+    // ok: llm-third-party-text-in-user-message-js
+    prompt: safe,
   });
 }

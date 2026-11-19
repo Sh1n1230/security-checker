@@ -39,6 +39,8 @@ BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 60.0
 #: rpm / tpm を数える窓 (秒)
 WINDOW_S = 60.0
+#: 中断されたときに stopped_reason に入れる文
+INTERRUPTED_REASON = "中断されました (Ctrl-C / SIGTERM)。ここまでの結果を出力します"
 #: process transport の既定の並列度. CLI を同時に何本も起動すると、手元の資源と提供元の制限に当たる
 PROCESS_DEFAULT_CONCURRENCY = 1
 CIRCUIT_BREAKER_FAILURES = 5
@@ -158,6 +160,8 @@ class ScheduleResult:
     reviewed_candidate_ids: set[str] = field(default_factory=set)
     disabled_reviewers: dict[str, str] = field(default_factory=dict)
     stopped_reason: str | None = None
+    #: Ctrl-C・SIGTERM で中断された. 部分結果を書き出した後、呼び出し側が中断として終了する
+    interrupted: bool = False
     calls: int = 0
 
 
@@ -248,9 +252,17 @@ class ReviewScheduler:
                     "上限に達した時点でこの Reviewer を止めます"
                 )
 
-        await asyncio.gather(
-            *(self._review_candidate(runtime, task) for task in tasks for runtime in self.runtimes)
-        )
+        workers = [
+            asyncio.ensure_future(self._review_candidate(runtime, task))
+            for task in tasks
+            for runtime in self.runtimes
+        ]
+        try:
+            await asyncio.gather(*workers)
+        except asyncio.CancelledError:
+            # 中断されても、ここまでの判定 (費用のかかった呼び出しの結果) を捨てない (§20.2)。
+            # 送信中の呼び出しを止め、残りは未レビューとして部分結果を返す
+            await self._interrupt(workers)
         self._fill_skipped(tasks)
         for runtime in self.runtimes:
             if runtime.daily is not None:
@@ -258,6 +270,24 @@ class ReviewScheduler:
         return self._result
 
     # --- 内部 -------------------------------------------------------------
+
+    async def _interrupt(self, workers: Sequence[asyncio.Future[None]]) -> None:
+        """中断 (Ctrl-C・SIGTERM) を「途中で停止した run」に変える.
+
+        取り消しの要求は 1 回分をここで受け止める (`uncancel`)。受け止めないと、この後の
+        レポートの書き出しの途中で再び CancelledError になる。
+        2 回目の Ctrl-C は従来どおり即座に止まる。
+        """
+        for worker in workers:
+            worker.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+        current = asyncio.current_task()
+        if current is not None:
+            current.uncancel()
+        self._stop.set()
+        self._result.interrupted = True
+        if self._result.stopped_reason is None:
+            self._result.stopped_reason = INTERRUPTED_REASON
 
     def _fill_skipped(self, tasks: list[ReviewTask]) -> None:
         """一部の Reviewer だけが判定した候補に、判定しなかった Reviewer の SKIPPED を残す.
@@ -304,8 +334,7 @@ class ReviewScheduler:
             self._result.verdicts.setdefault(task.candidate.id, []).append(outcome.verdict)
             self._result.reviewed_candidate_ids.add(task.candidate.id)
             self._result.warnings.extend(outcome.warnings)
-            if outcome.trace:
-                self._result.traces.append(outcome.trace)
+            self._result.traces.extend(outcome.traces)
             self._result.usage = self._result.usage.merge(outcome.verdict.usage)
             if outcome.verdict.usage.cost_known:
                 self._known_usd += outcome.verdict.usage.estimated_usd or 0.0
@@ -391,39 +420,15 @@ class ReviewScheduler:
                     outcome = await self._review_once(runtime, task)
             except SendCancelledError:
                 return None
-            except ProviderAuthError as exc:
-                # 認証失敗は 1 回で当該 Reviewer を無効化する (§23)
-                await self._disable(runtime, str(exc))
-                return runtime.reviewer.error_outcome(
-                    task, VerdictStatus.PROVIDER_ERROR, str(exc), attempt=attempt
-                )
-            except ProviderRateLimitError as exc:
-                # rate limit はサーキットブレーカに数えない (§23)。壊れているわけではない
-                last_error = str(exc)
-                await self._on_rate_limit(runtime)
-                wait_limit = self._wait_limit()
-                if exc.retry_after is not None and exc.retry_after > wait_limit:
-                    message = (
-                        f"{last_error} (Retry-After {exc.retry_after:.0f}s は"
-                        f"待てる上限 {wait_limit:.0f}s を超えるため待ちません)"
-                    )
-                    return runtime.reviewer.error_outcome(
-                        task, VerdictStatus.PROVIDER_ERROR, message, attempt=attempt
-                    )
-                if attempt == MAX_ATTEMPTS:
-                    return runtime.reviewer.error_outcome(
-                        task, VerdictStatus.PROVIDER_ERROR, last_error, attempt=attempt
-                    )
-                await self._sleep(min(_backoff_delay(attempt, exc), wait_limit))
-                continue
             except ProviderError as exc:
+                # 送ったが失敗した呼び出しも、1 件ずつトレースに残す (リトライのたびに 1 件)
+                if exc.call_trace is not None:
+                    async with self._lock:
+                        self._result.traces.append(exc.call_trace)
+                outcome_or_retry = await self._handle_provider_error(runtime, task, exc, attempt)
+                if outcome_or_retry is not None:
+                    return outcome_or_retry
                 last_error = str(exc)
-                if not exc.retryable or attempt == MAX_ATTEMPTS:
-                    await self._record_failure(runtime, last_error)
-                    return runtime.reviewer.error_outcome(
-                        task, VerdictStatus.PROVIDER_ERROR, last_error, attempt=attempt
-                    )
-                await self._sleep(min(_backoff_delay(attempt, exc), self._wait_limit()))
                 continue
 
             runtime.consecutive_rate_limits = 0
@@ -457,6 +462,44 @@ class ReviewScheduler:
             for tokens, usd in reservations:
                 self._reserved_tokens -= tokens
                 self._reserved_usd -= usd
+
+    async def _handle_provider_error(
+        self, runtime: ReviewerRuntime, task: ReviewTask, exc: ProviderError, attempt: int
+    ) -> ReviewOutcome | None:
+        """Provider の失敗を受けて、結果を確定するか (ReviewOutcome)、待って再試行するか (None)."""
+        message = str(exc)
+        reviewer = runtime.reviewer
+        if isinstance(exc, ProviderAuthError):
+            # 認証失敗は 1 回で当該 Reviewer を無効化する (§23)
+            await self._disable(runtime, message)
+            return reviewer.error_outcome(
+                task, VerdictStatus.PROVIDER_ERROR, message, attempt=attempt
+            )
+        if isinstance(exc, ProviderRateLimitError):
+            # rate limit はサーキットブレーカに数えない (§23)。壊れているわけではない
+            await self._on_rate_limit(runtime)
+            wait_limit = self._wait_limit()
+            if exc.retry_after is not None and exc.retry_after > wait_limit:
+                message = (
+                    f"{message} (Retry-After {exc.retry_after:.0f}s は"
+                    f"待てる上限 {wait_limit:.0f}s を超えるため待ちません)"
+                )
+                return reviewer.error_outcome(
+                    task, VerdictStatus.PROVIDER_ERROR, message, attempt=attempt
+                )
+            if attempt == MAX_ATTEMPTS:
+                return reviewer.error_outcome(
+                    task, VerdictStatus.PROVIDER_ERROR, message, attempt=attempt
+                )
+            await self._sleep(min(_backoff_delay(attempt, exc), wait_limit))
+            return None
+        if not exc.retryable or attempt == MAX_ATTEMPTS:
+            await self._record_failure(runtime, message)
+            return reviewer.error_outcome(
+                task, VerdictStatus.PROVIDER_ERROR, message, attempt=attempt
+            )
+        await self._sleep(min(_backoff_delay(attempt, exc), self._wait_limit()))
+        return None
 
     async def _on_rate_limit(self, runtime: ReviewerRuntime) -> None:
         """429 が続くなら実効 rpm を下げる (§22.2). 無料枠で「とりあえず動く」ことを優先する."""

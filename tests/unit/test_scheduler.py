@@ -447,3 +447,60 @@ def test_process_reviewer_runs_one_at_a_time_unless_told_otherwise():
     process = ReviewerConfig(name="p", transport="process", command=["tool"])
     assert _concurrency(process, default=4) == 1
     assert _concurrency(process.model_copy(update={"concurrency": 3}), default=4) == 3
+
+
+# --- 中断しても、ここまでの結果を捨てない (§20.2, #218) ----------------------------
+
+
+async def test_cancellation_returns_the_verdicts_finished_so_far():
+    # 1 件目はすぐ返り、2 件目以降は返らない. 途中で取り消す
+    class FirstFastThenStuck(ScriptedProvider):
+        async def complete(self, req: Any) -> Any:
+            if len(self.requests) >= 1:
+                self.requests.append(req)
+                await asyncio.sleep(60)
+            return await super().complete(req)
+
+    provider = FirstFastThenStuck([verdict_payload()])
+    config = ReviewerConfig(
+        name="r1", transport="http", dialect="openai_chat", base_url="http://x/v1", model="m"
+    )
+    runtime = build_runtime(Reviewer("r1", provider), config, default_concurrency=1)
+    scheduler = ReviewScheduler([runtime], budget=BudgetConfig())
+
+    run = asyncio.create_task(scheduler.run([make_task(0), make_task(1), make_task(2)]))
+    for _ in range(200):
+        await asyncio.sleep(0.01)
+        if scheduler._result.reviewed_candidate_ids:
+            break
+    run.cancel()
+    result = await run  # CancelledError を投げず、部分結果を返す
+
+    assert result.interrupted is True
+    assert result.stopped_reason is not None
+    assert "中断" in result.stopped_reason
+    assert result.reviewed_candidate_ids == {"c0"}
+    assert [v.status for v in result.verdicts["c0"]] == [VerdictStatus.OK]
+    assert run.cancelling() == 0  # 取り消しは受け止めた. 後続の処理は続けられる
+
+
+# --- トレースは提供元への呼び出しと 1 対 1 (§24.2, #316) ----------------------------
+
+
+async def test_every_retry_is_traced_including_the_failed_ones():
+    scheduler, _, provider, _ = make_scheduler(
+        [ProviderServerError("500"), ProviderServerError("502"), verdict_payload()]
+    )
+    result = await scheduler.run([make_task()])
+    assert len(provider.requests) == 3
+    assert [t["status"] for t in result.traces] == ["provider_error", "provider_error", "ok"]
+    assert [t["response"]["error"] for t in result.traces[:2]] == ["500", "502"]
+    assert result.traces[0]["response"]["raw_sha256"] is None  # 応答は得られていない
+
+
+async def test_an_auth_failure_traces_the_one_call_and_nothing_for_skipped_candidates():
+    scheduler, _, provider, _ = make_scheduler([ProviderAuthError("401")])
+    result = await scheduler.run([make_task(0), make_task(1), make_task(2)])
+    # 送ったのは 1 回だけ. 無効化の後で送らなかった候補の記録は作らない
+    assert len(provider.requests) == 1
+    assert [t["status"] for t in result.traces] == ["provider_error"]
