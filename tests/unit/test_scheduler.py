@@ -504,3 +504,33 @@ async def test_an_auth_failure_traces_the_one_call_and_nothing_for_skipped_candi
     # 送ったのは 1 回だけ. 無効化の後で送らなかった候補の記録は作らない
     assert len(provider.requests) == 1
     assert [t["status"] for t in result.traces] == ["provider_error"]
+
+
+async def test_a_reviewer_with_tpm_reserves_the_estimated_tokens_before_sending():
+    """tpm を宣言した Reviewer は、送る前に見積りのトークン数を窓に確保する (#566)."""
+    provider = ScriptedProvider([verdict_payload()])
+    config = ReviewerConfig(
+        name="r1",
+        transport="http",
+        dialect="openai_chat",
+        base_url="http://x/v1",
+        model="m",
+        rate_limit=RateLimit(tpm=1_000_000),
+    )
+    runtime = build_runtime(Reviewer("r1", provider), config, default_concurrency=1)
+    assert runtime.token_limiter is not None
+    result = await ReviewScheduler([runtime], budget=BudgetConfig()).run([make_task()])
+    assert result.verdicts["c0"][0].status is VerdictStatus.OK
+    reserved = [count for _, count in runtime.token_limiter._events]
+    assert len(reserved) == 1
+    assert reserved[0] > 0
+
+
+async def test_the_first_reason_for_disabling_a_reviewer_is_kept():
+    """無効化が重なっても、最初の理由を残し、警告も 1 回だけにする (#567)."""
+    scheduler, runtime, _, _ = make_scheduler([])
+    await scheduler._disable(runtime, "最初の理由")
+    await scheduler._disable(runtime, "後から来た理由")
+    assert runtime.disabled_reason == "最初の理由"
+    assert scheduler._result.warnings == ["r1: 最初の理由"]
+    assert scheduler._result.disabled_reviewers == {"r1": "最初の理由"}
