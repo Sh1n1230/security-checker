@@ -362,3 +362,17 @@ async def test_a_run_stopped_by_budget_does_not_score_unreviewed_cases(tmp_path)
     )
     assert result.metrics.not_reviewed == 1
     assert "未レビュー 1" in to_markdown(result)
+
+
+def test_cli_fails_when_a_true_positive_is_missed(tmp_path, monkeypatch):
+    """見逃しが 1 件でもあれば、それ自体を失敗にする (§27.2 の必須条件, #486)."""
+    safe = verdict_payload(
+        vulnerable=False,
+        severity="none",
+        confidence=0.95,
+        false_positive_probability=0.9,
+        exploitability="not_exploitable",
+    )
+    result = _invoke_eval(tmp_path, monkeypatch, [safe] * 2)
+    assert result.exit_code == ExitCode.POLICY_VIOLATION
+    assert "真陽性を 1 件見逃しました" in result.output
