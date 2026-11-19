@@ -8,8 +8,8 @@ candidate:
   category: sast
   message: subprocess の呼び出しに shell=True が指定されています
   path: app/upload.py
-  start_line: 12
-  end_line: 12
+  start_line: 15
+  end_line: 15
   severity_reported: high
   cwe: ["CWE-78"]
 code: |

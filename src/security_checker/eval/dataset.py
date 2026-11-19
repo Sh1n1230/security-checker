@@ -13,7 +13,14 @@ import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from security_checker.errors import ConfigError
 from security_checker.models.candidate import Candidate, Location
@@ -93,6 +100,27 @@ class EvalCase(BaseModel):
         if not _CASE_ID.fullmatch(value) or value in {".", ".."}:
             raise ValueError(f"id は英数字と . _ - だけで書いてください: {value!r}")
         return value
+
+    @model_validator(mode="after")
+    def _lines_point_into_the_code(self) -> EvalCase:
+        """候補の行がコードの範囲内にあること (#322).
+
+        文脈窓は start_line を中心に切り出すので、範囲外や空行を指すと sink が窓から外れうる。
+        """
+        start = self.candidate.start_line
+        end = self.candidate.end_line or start
+        lines = self.code.splitlines()
+        if end < start:
+            raise ValueError(f"end_line ({end}) が start_line ({start}) より前です")
+        if end > len(lines):
+            raise ValueError(
+                f"候補の行 ({start}-{end}) がコード ({len(lines)} 行) の外を指しています"
+            )
+        if not lines[start - 1].strip():
+            raise ValueError(
+                f"start_line ({start}) が空行を指しています。検出箇所の行にしてください"
+            )
+        return self
 
     def to_candidate(self) -> Candidate:
         """実行時と同じ Candidate に変換する (評価専用の経路を作らない)."""

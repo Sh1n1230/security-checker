@@ -13,6 +13,7 @@ from security_checker.providers.http.dialects.ollama_chat import DEFAULT_NUM_CTX
 from security_checker.providers.presets.loader import HttpPreset, load_http_presets
 from security_checker.providers.registry import (
     build_http_provider,
+    build_provider,
     resolve_api_key,
     resolve_capabilities,
     resolve_headers,
@@ -92,6 +93,73 @@ def test_headers_env_without_the_variable_is_config_error():
     config = reviewer(headers_env={"X-Api-Key": "MY_HEADER_KEY"})
     with pytest.raises(ConfigError, match="MY_HEADER_KEY"):
         build_http_provider(config, environ={}, presets={})
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://api.example.com/v1",
+        "http://192.0.2.23/v1",
+        "http://localhost.evil.example/v1",
+    ],
+)
+def test_http_credentials_warn_for_cleartext_non_loopback(base_url: str) -> None:
+    warnings: list[str] = []
+    build_provider(
+        reviewer(base_url=base_url, api_key_env="API_KEY"),
+        environ={"API_KEY": "synthetic-value"},
+        presets={},
+        warnings=warnings,
+    )
+    assert len(warnings) == 1
+    assert "plaintext" in warnings[0]
+    assert "synthetic-value" not in warnings[0]
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://localhost:11434/v1",
+        "http://127.123.4.5:11434/v1",
+        "http://[::1]:11434/v1",
+        "https://api.example.com/v1",
+    ],
+)
+def test_http_credentials_do_not_warn_for_loopback_or_tls(base_url: str) -> None:
+    warnings: list[str] = []
+    build_provider(
+        reviewer(base_url=base_url, api_key_env="API_KEY"),
+        environ={"API_KEY": "synthetic-value"},
+        presets={},
+        warnings=warnings,
+    )
+    assert warnings == []
+
+
+def test_http_headers_env_alone_triggers_cleartext_warning():
+    warnings: list[str] = []
+    build_provider(
+        reviewer(
+            base_url="http://example.com/v1",
+            headers_env={"X-Api-Key": "HEADER_TOKEN"},
+        ),
+        environ={"HEADER_TOKEN": "synthetic-secret"},
+        presets={},
+        warnings=warnings,
+    )
+    assert len(warnings) == 1
+    assert "synthetic-secret" not in warnings[0]
+
+
+def test_http_without_credentials_does_not_warn_about_cleartext():
+    warnings: list[str] = []
+    build_provider(
+        reviewer(base_url="http://example.com/v1"),
+        environ={},
+        presets={},
+        warnings=warnings,
+    )
+    assert warnings == []
 
 
 def test_unknown_dialect_is_config_error():

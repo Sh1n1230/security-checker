@@ -8,6 +8,7 @@
 |---|---|
 | [getting-started.md](getting-started.md) | インストールから最初の `scan` / `review` まで |
 | [configuration.md](configuration.md) | 設定ファイルの探索・合成と全項目のリファレンス |
+| [troubleshooting.md](troubleshooting.md) | うまくいかないとき。表示されたメッセージごとの原因と対処 |
 | [exit-codes.md](exit-codes.md) | 終了コード (0/1/2/3) とコマンドごとの条件。CI のゲートを組むときに |
 | [scanners.md](scanners.md) | semgrep・gitleaks・osv-scanner・trivy の扱い、`skipped` と `failed` の違い |
 | [providers.md](providers.md) | Reviewer (LLM) の足し方。transport × dialect、プリセット、プラグイン |
@@ -30,7 +31,7 @@
 | [evaluation.md](evaluation.md) | ラベル付きデータセットでレビュー精度を測る (`eval`) |
 | [DESIGN.md](DESIGN.md) | 設計書 (全体の正典) |
 | [adr/](adr/README.md) | 意思決定記録。「なぜそうなっているか」 |
-| [NEXT-STEPS.md](NEXT-STEPS.md) | 残作業と、人間が決めること・やること |
+| [NEXT-STEPS.md](NEXT-STEPS.md) | 公開までに残っている作業と、決める必要があること |
 
 ## 開発に参加する
 

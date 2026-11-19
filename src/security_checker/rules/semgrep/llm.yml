@@ -46,6 +46,32 @@ rules:
       # HTTP 応答 (本文・JSON は応答オブジェクトから伝播する)
       - pattern: requests.$METHOD(...)
       - pattern: httpx.$METHOD(...)
+      # Session/client instances need a receiver binding: matching every
+      # `$X.get(...)` would also taint unrelated dict/cache lookups.
+      - patterns:
+          - pattern: $HTTP.$METHOD(...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(get|post|put|patch|delete|head|options|request|send)$
+          - pattern-either:
+              - pattern-inside: |
+                  $HTTP = requests.Session(...)
+                  ...
+              - pattern-inside: |
+                  with requests.Session(...) as $HTTP:
+                      ...
+              - pattern-inside: |
+                  $HTTP = httpx.Client(...)
+                  ...
+              - pattern-inside: |
+                  with httpx.Client(...) as $HTTP:
+                      ...
+              - pattern-inside: |
+                  $HTTP = httpx.AsyncClient(...)
+                  ...
+              - pattern-inside: |
+                  async with httpx.AsyncClient(...) as $HTTP:
+                      ...
       - pattern: urllib.request.urlopen(...)
       - pattern: trafilatura.fetch_url(...)
       # GitHub (PyGithub)。取得したオブジェクトの .body / .title が第三者のテキスト
@@ -78,6 +104,20 @@ rules:
       - patterns:
           - pattern: $FUNC(..., system_instruction=$PROMPT, ...)
           - focus-metavariable: $PROMPT
+      # Ollama's generate API carries system instructions separately from prompt.
+      - patterns:
+          - pattern: ollama.generate(..., system=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
+      # LangChain: explicit system-role message objects and prompt templates.
+      - patterns:
+          - pattern-either:
+              - pattern: SystemMessage(content=$PROMPT, ...)
+              - pattern: ChatPromptTemplate.from_messages([..., ("system", $PROMPT), ...])
+          - focus-metavariable: $PROMPT
+      # AWS Bedrock Converse: system content blocks become model instructions.
+      - patterns:
+          - pattern: $CLIENT.converse(..., system=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
       # Chat 形式のメッセージ: {"role": "system" | "developer", "content": ...}
       - patterns:
           - pattern-either:
@@ -109,6 +149,21 @@ rules:
       # Google Gen AI: models.generate_content(contents=...)
       - patterns:
           - pattern: $CLIENT.models.generate_content(..., contents=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
+      # Ollama generate's prompt is the user-supplied request, not the system role.
+      - patterns:
+          - pattern: ollama.generate(..., prompt=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
+      # LangChain: human messages and user-role template entries.
+      - patterns:
+          - pattern-either:
+              - pattern: HumanMessage(content=$PROMPT, ...)
+              - pattern: ChatPromptTemplate.from_messages([..., ("human", $PROMPT), ...])
+              - pattern: ChatPromptTemplate.from_messages([..., ("user", $PROMPT), ...])
+          - focus-metavariable: $PROMPT
+      # AWS Bedrock Converse: messages carry potentially untrusted context.
+      - patterns:
+          - pattern: $CLIENT.converse(..., messages=$PROMPT, ...)
           - focus-metavariable: $PROMPT
       # LangChain: invoke / ainvoke に文字列やメッセージを渡す。
       # invoke は検索 (retriever)・パーサ・ツール・タスクランナーにもある名前なので、
@@ -146,9 +201,16 @@ rules:
     pattern-sources: &js-sources
       - pattern: fetch(...)
       - pattern: axios.$METHOD(...)
+      - pattern: got(...)
+      - pattern: ky.get(...)
+      - pattern: undici.request(...)
       - pattern: $OCTOKIT.rest.issues.get(...)
       - pattern: $OCTOKIT.rest.issues.listComments(...)
+      - pattern: $OCTOKIT.rest.issues.listForRepo(...)
       - pattern: $OCTOKIT.rest.pulls.get(...)
+      - pattern: $OCTOKIT.rest.pulls.listReviewComments(...)
+      - pattern: $OCTOKIT.rest.pulls.listReviews(...)
+      - pattern: $OCTOKIT.graphql(...)
     pattern-sanitizers: &js-sanitizers
       - pattern: $R.status
       - pattern: $R.ok
@@ -167,6 +229,12 @@ rules:
           - focus-metavariable: $PROMPT
       - patterns:
           - pattern: '$CLIENT.responses.create({..., instructions: $PROMPT, ...})'
+          - focus-metavariable: $PROMPT
+      # Vercel AI SDK: system instructions can be supplied to either generation API.
+      - patterns:
+          - pattern-either:
+              - pattern: 'generateText({..., system: $PROMPT, ...})'
+              - pattern: 'streamText({..., system: $PROMPT, ...})'
           - focus-metavariable: $PROMPT
 
   - id: llm-third-party-text-in-user-message-js
@@ -187,4 +255,12 @@ rules:
           - focus-metavariable: $PROMPT
       - patterns:
           - pattern: '$CLIENT.responses.create({..., input: $PROMPT, ...})'
+          - focus-metavariable: $PROMPT
+      # Vercel AI SDK: prompt and messages carry user-supplied context.
+      - patterns:
+          - pattern-either:
+              - pattern: 'generateText({..., prompt: $PROMPT, ...})'
+              - pattern: 'streamText({..., prompt: $PROMPT, ...})'
+              - pattern: 'generateText({..., messages: $PROMPT, ...})'
+              - pattern: 'streamText({..., messages: $PROMPT, ...})'
           - focus-metavariable: $PROMPT
