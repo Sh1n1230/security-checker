@@ -39,6 +39,8 @@ BACKOFF_BASE_S = 1.0
 BACKOFF_CAP_S = 60.0
 #: rpm / tpm を数える窓 (秒)
 WINDOW_S = 60.0
+#: 中断されたときに stopped_reason に入れる文
+INTERRUPTED_REASON = "中断されました (Ctrl-C / SIGTERM)。ここまでの結果を出力します"
 #: process transport の既定の並列度. CLI を同時に何本も起動すると、手元の資源と提供元の制限に当たる
 PROCESS_DEFAULT_CONCURRENCY = 1
 CIRCUIT_BREAKER_FAILURES = 5
@@ -158,6 +160,8 @@ class ScheduleResult:
     reviewed_candidate_ids: set[str] = field(default_factory=set)
     disabled_reviewers: dict[str, str] = field(default_factory=dict)
     stopped_reason: str | None = None
+    #: Ctrl-C・SIGTERM で中断された. 部分結果を書き出した後、呼び出し側が中断として終了する
+    interrupted: bool = False
     calls: int = 0
 
 
@@ -248,9 +252,17 @@ class ReviewScheduler:
                     "上限に達した時点でこの Reviewer を止めます"
                 )
 
-        await asyncio.gather(
-            *(self._review_candidate(runtime, task) for task in tasks for runtime in self.runtimes)
-        )
+        workers = [
+            asyncio.ensure_future(self._review_candidate(runtime, task))
+            for task in tasks
+            for runtime in self.runtimes
+        ]
+        try:
+            await asyncio.gather(*workers)
+        except asyncio.CancelledError:
+            # 中断されても、ここまでの判定 (費用のかかった呼び出しの結果) を捨てない (§20.2)。
+            # 送信中の呼び出しを止め、残りは未レビューとして部分結果を返す
+            await self._interrupt(workers)
         self._fill_skipped(tasks)
         for runtime in self.runtimes:
             if runtime.daily is not None:
@@ -258,6 +270,24 @@ class ReviewScheduler:
         return self._result
 
     # --- 内部 -------------------------------------------------------------
+
+    async def _interrupt(self, workers: Sequence[asyncio.Future[None]]) -> None:
+        """中断 (Ctrl-C・SIGTERM) を「途中で停止した run」に変える.
+
+        取り消しの要求は 1 回分をここで受け止める (`uncancel`)。受け止めないと、この後の
+        レポートの書き出しの途中で再び CancelledError になる。
+        2 回目の Ctrl-C は従来どおり即座に止まる。
+        """
+        for worker in workers:
+            worker.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+        current = asyncio.current_task()
+        if current is not None:
+            current.uncancel()
+        self._stop.set()
+        self._result.interrupted = True
+        if self._result.stopped_reason is None:
+            self._result.stopped_reason = INTERRUPTED_REASON
 
     def _fill_skipped(self, tasks: list[ReviewTask]) -> None:
         """一部の Reviewer だけが判定した候補に、判定しなかった Reviewer の SKIPPED を残す.

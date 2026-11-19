@@ -22,7 +22,9 @@ candidate:
   path: app.py
   start_line: 3
 code: |
-  print("hi")
+  import os
+
+  os.system("hi")
 ground_truth:
   vulnerable: true
   severity: high
@@ -97,9 +99,29 @@ def test_the_bundled_dataset_loads():
     assert dataset.positives >= 1
     for case in dataset.cases:
         assert case.code.strip(), f"{case.id}: コードが空"
+        line = case.code.splitlines()[case.candidate.start_line - 1]
+        assert line.strip(), f"{case.id}: start_line が空行を指している"
         assert case.ground_truth.rationale.strip(), f"{case.id}: 正解の根拠が書かれていない"
         if case.ground_truth.vulnerable:
             assert case.ground_truth.severity is not Severity.NONE
+
+
+# --- 候補の行はコードの中の、空でない行を指す (#322) -----------------------------
+
+
+@pytest.mark.parametrize(
+    ("lines", "message"),
+    [
+        ("start_line: 9", "外を指しています"),
+        ("start_line: 3\n  end_line: 9", "外を指しています"),
+        ("start_line: 3\n  end_line: 1", "より前です"),
+        ("start_line: 2", "空行"),
+    ],
+)
+def test_candidate_lines_must_point_into_the_code(tmp_path, lines, message):
+    write_case(tmp_path, "0001.yaml", CASE.replace("start_line: 3", lines))
+    with pytest.raises(ConfigError, match=message):
+        load_dataset(tmp_path)
 
 
 # --- ワークスペースの外に書き出させない (#624) ------------------------------------

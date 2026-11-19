@@ -9,8 +9,8 @@ candidate:
   category: sast
   message: クエリが文字列連結で構築されています
   path: app/db.py
-  start_line: 11
-  end_line: 11
+  start_line: 8
+  end_line: 8
   severity_reported: high
   cwe: ["CWE-89"]
 code: |

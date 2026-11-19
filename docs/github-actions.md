@@ -193,9 +193,16 @@ PR のコードを checkout して何かを実行した瞬間に、シークレ�
 
 ### 既知の限界
 
-スキャナは検査対象に置かれた自身の設定 (`.gitleaks.toml`・`.semgrepignore` など) を読みます。
-fork PR はこれで検出を減らせます。コードが実行されるわけではありませんが、
-**fork PR の「指摘ゼロ」は、これらのファイルの変更が無いことを確かめてから信用してください。**
+`untrusted-target: true` でも止められないものが 2 つ残ります。どちらも検査対象の直下に置くファイルです。
+
+- `.gitleaksignore` — gitleaks が指紋の一致した検出を捨てる
+- `.semgrepignore` — semgrep が一致したパスを検査しない
+
+fork PR はこれで検出を減らせます (コードが実行されるわけではありません)。このどちらかがあると、
+レポートの警告と PR のサマリに出ます。**fork PR の「指摘ゼロ」は、この警告が無いことを確かめてから
+信用してください。** それ以外のスキャナの設定 (`.gitleaks.toml`・`trivy.yaml`・`.trivyignore`・
+`osv-scanner.toml`) とコード内の注釈は、上に書いたとおり効きません
+([security-model.md](security-model.md) §5.1)。
 
 ## 6. Code Scanning をマージゲートにする
 

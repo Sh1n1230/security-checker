@@ -1,0 +1,34 @@
+# 真陽性: 脆弱版 lodash の defaultsDeep に利用者の JSON を渡している。
+id: hand-0071
+source: handmade
+language: javascript
+candidate:
+  scanner: osv
+  rule_id: GHSA-jf85-cpcp-j695
+  category: dependency
+  message: lodash 4.17.11 に既知の脆弱性があります (prototype pollution)
+  path: package-lock.json
+  start_line: 6
+  end_line: 6
+  severity_reported: critical
+  cwe:
+  - CWE-1321
+code: |
+  // package.json: "lodash": "4.17.11"
+
+  // src/preferences.js (同じリポジトリ)
+  const _ = require("lodash");
+  app.patch("/preferences", (req, res) => {
+    req.session.prefs = _.defaultsDeep({}, req.body, req.session.prefs);
+    res.sendStatus(204);
+  });
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-1321
+  severity: critical
+  rationale: |
+    GHSA-jf85-cpcp-j695 (CVE-2019-10744, 影響 < 4.17.12) は、defaultsDeep に
+    {constructor: {prototype: {...}}} を渡すと Object のプロトタイプを書き換えられるというもの。
+    4.17.11 はこの範囲にあり、リクエスト本文をそのまま defaultsDeep に渡しているので、
+    認証の有無にかかわらずこの経路から到達する。重大度は advisory (Critical 9.1) に合わせる。

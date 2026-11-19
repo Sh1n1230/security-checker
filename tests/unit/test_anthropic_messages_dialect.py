@@ -2,7 +2,7 @@
 
 この形は openai_chat と 2 点で互換性がない。
   1. system が独立フィールド
-  2. JSON Schema の直接指定が無く、ツール呼び出しの強制で代替する
+  2. JSON Schema は output_config.format で指定する (ツールの強制は新しいモデルで 400, #297)
 どちらもテストで固定する。
 """
 
@@ -16,10 +16,11 @@ import pytest
 from security_checker.providers.base import Capabilities, CompletionRequest, StructuredMode
 from security_checker.providers.errors import ProviderResponseError
 from security_checker.providers.http.dialects.anthropic_messages import (
-    TOOL_NAME,
     AnthropicMessagesDialect,
+    supported_schema,
 )
 from security_checker.providers.http.dialects.base import REASONING_HEADROOM_TOKENS
+from security_checker.review.structured import verdict_schema
 
 SCHEMA = {"type": "object", "properties": {"vulnerable": {"type": "boolean"}}}
 
@@ -76,22 +77,68 @@ def test_system_is_folded_when_unsupported(dialect: AnthropicMessagesDialect) ->
     assert "system-text" in payload["messages"][0]["content"]
 
 
-def test_json_schema_mode_forces_a_tool_call(dialect: AnthropicMessagesDialect) -> None:
+def test_json_schema_mode_uses_output_config_format(dialect: AnthropicMessagesDialect) -> None:
     payload = dialect.build_payload(
         make_request(), model="m", capabilities=Capabilities(), mode=StructuredMode.JSON_SCHEMA
     )
-    assert payload["tools"][0]["input_schema"] == SCHEMA
-    assert payload["tool_choice"] == {"type": "tool", "name": TOOL_NAME}
+    assert payload["output_config"] == {"format": {"type": "json_schema", "schema": SCHEMA}}
+    # ツールの強制 (tool_choice: tool / any) は新しいモデルで 400 になるので送らない (#297)
+    assert "tools" not in payload
+    assert "tool_choice" not in payload
 
 
-def test_weaker_modes_send_no_tools(dialect: AnthropicMessagesDialect) -> None:
+def test_weaker_modes_send_no_schema(dialect: AnthropicMessagesDialect) -> None:
     """json_mode に相当する仕組みが無いので、プロンプト側の指示に任せる."""
     for mode in (StructuredMode.JSON_MODE, StructuredMode.PROMPT_ONLY):
         payload = dialect.build_payload(
             make_request(), model="m", capabilities=Capabilities(), mode=mode
         )
+        assert "output_config" not in payload
         assert "tools" not in payload
-        assert "tool_choice" not in payload
+
+
+def test_unsupported_schema_keywords_are_removed() -> None:
+    """数値・文字列長・配列長の制約は 400 になるので外す. 値の検証は pydantic が行う (#297)."""
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["maximum", "items"],
+        "properties": {
+            # プロパティ名が制約のキーワードと同じでも、名前は消さない
+            "maximum": {"type": "number", "minimum": 0, "maximum": 1},
+            "items": {
+                "type": "array",
+                "maxItems": 5,
+                "minItems": 2,
+                "items": {"anyOf": [{"type": "string", "maxLength": 9}, {"type": "null"}]},
+            },
+            "tags": {"type": "array", "minItems": 1, "items": {"pattern": "^x$"}},
+        },
+    }
+    assert supported_schema(schema) == {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["maximum", "items"],
+        "properties": {
+            "maximum": {"type": "number"},
+            "items": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "null"}]}},
+            "tags": {"type": "array", "minItems": 1, "items": {"pattern": "^x$"}},
+        },
+    }
+
+
+def test_the_verdict_schema_is_sent_without_unsupported_keywords(
+    dialect: AnthropicMessagesDialect,
+) -> None:
+    payload = dialect.build_payload(
+        make_request(json_schema=verdict_schema()),
+        model="m",
+        capabilities=Capabilities(),
+        mode=StructuredMode.JSON_SCHEMA,
+    )
+    sent = json.dumps(payload["output_config"]["format"]["schema"])
+    for keyword in ("minimum", "maximum", "maxLength", "maxItems"):
+        assert f'"{keyword}"' not in sent
 
 
 def test_reasoning_models_get_output_headroom(dialect: AnthropicMessagesDialect) -> None:
@@ -109,12 +156,12 @@ def test_reasoning_models_get_output_headroom(dialect: AnthropicMessagesDialect)
     assert thinking["max_tokens"] == 500 + REASONING_HEADROOM_TOKENS
 
 
-def test_tool_use_block_becomes_parsed_output(dialect: AnthropicMessagesDialect) -> None:
+def test_json_text_becomes_parsed_output(dialect: AnthropicMessagesDialect) -> None:
     parsed = dialect.parse_response(
         {
             "model": "m",
-            "stop_reason": "tool_use",
-            "content": [{"type": "tool_use", "name": TOOL_NAME, "input": {"vulnerable": True}}],
+            "stop_reason": "end_turn",
+            "content": [{"type": "text", "text": '{"vulnerable": true}'}],
             "usage": {
                 "input_tokens": 120,
                 "output_tokens": 30,
@@ -123,12 +170,11 @@ def test_tool_use_block_becomes_parsed_output(dialect: AnthropicMessagesDialect)
         }
     )
     assert parsed.parsed == {"vulnerable": True}
-    # text からも復元できる必要がある (上位は text 経由でも検証する)
     assert json.loads(parsed.text) == {"vulnerable": True}
     # キャッシュから読んだ分も「送った入力」に含める (ほかの方言の prompt_tokens と同じ)
     assert parsed.usage.input_tokens == 120 + 90
     assert parsed.usage.cached_tokens == 90
-    assert parsed.finish_reason == "tool_use"
+    assert parsed.finish_reason == "end_turn"
 
 
 def test_text_blocks_are_concatenated(dialect: AnthropicMessagesDialect) -> None:

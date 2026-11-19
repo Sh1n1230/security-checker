@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shlex
+import signal
 import subprocess
 import sys
 import traceback
+from collections.abc import Coroutine
 from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
@@ -90,6 +93,30 @@ def _console(*, stderr: bool = False) -> Console:
 
 
 err_console = _console(stderr=True)
+
+
+#: Ctrl-C で止めたときの終了コード (128 + SIGINT). ExitCode の 0〜3 とは別の、シェルの慣習
+INTERRUPTED_EXIT_CODE = 130
+
+
+async def _cancel_on_sigterm(work: Coroutine[Any, Any, RunOutcome]) -> RunOutcome:
+    """SIGTERM (CI のジョブのキャンセルなど) を Ctrl-C と同じ「取り消し」として扱う.
+
+    既定では SIGTERM でプロセスが即座に終わり、それまでの結果を書き出せない。
+    シグナルハンドラを登録できない環境 (Windows・メインスレッド以外) では何もしない。
+    """
+    loop = asyncio.get_running_loop()
+    task = asyncio.current_task()
+    registered = False
+    if task is not None:
+        with contextlib.suppress(NotImplementedError, RuntimeError, ValueError):
+            loop.add_signal_handler(signal.SIGTERM, task.cancel)
+            registered = True
+    try:
+        return await work
+    finally:
+        if registered:
+            loop.remove_signal_handler(signal.SIGTERM)
 
 
 def _emit(text: str) -> None:
@@ -288,7 +315,13 @@ def scan(
         typer.Option("--strict/--no-strict", help="スキャナの失敗を exit 3 にする (既定: 有効)"),
     ] = None,
     exclude: Annotated[
-        list[str] | None, typer.Option("--exclude", help="除外パターン (複数指定可)")
+        list[str] | None,
+        typer.Option(
+            "--exclude",
+            help=(
+                "除外パターン (複数指定可)。設定と既定の target.exclude を置き換える (追加ではない)"
+            ),
+        ),
     ] = None,
     output_dir: Annotated[
         Path | None,
@@ -358,7 +391,13 @@ def review(
         int | None, typer.Option("--max-candidates", min=1, help="レビューする候補の上限")
     ] = None,
     exclude: Annotated[
-        list[str] | None, typer.Option("--exclude", help="除外パターン (複数指定可)")
+        list[str] | None,
+        typer.Option(
+            "--exclude",
+            help=(
+                "除外パターン (複数指定可)。設定と既定の target.exclude を置き換える (追加ではない)"
+            ),
+        ),
     ] = None,
     output_dir: Annotated[
         Path | None,
@@ -421,19 +460,28 @@ def review(
 
     try:
         outcome = asyncio.run(
-            run_review(
-                loaded.config,
-                root,
-                price_table=price_table,
-                extra_warnings=[*loaded.warnings, *diff_warnings],
-                diff=diff,
-                suppression=_suppression(loaded, root),
+            _cancel_on_sigterm(
+                run_review(
+                    loaded.config,
+                    root,
+                    price_table=price_table,
+                    extra_warnings=[*loaded.warnings, *diff_warnings],
+                    diff=diff,
+                    suppression=_suppression(loaded, root),
+                )
             )
         )
     except SecurityCheckerError as exc:
         _fail(str(exc), exc.exit_code)
 
     _write_reports(loaded, outcome, quiet=quiet)
+    if outcome.interrupted:
+        # 部分結果は書き出した. 終了コードは、シェルの慣習どおり中断として返す
+        err_console.print(
+            "[yellow]中断されました。[/yellow]ここまでの結果を "
+            f"{escape(str(outcome.output_dir))} に書き出しました (残りは not_reviewed)"
+        )
+        raise typer.Exit(code=INTERRUPTED_EXIT_CODE)
     raise typer.Exit(code=int(outcome.decision.exit_code))
 
 
