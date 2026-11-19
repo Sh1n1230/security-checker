@@ -447,3 +447,25 @@ def test_process_reviewer_runs_one_at_a_time_unless_told_otherwise():
     process = ReviewerConfig(name="p", transport="process", command=["tool"])
     assert _concurrency(process, default=4) == 1
     assert _concurrency(process.model_copy(update={"concurrency": 3}), default=4) == 3
+
+
+# --- トレースは提供元への呼び出しと 1 対 1 (§24.2, #316) ----------------------------
+
+
+async def test_every_retry_is_traced_including_the_failed_ones():
+    scheduler, _, provider, _ = make_scheduler(
+        [ProviderServerError("500"), ProviderServerError("502"), verdict_payload()]
+    )
+    result = await scheduler.run([make_task()])
+    assert len(provider.requests) == 3
+    assert [t["status"] for t in result.traces] == ["provider_error", "provider_error", "ok"]
+    assert [t["response"]["error"] for t in result.traces[:2]] == ["500", "502"]
+    assert result.traces[0]["response"]["raw_sha256"] is None  # 応答は得られていない
+
+
+async def test_an_auth_failure_traces_the_one_call_and_nothing_for_skipped_candidates():
+    scheduler, _, provider, _ = make_scheduler([ProviderAuthError("401")])
+    result = await scheduler.run([make_task(0), make_task(1), make_task(2)])
+    # 送ったのは 1 回だけ. 無効化の後で送らなかった候補の記録は作らない
+    assert len(provider.requests) == 1
+    assert [t["status"] for t in result.traces] == ["provider_error"]
