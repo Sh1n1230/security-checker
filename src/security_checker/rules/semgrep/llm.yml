@@ -146,6 +146,9 @@ rules:
     pattern-sources: &js-sources
       - pattern: fetch(...)
       - pattern: axios.$METHOD(...)
+      - pattern: got(...)
+      - pattern: ky.get(...)
+      - pattern: undici.request(...)
       - pattern: $OCTOKIT.rest.issues.get(...)
       - pattern: $OCTOKIT.rest.issues.listComments(...)
       - pattern: $OCTOKIT.rest.pulls.get(...)
