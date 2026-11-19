@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import got from "got";
 import ky from "ky";
 import * as undici from "undici";
+import { generateText, streamText } from "ai";
 
 const client = new OpenAI();
 
@@ -144,5 +145,55 @@ export async function constantWithOctokitPresent(octokit: any) {
       // ok: llm-third-party-text-in-system-prompt-js
       { role: "system", content: `Processed ${count} items` },
     ],
+export async function vercelSystemInstructions(url: string) {
+  const page = await fetch(url).then((response) => response.text());
+  return generateText({
+    model: "test-model",
+    // ruleid: llm-third-party-text-in-system-prompt-js
+    system: page,
+    // ok: llm-third-party-text-in-user-message-js
+    prompt: "Summarize this page.",
+  });
+}
+
+export async function vercelStreamSystemInstructions(url: string) {
+  const page = await fetch(url).then((response) => response.text());
+  return streamText({
+    model: "test-model",
+    // ruleid: llm-third-party-text-in-system-prompt-js
+    system: page,
+    // ok: llm-third-party-text-in-user-message-js
+    prompt: "Summarize this page.",
+  });
+}
+
+export async function vercelUserPrompt(url: string) {
+  const page = await fetch(url).then((response) => response.text());
+  return generateText({
+    model: "test-model",
+    // ok: llm-third-party-text-in-system-prompt-js
+    system: "Summarize only.",
+    // ruleid: llm-third-party-text-in-user-message-js
+    prompt: page,
+  });
+}
+
+export async function vercelStreamMessages(url: string) {
+  const page = await fetch(url).then((response) => response.text());
+  return streamText({
+    model: "test-model",
+    // ruleid: llm-third-party-text-in-user-message-js
+    messages: [{ role: "user", content: page }],
+  });
+}
+
+export async function vercelConstantOnly() {
+  const safe = "A constant, not external text";
+  return generateText({
+    model: "test-model",
+    // ok: llm-third-party-text-in-system-prompt-js
+    system: safe,
+    // ok: llm-third-party-text-in-user-message-js
+    prompt: safe,
   });
 }
