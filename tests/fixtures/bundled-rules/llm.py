@@ -1,5 +1,6 @@
 # semgrep --test 用の fixture (src/security_checker/rules/semgrep/llm.yml)。実行はしない。
 import anthropic
+import ollama
 import openai
 import requests
 from bs4 import BeautifulSoup
@@ -98,3 +99,27 @@ def langchain_invoke(url, llm, chat_model, gpt, pipeline):
     gpt.invoke(page)
     # ruleid: llm-third-party-text-in-user-message
     return pipeline.invoke(page)
+
+
+def ollama_system_prompt(url):
+    page = requests.get(url, timeout=10).text
+    # ruleid: llm-third-party-text-in-system-prompt
+    return ollama.generate(model="m", prompt="Summarize the page", system=page)
+
+
+def ollama_user_prompt(url):
+    page = requests.get(url, timeout=10).text
+    # ruleid: llm-third-party-text-in-user-message
+    return ollama.generate(model="m", prompt=page, system="You are a helpful assistant")
+
+
+def ollama_constant_prompts():
+    # ok: llm-third-party-text-in-system-prompt
+    # ok: llm-third-party-text-in-user-message
+    return ollama.generate(model="m", prompt="Two plus two?", system="Answer clearly")
+
+
+def ollama_response_status_is_not_prompt_injection(url):
+    code = requests.get(url, timeout=10).status_code
+    # ok: llm-third-party-text-in-user-message
+    return ollama.generate(model="m", prompt=f"HTTP status: {code}")
