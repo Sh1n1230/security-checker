@@ -350,3 +350,47 @@ def test_pricing_must_be_a_mapping_with_non_negative_prices(tmp_path):
     path.write_text("models:\n  m:\n    input_per_1m: -1\n", encoding="utf-8")
     with pytest.raises(ConfigError, match="不正"):
         load_price_table(explicit=path)
+
+
+# --- トレースは提供元への呼び出しと 1 対 1 (§24.2, #296, #316) ----------------------
+
+
+async def test_a_repaired_review_leaves_one_trace_per_call():
+    first = 'I think this is vulnerable. {"vulnerable": "maybe"}'
+    provider = ScriptedProvider([first, verdict_payload()])
+    outcome = await Reviewer("r1", provider, save_prompts=True).review(make_task())
+
+    assert outcome.verdict.status is VerdictStatus.OK
+    assert [(t["attempt"], t["status"]) for t in outcome.traces] == [
+        (1, "schema_error"),
+        (2, "ok"),
+    ]
+    # 1 回目の不正な応答と、修復に使ったプロンプトの両方が残る
+    assert outcome.traces[0]["response"]["raw"] == first
+    assert outcome.traces[0]["response"]["error"]
+    assert "## Repair" in outcome.traces[1]["prompt"]["user"]
+    assert outcome.traces[0]["prompt"]["user_sha256"] != outcome.traces[1]["prompt"]["user_sha256"]
+    # 使用量は呼び出しごと. 合計は Verdict が持つ
+    assert sum(t["usage"]["input_tokens"] for t in outcome.traces) == (
+        outcome.verdict.usage.input_tokens
+    )
+
+
+async def test_a_failed_repair_keeps_both_responses():
+    provider = ScriptedProvider(["not json at all (1st)", "still not json (2nd)"])
+    outcome = await Reviewer("r1", provider, save_prompts=True).review(make_task())
+
+    assert outcome.verdict.status is VerdictStatus.SCHEMA_ERROR
+    assert [t["response"]["raw"] for t in outcome.traces] == [
+        "not json at all (1st)",
+        "still not json (2nd)",
+    ]
+    assert {t["status"] for t in outcome.traces} == {"schema_error"}
+
+
+def test_a_call_that_was_never_sent_leaves_no_trace():
+    # rpd の上限や停止で送らなかった候補に、送ったかのような記録を作らない
+    reviewer = Reviewer("r1", ScriptedProvider([]))
+    outcome = reviewer.error_outcome(make_task(), VerdictStatus.PROVIDER_ERROR, "上限に達しました")
+    assert outcome.traces == []
+    assert outcome.trace == {}

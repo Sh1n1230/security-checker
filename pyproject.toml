@@ -33,7 +33,7 @@ dependencies = [
   "pydantic>=2.14.3",
   "pyyaml>=6",
   "jinja2>=3.1",
-  "typer>=0.27.3",
+  "typer>=0.29.1",
   "rich>=13",
 ]
 
@@ -68,7 +68,7 @@ dev = [
   "pytest-cov>=5",
   "respx>=0.21",
   "ruff>=0.17.4",
-  "syrupy>=6.1.1",
+  "syrupy>=7.0.0",
   "types-pyyaml",
 ]
 
