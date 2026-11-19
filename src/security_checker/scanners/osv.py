@@ -54,6 +54,7 @@ _TEXT_SEVERITY = {
     "LOW": Severity.LOW,
 }
 _CVE_RE = re.compile(r"^CVE-\d{4}-\d+$")
+_CWE_RE = re.compile(r"CWE-\d+")
 
 
 def severity_from_score(score: float) -> Severity:
@@ -245,10 +246,26 @@ def _group_candidate(
         # 不明を info にするとゲートから消える。依存の脆弱性は控えめに中とする
         severity_reported=severity or Severity.MEDIUM,
         cve=sorted({a for a in [*aliases, *group_ids] if _CVE_RE.match(a)}),
+        cwe=_group_cwe(vulns),
         references=list(dict.fromkeys(references))[:MAX_REFERENCES],
         fix_available=_fixed_version(vulns, ref.name, ref.version),
         raw={"ids": group_ids, "aliases": aliases},
     )
+
+
+def _group_cwe(vulns: list[dict[str, Any]]) -> list[str]:
+    """グループ内の advisory の `database_specific.cwe_ids` を重複なく集める (#276).
+
+    GitHub Advisory 由来の記録が持つ。Reviewer への CWE の手がかり・PR コメントの見出し・
+    eval の CWE 一致率に使われる。`CWE-<数字>` の形でないものは捨てる。
+    """
+    found = [
+        value.strip()
+        for vuln in vulns
+        for value in as_dict(vuln.get("database_specific")).get("cwe_ids") or []
+        if isinstance(value, str) and _CWE_RE.fullmatch(value.strip())
+    ]
+    return list(dict.fromkeys(found))
 
 
 class OsvScanner(BaseScanner):

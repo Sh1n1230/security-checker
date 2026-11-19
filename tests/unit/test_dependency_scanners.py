@@ -51,6 +51,37 @@ def test_osv_groups_aliases_into_one_candidate(raw_fixture, tmp_path):
     assert flask.severity_reported is Severity.MEDIUM  # max_severity 4.3
     assert flask.fix_available == "3.1.3"
     assert candidates[1].severity_reported is Severity.HIGH  # 7.5
+    # advisory の database_specific.cwe_ids を CWE の手がかりにする (#276)
+    assert [c.cwe for c in candidates] == [["CWE-524"], ["CWE-522"], ["CWE-200"], ["CWE-200"]]
+
+
+def test_osv_cwe_ids_are_merged_across_the_group_and_malformed_ones_dropped(tmp_path):
+    payload = {
+        "results": [
+            {
+                "source": {"path": str(tmp_path / "package-lock.json")},
+                "packages": [
+                    {
+                        "package": {"name": "a", "version": "1", "ecosystem": "npm"},
+                        "groups": [{"ids": ["GHSA-1", "PYSEC-1"]}],
+                        "vulnerabilities": [
+                            {"id": "GHSA-1", "database_specific": {"cwe_ids": ["CWE-79", "x"]}},
+                            {"id": "PYSEC-1", "database_specific": {"cwe_ids": ["CWE-79", 7]}},
+                        ],
+                    },
+                    {
+                        "package": {"name": "b", "version": "1", "ecosystem": "npm"},
+                        "vulnerabilities": [{"id": "GHSA-2"}],
+                    },
+                ],
+            }
+        ]
+    }
+    candidates, _ = parse_osv(payload, tmp_path)
+    by_id = {c.rule_id: c for c in candidates}
+    assert by_id["GHSA-1"].cwe == ["CWE-79"]
+    # CWE を持たない advisory は今までどおり空
+    assert by_id["GHSA-2"].cwe == []
 
 
 def test_osv_ids_are_stable_and_distinct(raw_fixture, tmp_path):
