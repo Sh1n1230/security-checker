@@ -18,6 +18,7 @@ from security_checker.config.schema import GithubConfig
 from security_checker.errors import ConfigError, ExitCode
 from security_checker.github import comment as module
 from security_checker.github.client import (
+    CommentResult,
     GithubClient,
     GithubError,
     PullRequestContext,
@@ -732,3 +733,43 @@ def test_a_long_summary_is_cut_between_findings_and_keeps_the_footer(monkeypatch
     assert "長すぎるため省略しました" in body
     assert body.count("<details>") == body.count("</details>")
     assert body.rstrip().endswith(full.rstrip().splitlines()[-1])
+
+
+# --- comment コマンドの分岐 (#484) ---------------------------------------------------
+
+
+def test_cli_comment_without_a_pull_request_is_a_config_error(tmp_path, monkeypatch):
+    """PR を特定できなければ、何も送らずに設定エラーで止める."""
+    for name in ("GITHUB_REPOSITORY", "GITHUB_EVENT_PATH"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["comment", str(write_report(tmp_path))])
+    assert result.exit_code == ExitCode.CONFIG_ERROR
+    assert "PR を特定できません" in result.stderr
+
+
+def test_cli_comment_inline_flag_overrides_the_config_and_warnings_become_annotations(
+    tmp_path, monkeypatch
+):
+    """--no-inline は設定に勝つ. Actions の中では警告を ::warning 注釈としても出す."""
+    seen: list[GithubConfig] = []
+
+    def fake_post(
+        client: Any, context: Any, report: Any, settings: GithubConfig, **_: Any
+    ) -> CommentResult:
+        seen.append(settings)
+        return CommentResult(summary_action="updated", warnings=["inline を\n付けませんでした"])
+
+    monkeypatch.setattr("security_checker.cli.post_comments", fake_post)
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(
+        app,
+        ["comment", str(write_report(tmp_path)), "--repo", "o/r", "--pr", "7", "--no-inline"],
+    )
+    assert result.exit_code == ExitCode.OK, result.output
+    assert seen[0].inline_comments is False
+    # 注釈は 1 行で出す (改行で注釈が切れないように)
+    assert "::warning title=security-checker comment::inline を 付けませんでした" in result.stdout
