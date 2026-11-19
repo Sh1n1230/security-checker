@@ -1,4 +1,5 @@
 # semgrep --test 用の fixture (src/security_checker/rules/semgrep/llm.yml)。実行はしない。
+import aiohttp
 import anthropic
 import ollama
 import openai
@@ -249,3 +250,28 @@ def bedrock_converse_non_text(url, bedrock_runtime):
         system=[{"text": f"Previous HTTP status: {status}"}],
         messages=[{"role": "user", "content": [{"text": "Hello"}]}],
     )
+
+
+async def aiohttp_session_context(url):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            page = await response.text()
+    # ruleid: llm-third-party-text-in-user-message
+    return client.chat.completions.create(model="m", messages=[{"role": "user", "content": page}])
+
+
+async def aiohttp_session_assigned(url):
+    session = aiohttp.ClientSession()
+    response = await session.post(url, json={"q": "x"})
+    body = await response.text()
+    # ruleid: llm-third-party-text-in-system-prompt
+    return claude.messages.create(model="m", max_tokens=100, system=body, messages=[])
+
+
+async def aiohttp_status_is_not_untrusted_text(url):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            status = response.status
+    # ok: llm-third-party-text-in-system-prompt
+    return claude.messages.create(model="m", max_tokens=100, system=f"{status}", messages=[])
+

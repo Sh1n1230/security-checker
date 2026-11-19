@@ -46,7 +46,7 @@ v2 は `skipped` と `failed` を型で分け、どちらもレポートの冒�
 
   | 名前 | 内容 |
   |---|---|
-  | `bundled:llm` | 第三者のテキスト (HTTP 応答・GitHub の Issue / PR / コメント・Web ページ) を、区切りを確認できない形で LLM に渡すコード (間接プロンプトインジェクション。OWASP LLM01 / CWE-1427)。system / instructions に入れば high、user メッセージなら medium。Python (OpenAI・Anthropic・Google Gen AI・LangChain) と JavaScript / TypeScript (fetch・axios・Octokit → OpenAI / Anthropic)。応答の状態コードや件数のような、本文ではない値は対象外。LangChain の `invoke` は、受け手の名前から LLM ではないと分かるもの (`retriever`・`parser`・`tool`・`runner` など) だけを外す。テストコード (`tests/`・`test/`・`__tests__/`・`conftest.py`・`test_*.py`・`*.test.*`・`*.spec.*`) は対象外 |
+  | `bundled:llm` | 第三者のテキスト (HTTP 応答・GitHub の Issue / PR / コメント・Web ページ) を、区切りを確認できない形で LLM に渡すコード (間接プロンプトインジェクション。OWASP LLM01 / CWE-1427)。system / instructions に入れば high、user メッセージなら medium。Python (requests・httpx・aiohttp・urllib (Session / Client 経由を含む)・PyGithub → OpenAI・Anthropic・Google Gen AI・LangChain・Ollama・AWS Bedrock) と JavaScript / TypeScript (fetch・axios・got・ky・undici・Octokit (GraphQL を含む) → OpenAI・Anthropic・Vercel AI SDK)。応答の状態コードや件数のような、本文ではない値は対象外。LangChain の `invoke` は、受け手の名前から LLM ではないと分かるもの (`retriever`・`parser`・`tool`・`runner` など) だけを外す。テストコード (`tests/`・`test/`・`__tests__/`・`conftest.py`・`test_*.py`・`*.test.*`・`*.spec.*`) は対象外 |
   | `bundled:ci-lock` | GitHub Actions の workflow で、lock ファイルを強制していない依存の入れ方。`uv sync` に `--locked` も `--frozen` も無ければ medium、`--frozen` だけなら low。行継続 (`\`) で次の行に書いたフラグも見る。step・job・workflow の `env` に `UV_LOCKED: "1"` か `true` があれば対象外 (`--locked` と同じ意味。`"0"` や式では外さない)。同じ job で `uv lock` を実行していれば対象外 |
 - 生出力は `raw/semgrep.json` に、パスを相対にして保存します。
 
