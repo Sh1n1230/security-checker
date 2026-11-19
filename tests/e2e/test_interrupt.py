@@ -42,10 +42,14 @@ print(json.dumps({
 def test_sigint_writes_the_partial_report_and_exits_130(tmp_path: Path) -> None:
     root = tmp_path / "app"
     root.mkdir()
-    # 秘密の形の値は実行時に組み立てる (自リポジトリの検査に掛けない)
-    token = "ghp_" + "a1B2c3D4" * 5
-    for name in ("a.py", "b.py", "c.py"):
-        (root / name).write_text(f'TOKEN = "{token}"\n', encoding="utf-8")
+    # 外部スキャナに頼らず候補を作る: git だけで動く repo_hygiene が
+    # 「.gitignore に載っているのに追跡されているファイル」を 1 件ずつ候補にする
+    (root / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    names = ("a.log", "b.log", "c.log")
+    for name in names:
+        (root / name).write_text("x\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "add", "-f", *names], cwd=root, check=True)
     reviewer = tmp_path / "reviewer.py"
     reviewer.write_text(REVIEWER, encoding="utf-8")
     marker = tmp_path / "marker"
@@ -55,8 +59,8 @@ def test_sigint_writes_the_partial_report_and_exits_130(tmp_path: Path) -> None:
                 "version": 1,
                 "scanners": {
                     "semgrep": {"enabled": False},
+                    "gitleaks": {"enabled": False},
                     "osv": {"enabled": False},
-                    "repo_hygiene": {"enabled": False},
                 },
                 "reviewers": [
                     {
@@ -85,8 +89,6 @@ def test_sigint_writes_the_partial_report_and_exits_130(tmp_path: Path) -> None:
         if not marker.exists():
             process.kill()
             stdout, stderr = process.communicate()
-            if "gitleaks" in stdout + stderr and "利用できません" in stdout + stderr:
-                pytest.skip("gitleaks が入っていないので候補が出ない")
             pytest.fail(f"Reviewer が呼ばれませんでした:\n{stdout}\n{stderr}")
         time.sleep(1.0)  # 1 件目の判定が記録されるのを待つ
         process.send_signal(signal.SIGINT)
