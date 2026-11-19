@@ -17,6 +17,7 @@ from security_checker.config.schema import AggregationConfig, Config, PolicyConf
 from security_checker.errors import ConfigError
 from security_checker.models.candidate import Candidate, Location
 from security_checker.models.enums import Category, FindingStatus, Severity
+from security_checker.models.verdict import Usage
 from security_checker.providers.errors import ProviderBadRequestError
 from security_checker.review.reviewer import Reviewer
 from security_checker.review.scheduler import build_runtime
@@ -354,3 +355,67 @@ async def test_providers_are_closed_even_if_the_review_fails(tmp_path):
             reviewer_setup=reviewer_setup,
         )
     assert providers["judge"].closed
+
+
+# --- Judge の段の境界 (#574) --------------------------------------------------------
+
+
+async def run_with_budget(
+    tmp_path: Path,
+    scripts: dict[str, list[Any]],
+    usage: dict[str, Usage] | None = None,
+    **budget: Any,
+) -> tuple[RunOutcome, dict[str, ScriptedProvider]]:
+    reviewer_setup, providers = setup(scripts)
+    for name, used in (usage or {}).items():
+        # 特定の Reviewer の 1 回だけが大きく使う状況を作る
+        providers[name]._usage = used
+    base = config(tmp_path)
+    outcome = await run_review(
+        base.model_copy(update={"budget": base.budget.model_copy(update=budget)}),
+        workspace(tmp_path),
+        base_dir=tmp_path,
+        scanners=[FakeScanner("semgrep", candidates=[candidate()])],
+        reviewer_setup=reviewer_setup,
+    )
+    return outcome, providers
+
+
+SPLIT = {
+    "alpha": [verdict_payload(vulnerable=True, severity="high")],
+    "beta": [verdict_payload(vulnerable=False, severity="none", exploitability="not_exploitable")],
+    "judge": [verdict_payload(vulnerable=True, severity="high", confidence=0.95)],
+}
+
+
+async def test_the_judge_is_not_called_when_nothing_is_split(tmp_path):
+    agreed = {
+        "alpha": [verdict_payload(vulnerable=True, severity="high")],
+        "beta": [verdict_payload(vulnerable=True, severity="high")],
+        "judge": [verdict_payload()],
+    }
+    outcome, providers = await run(tmp_path, agreed, [candidate()])
+    assert providers["judge"].requests == []
+    assert outcome.report.findings[0].status is not FindingStatus.REVIEW_REQUIRED
+
+
+async def test_the_judge_is_skipped_when_the_first_pass_stopped(tmp_path):
+    """一次レビューが予算で止まったら Judge を呼ばず、止まった理由を警告に残す."""
+    # alpha と beta が判定を返した後、beta の使用量で上限を超えて一次レビューが止まる
+    outcome, providers = await run_with_budget(
+        tmp_path, SPLIT, usage={"beta": Usage(input_tokens=3_000_000, output_tokens=0)}
+    )
+    assert providers["judge"].requests == []
+    messages = [w.message for w in outcome.report.warnings]
+    assert any("一次レビューが停止したため Judge を実行しません" in m for m in messages)
+    assert outcome.report.stopped_reason
+
+
+async def test_the_judge_stop_reason_is_kept_on_the_run(tmp_path):
+    """一次レビューは予算内で終わり、Judge の段で上限を超えたら、その理由を run に残す."""
+    outcome, providers = await run_with_budget(
+        tmp_path, SPLIT, usage={"judge": Usage(input_tokens=3_000_000, output_tokens=0)}
+    )
+    assert len(providers["judge"].requests) == 1
+    assert outcome.report.stopped_reason
+    assert "トークン上限" in outcome.report.stopped_reason
