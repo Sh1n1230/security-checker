@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from security_checker.errors import ExitCode, SecurityCheckerError
 
 
@@ -18,6 +20,8 @@ class ProviderError(SecurityCheckerError):
     def __init__(self, message: str, *, provider: str | None = None) -> None:
         super().__init__(message)
         self.provider = provider
+        #: この失敗に終わった呼び出しの記録. Reviewer が載せ、スケジューラがトレースに足す (§24.2)
+        self.call_trace: dict[str, Any] | None = None
 
 
 class ProviderAuthError(ProviderError):
