@@ -20,6 +20,7 @@ from security_checker.providers.base import (
     LLMProvider,
     StructuredMode,
 )
+from security_checker.providers.errors import ProviderError
 from security_checker.review import prompts
 from security_checker.review.structured import (
     SchemaViolationError,
@@ -54,13 +55,20 @@ class ReviewOutcome:
         warnings: list[str] | None = None,
         raw_text: str = "",
         attempts: int = 1,
-        trace: dict[str, Any] | None = None,
+        traces: list[dict[str, Any]] | None = None,
     ) -> None:
         self.verdict = verdict
         self.warnings = warnings or []
         self.raw_text = raw_text
         self.attempts = attempts
-        self.trace = trace or {}
+        #: 提供元に実際に送った呼び出しごとの記録 (§24.2). 修復の再送は 2 件になり、
+        #: 1 回も送らずに止めたときは空
+        self.traces = traces or []
+
+    @property
+    def trace(self) -> dict[str, Any]:
+        """最後の呼び出しの記録. 1 回も送っていなければ空."""
+        return self.traces[-1] if self.traces else {}
 
 
 #: 出力上限で打ち切られたことを示す finish_reason (方言ごとの表記)
@@ -92,8 +100,6 @@ class Reviewer:
         self.provider = provider
         self.weight = weight
         self.max_output_tokens = max_output_tokens
-        #: 候補 ID → 最後に送った (system, user). トレースに記録する
-        self._prompts: dict[str, tuple[str, str]] = {}
         self.timeout_s = timeout_s
         self.seed = seed
         self.price = price
@@ -128,17 +134,20 @@ class Reviewer:
             system = prompts.render_judge_system(self.language)
             user = prompts.render_judge_user(task, schema, opinions)
         started = time.monotonic()
-        # 候補ごとに持つ. 同じ Reviewer を並行して呼ぶと、1 つの属性では別の候補の
-        # プロンプトがトレースに残る (#315)
-        self._prompts[task.candidate.id] = (system, user)
+        traces: list[dict[str, Any]] = []
 
         if before_send is not None:
             await before_send()
-        response = await self._complete(system, user, schema)
+        response = await self._complete(task, system, user, schema, attempt=1)
         usage = response.usage
         try:
             judgement = parse_judgement(response.parsed, response.text)
         except SchemaViolationError as violation:
+            traces.append(
+                self._call_trace(
+                    task, (system, user), response, attempt=1, started=started, error=str(violation)
+                )
+            )
             if is_truncated(response.finish_reason):
                 # 出力上限で切れた. 同じ上限で修復を送っても同じ理由で切れ、費用だけがかかる
                 return self.error_outcome(
@@ -149,6 +158,7 @@ class Reviewer:
                     "reviewers[].max_output_tokens を増やしてください",
                     started,
                     usage=usage,
+                    traces=traces,
                 )
             repair_user = prompts.render_repair(
                 violation.raw_text, str(violation), schema, self.language, original_user=user
@@ -164,14 +174,25 @@ class Reviewer:
                         f"スキーマ検証に失敗し、修復を送る前に止めました: {cancelled}",
                         started,
                         usage=usage,
+                        traces=traces,
                     )
-            self._prompts[task.candidate.id] = (system, repair_user)
-            repaired = await self._complete(system, repair_user, schema)
+            repair_started = time.monotonic()
+            repaired = await self._complete(task, system, repair_user, schema, attempt=2)
             usage = usage.merge(repaired.usage)
             try:
                 judgement = parse_judgement(repaired.parsed, repaired.text)
             except SchemaViolationError as second:
                 # 修復は 1 回まで。失敗し続けるモデルに予算を吸わせない。
+                traces.append(
+                    self._call_trace(
+                        task,
+                        (system, repair_user),
+                        repaired,
+                        attempt=2,
+                        started=repair_started,
+                        error=str(second),
+                    )
+                )
                 return self.error_outcome(
                     task,
                     VerdictStatus.SCHEMA_ERROR,
@@ -179,29 +200,55 @@ class Reviewer:
                     started,
                     usage=usage,
                     attempt=2,
+                    traces=traces,
                 )
-            return self._ok_outcome(task, judgement, usage, started, attempt=2, response=repaired)
+            traces.append(
+                self._call_trace(
+                    task, (system, repair_user), repaired, attempt=2, started=repair_started
+                )
+            )
+            return self._ok_outcome(
+                task, judgement, usage, started, attempt=2, response=repaired, traces=traces
+            )
 
-        return self._ok_outcome(task, judgement, usage, started, attempt=1, response=response)
+        traces.append(self._call_trace(task, (system, user), response, attempt=1, started=started))
+        return self._ok_outcome(
+            task, judgement, usage, started, attempt=1, response=response, traces=traces
+        )
 
     # --- 内部 -------------------------------------------------------------
 
     async def _complete(
-        self, system: str, user: str, schema: dict[str, object]
+        self,
+        task: ReviewTask,
+        system: str,
+        user: str,
+        schema: dict[str, object],
+        *,
+        attempt: int,
     ) -> CompletionResponse:
         capabilities = self.provider.capabilities
-        return await self.provider.complete(
-            CompletionRequest(
-                system=system,
-                user=user,
-                json_schema=schema,
-                structured_mode=capabilities.structured_output,
-                max_output_tokens=self.max_output_tokens,
-                temperature=REVIEW_TEMPERATURE,
-                seed=self.seed if capabilities.supports_seed else None,
-                timeout_s=self.timeout_s,
+        started = time.monotonic()
+        try:
+            return await self.provider.complete(
+                CompletionRequest(
+                    system=system,
+                    user=user,
+                    json_schema=schema,
+                    structured_mode=capabilities.structured_output,
+                    max_output_tokens=self.max_output_tokens,
+                    temperature=REVIEW_TEMPERATURE,
+                    seed=self.seed if capabilities.supports_seed else None,
+                    timeout_s=self.timeout_s,
+                )
             )
-        )
+        except ProviderError as exc:
+            # 送ったが失敗した呼び出しも 1 件として残す. 記録は例外に載せ、
+            # リトライを受け持つスケジューラが拾う (§24.2)
+            exc.call_trace = self._call_trace(
+                task, (system, user), None, attempt=attempt, started=started, error=str(exc)
+            )
+            raise
 
     def _ok_outcome(
         self,
@@ -212,6 +259,7 @@ class Reviewer:
         *,
         attempt: int,
         response: CompletionResponse,
+        traces: list[dict[str, Any]],
     ) -> ReviewOutcome:
         checked, warnings = drop_hallucinated_evidence(judgement, task)  # type: ignore[arg-type]
         usage = self._priced(usage)
@@ -236,7 +284,7 @@ class Reviewer:
             warnings=warnings,
             raw_text=response.text,
             attempts=attempt,
-            trace=self._trace(task, response, verdict, attempt),
+            traces=traces,
         )
 
     def error_outcome(
@@ -248,8 +296,13 @@ class Reviewer:
         *,
         usage: Usage | None = None,
         attempt: int = 1,
+        traces: list[dict[str, Any]] | None = None,
     ) -> ReviewOutcome:
-        """判定不能も「黙って消さない」. レポートに残る Verdict として返す (P9)."""
+        """判定不能も「黙って消さない」. レポートに残る Verdict として返す (P9).
+
+        `traces` は、ここまでに実際に送った呼び出しの記録。送らずに止めた場合は渡さない
+        (送っていない呼び出しをトレースに書かない)。
+        """
         verdict = ReviewVerdict(
             candidate_id=task.candidate.id,
             reviewer=self.name,
@@ -268,7 +321,7 @@ class Reviewer:
             verdict,
             warnings=[f"{self.name}: {message}"],
             attempts=attempt,
-            trace=self._trace(task, None, verdict, attempt, error=message),
+            traces=traces,
         )
 
     def _priced(self, usage: Usage) -> Usage:
@@ -279,21 +332,27 @@ class Reviewer:
             update={"estimated_usd": self.price.estimate(usage), "cost_known": True}
         )
 
-    def _trace(
+    def _call_trace(
         self,
         task: ReviewTask,
+        prompt_pair: tuple[str, str],
         response: CompletionResponse | None,
-        verdict: ReviewVerdict,
-        attempt: int,
         *,
+        attempt: int,
+        started: float,
         error: str | None = None,
     ) -> dict[str, Any]:
-        """1 呼び出し分の監査証跡 (§24.2). 既定はプロンプトのハッシュのみ."""
-        system, user = self._prompts.get(task.candidate.id, ("", ""))
+        """提供元への呼び出し 1 回分の監査証跡 (§24.2). 既定はプロンプトのハッシュのみ.
+
+        `response` が None なのは、送ったが応答を得られなかった呼び出し (タイムアウト・5xx など)。
+        `error` があれば、その呼び出しは判定に使えなかった (スキーマ違反か Provider の失敗)。
+        """
+        system, user = prompt_pair
+        usage = self._priced(response.usage) if response is not None else self._priced(Usage())
         prompt: dict[str, Any] = {
             "system_sha256": sha256_text(system),
             "user_sha256": sha256_text(user),
-            "input_tokens": verdict.usage.input_tokens,
+            "input_tokens": usage.input_tokens,
         }
         if self.save_prompts:
             prompt["system"] = system
@@ -322,17 +381,23 @@ class Reviewer:
         if response is not None:
             params.update(response.trace_params)
             response_trace.update(response.trace_response)
+        if error is None:
+            status = VerdictStatus.OK
+        elif response is None:
+            status = VerdictStatus.PROVIDER_ERROR
+        else:
+            status = VerdictStatus.SCHEMA_ERROR
         return {
             "candidate_id": task.candidate.id,
             "reviewer": self.name,
-            "model": verdict.model,
+            "model": (response.model_reported if response is not None else None) or self.model,
             "params": params,
             "prompt": prompt,
             "response": response_trace,
-            "usage": verdict.usage.model_dump(mode="json"),
-            "latency_ms": verdict.latency_ms,
+            "usage": usage.model_dump(mode="json"),
+            "latency_ms": int((time.monotonic() - started) * 1000),
             "attempt": attempt,
-            "status": verdict.status.value,
+            "status": status.value,
             "degraded_to": response.degraded_to.value
             if response is not None and response.degraded_to is not None
             else None,
