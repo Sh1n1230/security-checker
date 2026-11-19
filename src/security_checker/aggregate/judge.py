@@ -22,7 +22,11 @@ import random
 import string
 from typing import TYPE_CHECKING, Any
 
-from security_checker.aggregate.base import DECISIVE_CONFIDENCE
+from security_checker.aggregate.base import (
+    DECISIVE_CONFIDENCE,
+    DEMOTED_BY_MIN_CONFIDENCE,
+    apply_min_confidence,
+)
 from security_checker.models.enums import FindingStatus, Severity
 from security_checker.models.finding import AggregationDetail, Finding
 from security_checker.models.verdict import ReviewVerdict, VerdictStatus
@@ -93,14 +97,15 @@ def apply_judgement(
         reason = fallback_reason or (judge.reasoning if judge is not None else "Judge 未実行")
         return _with_detail(finding, {**base_detail, "judge": None, "fallback_used": reason})
 
+    demoted: dict[str, Any] | None = None
     if judge.vulnerable:
-        status = (
+        status, demoted = apply_min_confidence(
             FindingStatus.CONFIRMED
             if judge.confidence >= DECISIVE_CONFIDENCE
-            else FindingStatus.LIKELY
+            else FindingStatus.LIKELY,
+            judge.confidence,
+            policy.min_confidence,
         )
-        if judge.confidence < policy.min_confidence:
-            status = FindingStatus.REVIEW_REQUIRED
         severity = judge.severity
     elif judge.confidence >= DECISIVE_CONFIDENCE and not judge.needs_more_context:
         status = FindingStatus.FALSE_POSITIVE
@@ -122,6 +127,8 @@ def apply_judgement(
             "needs_more_context": list(judge.needs_more_context),
         },
     }
+    if demoted is not None:
+        detail[DEMOTED_BY_MIN_CONFIDENCE] = demoted
     summary = judge.reasoning.split("\n", 1)[0][:200] if judge.reasoning else finding.summary
     # Judge が脆弱と判定したなら、Judge の挙げた CWE を先頭にする (一次レビューの分は残す)
     cwe = list(dict.fromkeys([*judge.cwe, *finding.cwe])) if judge.vulnerable else finding.cwe

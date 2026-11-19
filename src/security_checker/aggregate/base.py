@@ -32,6 +32,27 @@ NUMBER_SEVERITY = {value: key for key, value in SEVERITY_NUMBER.items()}
 DECISIVE_CONFIDENCE = 0.8
 
 
+#: aggregation.detail に残す、min_confidence で降格したことの記録のキー (#461)
+DEMOTED_BY_MIN_CONFIDENCE = "demoted_by_min_confidence"
+
+
+def apply_min_confidence(
+    status: FindingStatus, confidence: float, threshold: float
+) -> tuple[FindingStatus, dict[str, Any] | None]:
+    """confirmed / likely でも確信度が閾値未満なら review_required に落とす (§12).
+
+    落としたときは、元の status・確信度・閾値を返す。レポートを見た人が
+    「票は揃っているのに、なぜ要判断なのか」を追えるようにする (P4: Auditable)。
+    """
+    if status in (FindingStatus.CONFIRMED, FindingStatus.LIKELY) and confidence < threshold:
+        return FindingStatus.REVIEW_REQUIRED, {
+            "from": status.value,
+            "confidence": confidence,
+            "threshold": threshold,
+        }
+    return status, None
+
+
 def round_half_up(value: float) -> int:
     """x.5 を常に上へ丸める. 組み込みの round() は偶数丸めで、段によって向きが変わる."""
     return math.floor(value + 0.5)

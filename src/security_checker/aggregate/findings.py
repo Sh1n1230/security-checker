@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from security_checker.aggregate.base import DEMOTED_BY_MIN_CONFIDENCE, apply_min_confidence
 from security_checker.models.enums import FindingStatus, Severity
 from security_checker.models.finding import AggregationDetail, Finding
 from security_checker.models.verdict import ReviewVerdict, VerdictStatus
@@ -31,13 +32,13 @@ def build_findings(
             continue
 
         outcome = aggregator.aggregate(candidate, verdicts, aggregation)
-        status = outcome.status
         # 信頼度が閾値未満のものは review_required に落とす (§12 policy.min_confidence)
-        if (
-            status in (FindingStatus.CONFIRMED, FindingStatus.LIKELY)
-            and outcome.confidence < policy.min_confidence
-        ):
-            status = FindingStatus.REVIEW_REQUIRED
+        status, demoted = apply_min_confidence(
+            outcome.status, outcome.confidence, policy.min_confidence
+        )
+        detail = outcome.detail
+        if demoted is not None:
+            detail = {**detail, DEMOTED_BY_MIN_CONFIDENCE: demoted}
 
         findings.append(
             Finding(
@@ -59,7 +60,7 @@ def build_findings(
                     votes_total=sum(
                         1 for verdict in verdicts if verdict.status is VerdictStatus.OK
                     ),
-                    detail=outcome.detail,
+                    detail=detail,
                 ),
             )
         )
