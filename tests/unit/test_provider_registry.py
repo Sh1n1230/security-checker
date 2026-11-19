@@ -17,6 +17,7 @@ from security_checker.providers.registry import (
     resolve_api_key,
     resolve_capabilities,
     resolve_headers,
+    warn_insecure_credential_transport,
 )
 
 
@@ -149,6 +150,16 @@ def test_http_headers_env_alone_triggers_cleartext_warning():
     )
     assert len(warnings) == 1
     assert "synthetic-secret" not in warnings[0]
+
+
+@pytest.mark.parametrize("base_url", ["http://[::1/v1", "http://[not-an-ip]/v1"])
+def test_a_broken_base_url_does_not_crash_the_cleartext_check(base_url: str) -> None:
+    """閉じていない [ などで urlsplit が ValueError を投げても、設定の読み込みを落とさない."""
+    warnings: list[str] = []
+    warn_insecure_credential_transport(
+        reviewer(base_url=base_url, api_key_env="API_KEY"), base_url, "API_KEY", warnings
+    )
+    assert warnings == []
 
 
 def test_http_without_credentials_does_not_warn_about_cleartext():

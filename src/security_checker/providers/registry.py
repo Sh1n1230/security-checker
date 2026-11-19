@@ -118,12 +118,14 @@ def warn_insecure_credential_transport(
     """
     if not (api_key_env or reviewer.headers_env):
         return
-    parts = urlsplit(base_url)
-    if parts.scheme.lower() != "http":
-        return
     try:
+        # 壊れた URL (閉じていない [ など) は urlsplit 自体が ValueError を投げる。
+        # 警告を出すかの判定で設定の読み込みを落とさない (URL の誤りは送信時のエラーで分かる)
+        parts = urlsplit(base_url)
         hostname = parts.hostname
     except ValueError:
+        return
+    if parts.scheme.lower() != "http":
         return
     if not hostname or hostname.lower() == "localhost":
         return
