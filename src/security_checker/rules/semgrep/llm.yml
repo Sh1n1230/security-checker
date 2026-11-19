@@ -114,6 +114,10 @@ rules:
               - pattern: SystemMessage(content=$PROMPT, ...)
               - pattern: ChatPromptTemplate.from_messages([..., ("system", $PROMPT), ...])
           - focus-metavariable: $PROMPT
+      # AWS Bedrock Converse: system content blocks become model instructions.
+      - patterns:
+          - pattern: $CLIENT.converse(..., system=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
       # Chat 形式のメッセージ: {"role": "system" | "developer", "content": ...}
       - patterns:
           - pattern-either:
@@ -156,6 +160,10 @@ rules:
               - pattern: HumanMessage(content=$PROMPT, ...)
               - pattern: ChatPromptTemplate.from_messages([..., ("human", $PROMPT), ...])
               - pattern: ChatPromptTemplate.from_messages([..., ("user", $PROMPT), ...])
+          - focus-metavariable: $PROMPT
+      # AWS Bedrock Converse: messages carry potentially untrusted context.
+      - patterns:
+          - pattern: $CLIENT.converse(..., messages=$PROMPT, ...)
           - focus-metavariable: $PROMPT
       # LangChain: invoke / ainvoke に文字列やメッセージを渡す。
       # invoke は検索 (retriever)・パーサ・ツール・タスクランナーにもある名前なので、

@@ -207,3 +207,41 @@ def langchain_constant_templates():
         # ok: llm-third-party-text-in-user-message
         ("human", "Hello"),
     ])
+def bedrock_converse_system(url, bedrock_runtime):
+    third_party_text = requests.get(url, timeout=10).text
+    return bedrock_runtime.converse(
+        modelId="model-id",
+        # ruleid: llm-third-party-text-in-system-prompt
+        system=[{"text": third_party_text}],
+        messages=[{"role": "user", "content": [{"text": "Hello"}]}],
+    )
+
+
+def bedrock_converse_user(url, bedrock_runtime):
+    third_party_text = requests.get(url, timeout=10).text
+    return bedrock_runtime.converse(
+        modelId="model-id",
+        system=[{"text": "You are helpful."}],
+        # ruleid: llm-third-party-text-in-user-message
+        messages=[{"role": "user", "content": [{"text": third_party_text}]}],
+    )
+
+
+def bedrock_converse_static(bedrock_runtime):
+    return bedrock_runtime.converse(
+        modelId="model-id",
+        # ok: llm-third-party-text-in-system-prompt
+        system=[{"text": "Be concise."}],
+        # ok: llm-third-party-text-in-user-message
+        messages=[{"role": "user", "content": [{"text": "Hello"}]}],
+    )
+
+
+def bedrock_converse_non_text(url, bedrock_runtime):
+    status = requests.get(url, timeout=10).status_code
+    return bedrock_runtime.converse(
+        modelId="model-id",
+        # ok: llm-third-party-text-in-system-prompt
+        system=[{"text": f"Previous HTTP status: {status}"}],
+        messages=[{"role": "user", "content": [{"text": "Hello"}]}],
+    )
