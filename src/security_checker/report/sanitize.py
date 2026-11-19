@@ -23,6 +23,7 @@ _MENTION_RE = re.compile(r"(?<![\w`])@(?=[A-Za-z0-9])")
 #: 自動リンクになる URL の頭. 直後に不可視文字を挟んでリンクにさせない
 _AUTOLINK_RE = re.compile(r"(?i)\b(https?|ftp)://|\bwww\.")
 _BACKTICK_RUN_RE = re.compile(r"`+")
+_NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]")
 #: 値をマスクした候補に付ける注記 (§19.2 の 3 番). report.md と PR コメントで共通
 REDACTED_NOTE = "🔒 検出した値はマスクしてから保存・送信しています"
 #: メンションの直後に挟む不可視文字 (ZERO WIDTH SPACE)
@@ -47,7 +48,11 @@ def code_span(value: str) -> str:
 
 
 def code_block(value: str, language: str = "") -> list[str]:
-    """フェンス付きコードブロックの行. フェンスは中身のどのバッククォート列よりも長くする."""
+    """フェンス付きコードブロックの行. フェンスは中身のどのバッククォート列よりも長くする.
+
+    言語名は英数字だけにする (空白や ` が入ると、フェンスの行に任意の文字を書けてしまう)。
+    """
+    language = _NON_ALNUM_RE.sub("", language)
     body = redact_known_patterns(value)
     longest = max((len(m.group(0)) for m in _BACKTICK_RUN_RE.finditer(body)), default=0)
     fence = "`" * max(3, longest + 1)

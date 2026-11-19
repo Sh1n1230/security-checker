@@ -100,7 +100,9 @@ def test_report_md_example_cannot_break_out_of_its_fence():
         PolicyDecision(ExitCode.OK),
     )
     lines = body.splitlines()
-    start = lines.index("````")
+    # 開きのフェンスには言語名が付く (#294)。閉じのフェンスは同じ長さのバッククォートだけ
+    start = next(i for i, line in enumerate(lines) if line.startswith("````"))
+    assert lines[start] == "````python"
     end = lines.index("````", start + 1)
     assert "## ✅ No issues found" in lines[start:end]
 
