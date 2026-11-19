@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 from typing import TYPE_CHECKING, Any
 
 from security_checker.context.redact import redact_known_patterns
@@ -46,10 +47,29 @@ class TraceWriter:
             return None
         calls = self.root / "calls"
         _private_dir(calls)
-        path = calls / f"{self._index:04d}.json"
+        path = calls / _call_file_name(self._index, payload)
         self._index += 1
         _write_private(path, _dump(payload))
         return path
+
+
+#: ファイル名に入れる識別子の 1 つあたりの上限. 長い候補 ID でもパスの長さ制限に掛からないように
+_NAME_PART_LIMIT = 40
+_UNSAFE_NAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _call_file_name(index: int, payload: dict[str, Any]) -> str:
+    """`NNNN-<reviewer>-<候補 ID>.json`. 開かなくても、どの呼び出しの記録か分かるようにする (#449).
+
+    先頭の連番で、並べたときの順序は送信順のまま。ファイル名に使えない文字は `_` にする。
+    explain は中身の candidate_id で突き合わせるので、連番だけの古い名前も読める。
+    """
+    parts = [f"{index:04d}"]
+    for key in ("reviewer", "candidate_id"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            parts.append(_UNSAFE_NAME_CHARS.sub("_", value)[:_NAME_PART_LIMIT])
+    return "-".join(parts) + ".json"
 
 
 #: トレースは LLM の応答 (コードを引用する) を含み、save_prompts ではコードそのものを含む.
