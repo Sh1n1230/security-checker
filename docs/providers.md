@@ -60,9 +60,11 @@ reviewers:
 この形は `openai_chat` と互換性がなく、違いは 2 つです。
 
 1. **`system` がメッセージではなく独立したフィールド**（アダプタが吸収します）
-2. **JSON Schema を直接指定する仕組みがない** — 代わりに**ツール呼び出しを強制**して
-   構造化出力を得ます。応答の `content[].input` がそのまま検証済みの構造化データになるので、
-   散文の混入を構造的に排除できます
+2. **JSON Schema は `output_config.format` で指定する** — 応答がスキーマに合うことが保証されます。
+   この指定は数値の範囲・文字列長・配列長の制約 (`minimum` / `maxLength` / `maxItems` など) を受け付けないため、
+   送る前に外し、値の制約は受け取った後に検証します。以前のツール呼び出しの強制 (`tool_choice`) は
+   新しいモデルで 400 になるため使いません。`output_config` を受け付けない互換エンドポイントでは、
+   段階的降格で `json_mode` → `prompt_only` に落ちます (`capabilities.structured_output` で始点を下げることもできます)
 
 思考トークンを持つモデルでは、方言によらず `capabilities.reasoning: true` を宣言してください。
 出力の上限に余裕 (4096 トークン) を足すため、思考で上限を使い切って本文が切れるのを防げます。
@@ -128,7 +130,7 @@ reviewers:
 
 1. 既定は `json_mode` (最も多くのエンドポイントが受け付ける)
 2. 方言の形から決まる値 — `anthropic_messages` は `json_schema` (この形に `json_mode` は無く、
-   ツール呼び出しの強制で構造化出力を得るため)
+   `output_config.format` で構造化出力を得るため)
 3. プリセットの `capabilities`
 4. 設定の `reviewers[].capabilities.structured_output`
 
