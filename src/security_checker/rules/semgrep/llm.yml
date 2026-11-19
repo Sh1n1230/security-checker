@@ -108,6 +108,12 @@ rules:
       - patterns:
           - pattern: ollama.generate(..., system=$PROMPT, ...)
           - focus-metavariable: $PROMPT
+      # LangChain: explicit system-role message objects and prompt templates.
+      - patterns:
+          - pattern-either:
+              - pattern: SystemMessage(content=$PROMPT, ...)
+              - pattern: ChatPromptTemplate.from_messages([..., ("system", $PROMPT), ...])
+          - focus-metavariable: $PROMPT
       # Chat 形式のメッセージ: {"role": "system" | "developer", "content": ...}
       - patterns:
           - pattern-either:
@@ -143,6 +149,13 @@ rules:
       # Ollama generate's prompt is the user-supplied request, not the system role.
       - patterns:
           - pattern: ollama.generate(..., prompt=$PROMPT, ...)
+          - focus-metavariable: $PROMPT
+      # LangChain: human messages and user-role template entries.
+      - patterns:
+          - pattern-either:
+              - pattern: HumanMessage(content=$PROMPT, ...)
+              - pattern: ChatPromptTemplate.from_messages([..., ("human", $PROMPT), ...])
+              - pattern: ChatPromptTemplate.from_messages([..., ("user", $PROMPT), ...])
           - focus-metavariable: $PROMPT
       # LangChain: invoke / ainvoke に文字列やメッセージを渡す。
       # invoke は検索 (retriever)・パーサ・ツール・タスクランナーにもある名前なので、

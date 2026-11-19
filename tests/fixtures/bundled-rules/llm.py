@@ -166,3 +166,44 @@ def ollama_response_status_is_not_prompt_injection(url):
     code = requests.get(url, timeout=10).status_code
     # ok: llm-third-party-text-in-user-message
     return ollama.generate(model="m", prompt=f"HTTP status: {code}")
+def langchain_system_message(url):
+    text = requests.get(url, timeout=10).text
+    # ruleid: llm-third-party-text-in-system-prompt
+    return SystemMessage(content=text)
+
+
+def langchain_system_template(url):
+    page = requests.get(url, timeout=10).text
+    return ChatPromptTemplate.from_messages([
+        # ruleid: llm-third-party-text-in-system-prompt
+        ("system", page),
+        ("human", "Summarize the document"),
+    ])
+
+
+def langchain_human_message(url):
+    page = requests.get(url, timeout=10).text
+    # ruleid: llm-third-party-text-in-user-message
+    return HumanMessage(content=page)
+
+
+def langchain_user_template(url):
+    page = requests.get(url, timeout=10).text
+    return ChatPromptTemplate.from_messages([
+        ("system", "Be concise"),
+        # ruleid: llm-third-party-text-in-user-message
+        ("human", page),
+    ])
+
+
+def langchain_constant_templates():
+    # ok: llm-third-party-text-in-system-prompt
+    system = SystemMessage(content="You are helpful")
+    # ok: llm-third-party-text-in-user-message
+    human = HumanMessage(content="Hello")
+    return ChatPromptTemplate.from_messages([
+        # ok: llm-third-party-text-in-system-prompt
+        ("system", "You are helpful"),
+        # ok: llm-third-party-text-in-user-message
+        ("human", "Hello"),
+    ])
