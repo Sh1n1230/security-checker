@@ -68,3 +68,12 @@ def is_excluded(path: str, patterns: list[str]) -> bool:
         if any(regex.match(target) for target in targets):
             return True
     return False
+
+
+def exclude_globs(patterns: list[str]) -> list[str]:
+    """スキャナの除外オプションに渡す、ルートからの glob (重複なし・順序は保つ).
+
+    スキャナ側で除外すると、除外したディレクトリを読まずに済む (`node_modules` など)。
+    スキャナの glob の解釈がこちらと少し違っても、結果側の `is_excluded` が最後に効く。
+    """
+    return list(dict.fromkeys(normalize_pattern(p) for p in patterns if p.strip()))

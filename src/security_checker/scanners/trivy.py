@@ -28,7 +28,7 @@ from security_checker.scanners.base import (
     relative_path,
     run_command,
 )
-from security_checker.scanners.filters import is_excluded
+from security_checker.scanners.filters import exclude_globs, is_excluded
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -230,6 +230,7 @@ class TrivyScanner(BaseScanner):
             "--output",
             str(raw_path),
             *(ctx.untrusted.trivy_args() if ctx.untrusted else []),
+            *_skip_args(ctx.exclude),
             # trivy 自身の既定 (5 分) が timeout_s より先に効くと、タイムアウトが
             # 「実行に失敗」に化ける。外側の上限が先に効くよう、少し長く渡す
             *(
@@ -280,3 +281,16 @@ class TrivyScanner(BaseScanner):
             raw_path=raw_path,
             parse_warnings=[*config_warnings, *warnings],
         )
+
+
+def _skip_args(exclude: list[str]) -> list[str]:
+    """target.exclude を trivy の --skip-dirs / --skip-files にする (#617).
+
+    gitignore と同じく 1 つのパターンがファイルにもディレクトリにも一致しうるので、両方に渡す。
+    `build/` のようなディレクトリだけのパターン (`**/build/**`) は、ディレクトリとしては
+    `**/build` で渡す (配下を読まずに済む)。結果側の除外は parse_trivy で今までどおり効く。
+    """
+    args: list[str] = []
+    for glob in exclude_globs(exclude):
+        args += ["--skip-dirs", glob.removesuffix("/**"), "--skip-files", glob]
+    return args

@@ -12,6 +12,7 @@ import os
 import signal
 import stat
 import sys
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -207,6 +208,31 @@ async def test_trivy_gets_a_timeout_longer_than_timeout_s(fake_bin, tmp_path):
     scanner = TrivyScanner(TrivyConfig(timeout_s=120))
     await scanner.scan(Target(root=tmp_path), ScanContext(raw_dir=raw, exclude=[]))
     assert "--timeout 180s" in args_file.read_text(encoding="utf-8")
+
+
+async def test_trivy_does_not_read_excluded_directories(fake_bin, tmp_path):
+    """target.exclude を --skip-dirs / --skip-files で渡し、node_modules などを読ませない (#617)."""
+    args_file = tmp_path / "args"
+    fake_command(
+        fake_bin,
+        "trivy",
+        VERSION_GUARD + f'for a in "$@"; do printf "%s\\n" "$a"; done > \'{args_file}\'\n'
+        'while [ "$1" != "--output" ]; do shift; done; echo "{}" > "$2"\n',
+    )
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    exclude = ["node_modules/", "/build", "*.min.js"]
+    await TrivyScanner(TrivyConfig()).scan(
+        Target(root=tmp_path), ScanContext(raw_dir=raw, exclude=exclude)
+    )
+    args = args_file.read_text(encoding="utf-8").splitlines()
+    pairs = list(pairwise(args))
+    assert ("--skip-dirs", "**/node_modules") in pairs
+    assert ("--skip-files", "**/node_modules/**") in pairs
+    assert ("--skip-dirs", "build") in pairs
+    assert ("--skip-files", "**/*.min.js") in pairs
+    # 検査対象 (".") は最後のまま
+    assert args[-1] == "."
 
 
 # --- gitleaks ----------------------------------------------------------------------
