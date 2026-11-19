@@ -46,6 +46,32 @@ rules:
       # HTTP 応答 (本文・JSON は応答オブジェクトから伝播する)
       - pattern: requests.$METHOD(...)
       - pattern: httpx.$METHOD(...)
+      # Session/client instances need a receiver binding: matching every
+      # `$X.get(...)` would also taint unrelated dict/cache lookups.
+      - patterns:
+          - pattern: $HTTP.$METHOD(...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(get|post|put|patch|delete|head|options|request|send)$
+          - pattern-either:
+              - pattern-inside: |
+                  $HTTP = requests.Session(...)
+                  ...
+              - pattern-inside: |
+                  with requests.Session(...) as $HTTP:
+                      ...
+              - pattern-inside: |
+                  $HTTP = httpx.Client(...)
+                  ...
+              - pattern-inside: |
+                  with httpx.Client(...) as $HTTP:
+                      ...
+              - pattern-inside: |
+                  $HTTP = httpx.AsyncClient(...)
+                  ...
+              - pattern-inside: |
+                  async with httpx.AsyncClient(...) as $HTTP:
+                      ...
       - pattern: urllib.request.urlopen(...)
       - pattern: trafilatura.fetch_url(...)
       # GitHub (PyGithub)。取得したオブジェクトの .body / .title が第三者のテキスト
