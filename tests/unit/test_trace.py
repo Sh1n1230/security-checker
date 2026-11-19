@@ -14,14 +14,15 @@ from security_checker.observability.trace import TraceWriter, sha256_text
 def test_writes_run_and_calls(tmp_path):
     writer = TraceWriter(tmp_path, "RUN1")
     writer.write_run({"run_id": "RUN1"})
-    first = writer.write_call({"candidate_id": "c1"})
-    second = writer.write_call({"candidate_id": "c2"})
+    first = writer.write_call({"reviewer": "alpha", "candidate_id": "c1"})
+    second = writer.write_call({"reviewer": "beta", "candidate_id": "c2"})
 
     assert (tmp_path / "trace" / "RUN1" / "run.json").is_file()
     assert first is not None
     assert second is not None
-    assert first.name == "0000.json"
-    assert second.name == "0001.json"
+    # 開かなくても、どの Reviewer のどの候補の記録か分かる (#449)
+    assert first.name == "0000-alpha-c1.json"
+    assert second.name == "0001-beta-c2.json"
     assert json.loads(first.read_text(encoding="utf-8"))["candidate_id"] == "c1"
 
 
@@ -69,3 +70,19 @@ def test_an_existing_loose_trace_directory_is_tightened(tmp_path):
     loose.chmod(0o755)
     TraceWriter(tmp_path, "RUN1").write_run({})
     assert stat.S_IMODE(loose.stat().st_mode) == 0o700
+
+
+def test_call_file_names_never_escape_the_calls_directory(tmp_path):
+    """識別子のパス区切りや記号は _ にし、長すぎる識別子は切り詰める."""
+    writer = TraceWriter(tmp_path, "RUN1")
+    path = writer.write_call({"reviewer": "../evil", "candidate_id": "a/b:c" + "x" * 100})
+    assert path is not None
+    assert path.parent == tmp_path / "trace" / "RUN1" / "calls"
+    assert path.name.startswith("0000-.._evil-a_b_c")
+    assert len(path.name) <= len("0000--.json") + 2 * 40
+
+
+def test_a_call_without_identifiers_keeps_the_number_only(tmp_path):
+    path = TraceWriter(tmp_path, "RUN1").write_call({"note": "x"})
+    assert path is not None
+    assert path.name == "0000.json"
