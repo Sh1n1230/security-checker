@@ -365,3 +365,20 @@ async def test_cli_explain_and_unknown_id(tmp_path):
     assert "alpha" in ok.stdout
     missing = runner.invoke(app, ["explain", "zzz", "--report", str(path)])
     assert missing.exit_code == ExitCode.CONFIG_ERROR
+
+
+async def test_cli_explain_json_carries_the_same_information_as_the_text(tmp_path):
+    """--json は判定・各 Reviewer の判断・呼び出し記録を report.json と同じキーで出す (#662)."""
+    path = await reviewed_report(tmp_path)
+    result = runner.invoke(app, ["explain", "abcdef", "--report", str(path), "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert data["candidate"]["id"] == "abcdef123456"
+    assert data["finding"]["status"] in {status.value for status in FindingStatus}
+    reviewers = [v["reviewer"] for v in data["finding"]["verdicts"]]
+    assert reviewers == ["alpha"]
+    assert data["finding"]["verdicts"][0]["reasoning"] == "shell に渡っている"
+    assert data["suppressed"] is None
+    assert data["outside_diff"] is False
+    assert [call["candidate_id"] for call in data["calls"]] == ["abcdef123456"]
+    assert all("_file" in call for call in data["calls"])
