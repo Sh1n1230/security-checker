@@ -71,6 +71,13 @@ def test_suppressed_and_outside_diff_candidates_say_why_they_were_not_reviewed()
     [
         ({"judge": {"reviewer": "j", "rationale": "根拠"}}, "Judge (j): 根拠"),
         ({"fallback_used": "judge が失敗"}, "Judge は使われませんでした: judge が失敗"),
+        (
+            {"demoted_by_min_confidence": {"from": "likely", "confidence": 0.3, "threshold": 0.5}},
+            (
+                "likely から review_required に落としました: "
+                "確信度 0.3 が policy.min_confidence (0.5) 未満"
+            ),
+        ),
     ],
 )
 def test_judge_outcome_is_rendered(detail, expected):

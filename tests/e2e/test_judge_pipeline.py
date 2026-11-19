@@ -292,6 +292,19 @@ def test_apply_judgement(judge, status):
     assert result.status is status
 
 
+def test_a_judge_below_min_confidence_records_the_demotion():
+    """Judge が脆弱と判定しても確信度が閾値未満なら要判断に落とし、その事実を残す (#461)."""
+    verdict = make_verdict("judge", vulnerable=True, confidence=0.3)
+    result = apply_judgement(split_finding(), verdict, policy=PolicyConfig(min_confidence=0.5))
+    assert result.status is FindingStatus.REVIEW_REQUIRED
+    assert result.aggregation is not None
+    assert result.aggregation.detail["demoted_by_min_confidence"] == {
+        "from": "likely",
+        "confidence": 0.3,
+        "threshold": 0.5,
+    }
+
+
 def test_judge_cwe_comes_first_when_it_judges_vulnerable():
     finding = split_finding()  # 一次レビューの CWE は CWE-78
     judged = apply_judgement(

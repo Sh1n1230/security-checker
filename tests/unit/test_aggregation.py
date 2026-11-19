@@ -234,6 +234,24 @@ def test_min_confidence_downgrades_to_review_required(aggregator):
         policy=PolicyConfig(min_confidence=0.7),
     )
     assert findings[0].status is FindingStatus.REVIEW_REQUIRED
+    # 票は揃っているのに要判断になった理由を、元の status と閾値つきで残す (#461)
+    assert findings[0].aggregation is not None
+    demoted = findings[0].aggregation.detail["demoted_by_min_confidence"]
+    assert demoted["from"] in ("confirmed", "likely")
+    assert demoted["confidence"] == findings[0].confidence
+    assert demoted["threshold"] == 0.7
+
+
+def test_findings_above_min_confidence_carry_no_demotion_record(aggregator):
+    findings = build_findings(
+        [CANDIDATE],
+        {"c1": [verdict("a", confidence=0.9)]},
+        aggregator=aggregator,
+        aggregation=AggregationConfig(),
+        policy=PolicyConfig(min_confidence=0.7),
+    )
+    assert findings[0].aggregation is not None
+    assert "demoted_by_min_confidence" not in findings[0].aggregation.detail
 
 
 def test_findings_merge_cwe(aggregator):
