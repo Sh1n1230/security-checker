@@ -79,6 +79,8 @@ class RunOutcome:
     decision: PolicyDecision
     output_dir: Path
     results: list[ScanResult] = field(default_factory=list)
+    #: レビューの途中で中断された (Ctrl-C・SIGTERM). レポートは部分結果
+    interrupted: bool = False
 
 
 def _log_finish(report: Report, decision: PolicyDecision) -> None:
@@ -677,7 +679,13 @@ async def run_review(
     )
     decision = evaluate(report, config.policy)
     _log_finish(report, decision)
-    return RunOutcome(report=report, decision=decision, output_dir=output_dir, results=results)
+    return RunOutcome(
+        report=report,
+        decision=decision,
+        output_dir=output_dir,
+        results=results,
+        interrupted=schedule.interrupted,
+    )
 
 
 async def close_providers(setup: ReviewerSetup) -> None:
@@ -776,6 +784,7 @@ async def _judge(
     schedule.disabled_reviewers.update(judged.disabled_reviewers)
     if judged.stopped_reason and not schedule.stopped_reason:
         schedule.stopped_reason = judged.stopped_reason
+    schedule.interrupted = schedule.interrupted or judged.interrupted
     for cid, verdicts in judged.verdicts.items():
         schedule.verdicts.setdefault(cid, []).extend(verdicts)
 
