@@ -97,7 +97,16 @@ security-checker explain <候補 ID の先頭数文字>
 security-checker baseline update
 ```
 
-記録した候補は `suppressed` としてレポートに残り、レビューとゲートの対象から外れます。
+書き出しただけでは効きません。**設定で baseline を指してください**
+(コマンドの最後にも同じ設定例が表示されます)。
+
+```yaml
+# security-checker.yml
+policy:
+  baseline: .security-checker-baseline.json
+```
+
+これで、記録した候補は `suppressed` としてレポートに残り、レビューとゲートの対象から外れます。
 新しく増えたものだけが CI を落とします。個別に外すなら `.security-checker-ignore` か
 コード内の注釈を使います ([configuration.md](configuration.md#抑制))。
 

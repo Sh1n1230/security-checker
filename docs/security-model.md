@@ -18,6 +18,14 @@
 
 `security-checker scan`(LLM を使わないモード)は、いかなるコードも外部に送信しない。
 
+コード以外で外部に出るものは次のとおり。どれも設定で止められる。
+
+| 送るもの | 送り先 | 止め方 |
+|---|---|---|
+| 依存パッケージの名前とバージョン | OSV の API、deps.dev の API (osv-scanner が推移的な依存を解決するとき) | `scanners.osv.enabled: false`。deps.dev だけなら `extra_args: ["--no-resolve"]` |
+| semgrep のルールセットの取得 (`p/default`) | semgrep のレジストリ (ルールを**取りに行く**だけで、コードは送らない。利用状況の送信は `--metrics=off` で止めている) | `scanners.semgrep.config` を `bundled:*` かローカルのルールファイルだけにする |
+| trivy の脆弱性 DB・チェックの取得 (有効にした場合) | trivy の配布元 | `scanners.trivy.enabled: false` (既定) |
+
 ## 2. 検出されたシークレットの値は送らない
 
 gitleaks が検出した秘密の値をそのまま外部 LLM に送るのは、
