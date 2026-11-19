@@ -439,7 +439,9 @@ class ReviewScheduler:
                 await self._record_failure(runtime, outcome.verdict.reasoning)
             return outcome
 
-        return runtime.reviewer.error_outcome(
+        # 最後の試行では _handle_provider_error が必ず結果を返すので、ここには来ない。
+        # ループの外にも戻り値を置き、その不変条件が崩れても None (未レビュー) にしない
+        return runtime.reviewer.error_outcome(  # pragma: no cover - 上の不変条件による
             task, VerdictStatus.PROVIDER_ERROR, last_error, attempt=MAX_ATTEMPTS
         )
 

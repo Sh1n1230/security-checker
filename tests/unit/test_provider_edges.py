@@ -32,6 +32,7 @@ from security_checker.providers.http.transport import HttpProvider, _retry_after
 from security_checker.providers.presets.loader import (
     HttpPreset,
     PresetMatch,
+    ProcessPreset,
     load_http_presets,
     resolve_http_preset,
 )
@@ -261,6 +262,25 @@ def test_a_plugin_that_fails_to_load_is_a_config_error_with_the_cause():
         ConfigError, match=r"plugin 'mine' を読み込めません \(ImportError\): missing"
     ):
         registry.build_provider(plugin_reviewer(), plugins=entries)
+
+
+def test_a_plugin_that_raises_a_config_error_keeps_its_own_message():
+    """プラグインが自分で出した設定エラーは包み直さない (原因の文がそのまま利用者に届く) (#557)."""
+
+    def factory(reviewer: ReviewerConfig) -> ScriptedProvider:
+        raise ConfigError("mine: api_key が必要です")
+
+    entries: dict[str, Any] = {"mine": _Entry("mine", factory)}
+    with pytest.raises(ConfigError, match=r"^mine: api_key が必要です$"):
+        registry.build_provider(plugin_reviewer(), plugins=entries)
+
+
+def test_a_process_preset_without_a_command_is_a_config_error():
+    """command を解決できないプリセット (空の command) は黙って起動しない (#557)."""
+    reviewer = ReviewerConfig(name="p1", transport="process", preset="empty")
+    presets = {"empty": ProcessPreset(name="empty", command=[])}
+    with pytest.raises(ConfigError, match="command を解決できません"):
+        registry.build_process_provider(reviewer, presets=presets)
 
 
 def test_plugin_name_and_transport_must_come_together():
