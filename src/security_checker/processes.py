@@ -2,6 +2,10 @@
 
 `start_new_session=True` で起動したプロセスを、孫までプロセスグループごと止める。
 親が先に終了していても、グループに残った孫には届ける。
+
+Windows にはプロセスグループのシグナルが無いので、`taskkill /T /F` でプロセスツリーごと止める
+(#612)。claude などの CLI は node の子プロセスを起動するため、親だけ止めると子が残り、
+出力パイプも開いたままになる。taskkill が使えなければ親だけ TerminateProcess で止める。
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ import contextlib
 import os
 import signal
 import time
+from pathlib import Path
 
 POSIX = os.name == "posix"
 TERM_GRACE_S = 3.0
@@ -19,18 +24,25 @@ GROUP_POLL_S = 0.05
 __all__ = ["GROUP_POLL_S", "POSIX", "TERM_GRACE_S", "terminate"]
 
 
+def _taskkill_path() -> Path:
+    """taskkill の絶対パス. PATH から探さない (検査対象が PATH に偽物を置けないように).
+
+    Windows の環境変数は大文字小文字を区別しないので、SYSTEMROOT で SystemRoot を読める。
+    """
+    return Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "taskkill.exe"
+
+
 async def terminate(process: asyncio.subprocess.Process) -> None:
     """プロセスグループごと片づける. SIGTERM を試してから SIGKILL に上げる.
 
     親が先に終了していても、グループに残った孫には届ける。判断の基準は
     「親が終了したか」ではなく「グループが空になったか」である。
 
-    Windows には SIGKILL もプロセスグループも無い。`_signal_group` はシグナルによらず
-    TerminateProcess (`process.kill()`) で止めるので、動いている間に 1 回だけ試す。
+    Windows には SIGKILL もプロセスグループも無い。動いている間に、taskkill でツリーごと止める。
     """
     if not POSIX:
         if process.returncode is None:
-            _signal_group(process, signal.SIGTERM)
+            await _kill_tree_windows(process)
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(asyncio.shield(process.wait()), timeout=TERM_GRACE_S)
         return
@@ -42,6 +54,34 @@ async def terminate(process: asyncio.subprocess.Process) -> None:
         # プロセスグループの終了を知らせる仕組みは OS に無いので、ポーリングする
         while _group_alive(process) and time.monotonic() < deadline:  # noqa: ASYNC110
             await asyncio.sleep(GROUP_POLL_S)
+
+
+async def _kill_tree_windows(process: asyncio.subprocess.Process) -> None:
+    """`taskkill /T /F` で子孫ごと止める. 失敗したら親だけ TerminateProcess で止める.
+
+    /T は親の PID からたどるので、親が生きている間に呼ぶ必要がある。
+    """
+    code: int | None = None
+    try:
+        killer = await asyncio.create_subprocess_exec(
+            str(_taskkill_path()),
+            "/T",
+            "/F",
+            "/PID",
+            str(process.pid),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except OSError:
+        killer = None
+    if killer is not None:
+        try:
+            code = await asyncio.wait_for(killer.wait(), timeout=TERM_GRACE_S)
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError, OSError):
+                killer.kill()
+    if code != 0:
+        _signal_group(process, signal.SIGTERM)
 
 
 def _group_alive(process: asyncio.subprocess.Process) -> bool:
