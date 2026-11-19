@@ -5,10 +5,14 @@
 
 `openai_chat` と互換性がない点が 2 つある。
   1. system がメッセージ配列ではなく独立したフィールドである
-  2. JSON Schema を直接指定する仕組みがなく、**ツール呼び出しの強制**で代替する
+  2. JSON Schema は `response_format` ではなく `output_config.format` で指定する
 
-2 はこの形で構造化出力を得る最も確実な方法で、応答の `content[].input` が
-そのまま検証済みの構造化データになる。散文の混入を構造的に排除できる。
+2 は以前はツール呼び出しの強制 (`tool_choice: tool`) で代替していたが、強制は新しいモデルで
+400 になり、`strict` の無いツール入力はスキーマに合う保証も無かった (#297)。
+`output_config.format` ならスキーマに合う応答が保証される。ただしこの指定は数値・文字列長・
+配列長の制約を受け付けないので、送る前に外し、値の制約は今どおり pydantic で検証する。
+`output_config` を受け付けないエンドポイントでは、上位の段階的降格で
+json_mode / prompt_only に落ちる。
 """
 
 from __future__ import annotations
@@ -26,8 +30,20 @@ from security_checker.providers.http.dialects.base import (
     output_limit,
 )
 
-#: 構造化出力を受け取るための関数名. 応答の content[].input がそのまま結果になる
-TOOL_NAME = "submit_review"
+#: output_config.format の JSON Schema が受け付けないキーワード. 値の制約は pydantic 側で検証する
+UNSUPPORTED_SCHEMA_KEYWORDS = frozenset(
+    {
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "minLength",
+        "maxLength",
+        "maxItems",
+        "uniqueItems",
+    }
+)
 #: この形のバージョン指定ヘッダ. headers 設定で上書きできる
 DEFAULT_API_VERSION = "2023-06-01"
 
@@ -83,14 +99,9 @@ class AnthropicMessagesDialect:
             payload["temperature"] = req.temperature
 
         if req.json_schema is not None and mode is StructuredMode.JSON_SCHEMA:
-            payload["tools"] = [
-                {
-                    "name": TOOL_NAME,
-                    "description": "Submit your security review verdict.",
-                    "input_schema": req.json_schema,
-                }
-            ]
-            payload["tool_choice"] = {"type": "tool", "name": TOOL_NAME}
+            payload["output_config"] = {
+                "format": {"type": "json_schema", "schema": supported_schema(req.json_schema)}
+            }
         # json_mode に相当する仕組みはこの形に無い。prompt_only と同じく
         # プロンプト側の指示だけで縛り、抽出と修復は structured.py に任せる。
         return payload
@@ -102,23 +113,17 @@ class AnthropicMessagesDialect:
             raise ProviderResponseError("応答に content がありません")
 
         texts: list[str] = []
-        parsed: dict[str, Any] | None = None
         for block in content:
             if not isinstance(block, dict):
                 continue
             kind = block.get("type")
             if kind == "text" and isinstance(block.get("text"), str):
                 texts.append(block["text"])
-            elif kind == "tool_use" and isinstance(block.get("input"), dict):
-                # 強制したツール呼び出しの入力が、そのまま検証済みの構造化データ
-                parsed = block["input"]
 
         text = "".join(texts)
-        if parsed is not None and not text:
-            # 上位 (structured.py) は text からも復元できる必要がある
-            text = json.dumps(parsed, ensure_ascii=False)
-        if parsed is None and not text:
-            raise ProviderResponseError("応答に text も tool_use も含まれていません")
+        if not text:
+            raise ProviderResponseError("応答に text が含まれていません")
+        parsed = _json_object(text)
 
         raw_usage = payload.get("usage")
         usage = Usage()
@@ -155,7 +160,7 @@ class AnthropicMessagesDialect:
         return False
 
     def default_capabilities(self) -> dict[str, object]:
-        """この形に json_mode は無い. 構造化出力はツール呼び出しの強制 (json_schema) で得る."""
+        """この形に json_mode は無い. 構造化出力は output_config.format (json_schema) で得る."""
         return {"structured_output": StructuredMode.JSON_SCHEMA.value}
 
     def explain_error(self, status: int, body: str) -> str | None:
@@ -172,6 +177,41 @@ class AnthropicMessagesDialect:
                 "max_output_tokens を下げてください"
             )
         return None
+
+
+def supported_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """output_config.format が受け付けないキーワードを外した JSON Schema を返す (#297)."""
+    stripped = _strip_unsupported(schema)
+    return stripped if isinstance(stripped, dict) else {}
+
+
+def _strip_unsupported(node: object) -> object:
+    """`properties` の中身はプロパティ名 → スキーマなので、名前そのものは消さない.
+
+    `minItems` は 0 か 1 だけ受け付けられるので、それ以外のときだけ外す。
+    """
+    if isinstance(node, list):
+        return [_strip_unsupported(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    result: dict[str, object] = {}
+    for key, value in node.items():
+        if key == "properties" and isinstance(value, dict):
+            result[key] = {name: _strip_unsupported(sub) for name, sub in value.items()}
+        elif key in UNSUPPORTED_SCHEMA_KEYWORDS or (key == "minItems" and value not in (0, 1)):
+            continue
+        else:
+            result[key] = _strip_unsupported(value)
+    return result
+
+
+def _json_object(text: str) -> dict[str, Any] | None:
+    """本文がそのまま JSON オブジェクトなら返す. 違えば None (抽出と修復は structured.py が行う)."""
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def _as_int(value: object) -> int:

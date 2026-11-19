@@ -819,21 +819,22 @@ Messages API 形式は `openai_chat` と互換性がないため、別アダプ�
 
 - `POST {base_url}/v1/messages`、ヘッダは `x-api-key` と `anthropic-version`。
 - `system` はメッセージ配列ではなく**独立フィールド**。この差異を Provider が吸収する。
-- **Structured Output は tool use forcing で実現する。** これが最も確実な方法である。
+- **Structured Output は `output_config.format` で実現する。**
 
 ```json
 {
-  "tools": [{
-    "name": "submit_review",
-    "description": "Submit your security review verdict.",
-    "input_schema": { ...ReviewVerdict の JSON Schema... }
-  }],
-  "tool_choice": {"type": "tool", "name": "submit_review"}
+  "output_config": {
+    "format": {"type": "json_schema", "schema": { ...ReviewVerdict の JSON Schema... }}
+  }
 }
 ```
 
-  応答の `content[].input` がそのまま検証済みの構造化データになるため、
-  capability は `structured_output: json_schema` として扱える。散文の混入を構造的に排除できる。
+  応答の本文がスキーマに合うことが保証されるため、capability は `structured_output: json_schema` として扱える。
+  この指定は `minimum` / `maximum`・`minLength` / `maxLength`・`maxItems` などを受け付けない (400) ので、
+  送る前に外し、値の制約は pydantic で検証する。
+  当初は tool use forcing (`tool_choice: {"type": "tool"}`) で実現していたが、強制は新しいモデルで 400 になり、
+  `strict` の無いツール入力はスキーマに合う保証も無かったため切り替えた (#297)。
+  `output_config` を受け付けない互換エンドポイントでは、段階的降格 (§10) で `json_mode` / `prompt_only` に落ちる。
 
 - `usage` から `input_tokens` / `output_tokens` / `cache_read_input_tokens` を取得しコスト計算に使う。
 - 拡張思考(extended thinking)対応モデルでは `reasoning: true` を立て、
