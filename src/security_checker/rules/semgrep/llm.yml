@@ -72,6 +72,13 @@ rules:
               - pattern-inside: |
                   async with httpx.AsyncClient(...) as $HTTP:
                       ...
+              # aiohttp: 非同期の Web 取得でよく使われる (#284)
+              - pattern-inside: |
+                  $HTTP = aiohttp.ClientSession(...)
+                  ...
+              - pattern-inside: |
+                  async with aiohttp.ClientSession(...) as $HTTP:
+                      ...
       - pattern: urllib.request.urlopen(...)
       - pattern: trafilatura.fetch_url(...)
       # GitHub (PyGithub)。取得したオブジェクトの .body / .title が第三者のテキスト
@@ -86,6 +93,8 @@ rules:
     # 区切りで囲む関数は、ここでは何も認めない (冒頭のコメント)
     pattern-sanitizers: &python-sanitizers
       - pattern: $R.status_code
+      # aiohttp の応答の状態コード (#284)
+      - pattern: $R.status
       - pattern: $R.ok
       - pattern: len(...)
       - pattern: int(...)
