@@ -133,7 +133,8 @@ def warn_insecure_credential_transport(
     except ValueError:
         pass
     warnings.append(
-        f"reviewer '{reviewer.name}': base_url が http:// で、ホスト {hostname} はローカルではありません。"
+        f"reviewer '{reviewer.name}': base_url が http:// で、"
+        f"ホスト {hostname} はローカルではありません。"
         "api_key_env / headers_env の値が平文 (plaintext) で送られます。https:// を使ってください"
     )
 
