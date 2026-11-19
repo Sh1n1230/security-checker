@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from security_checker.aggregate.base import DEMOTED_BY_MIN_CONFIDENCE
 from security_checker.errors import ConfigError
 from security_checker.models.report import Report, SuppressedCandidate
 
@@ -134,6 +135,13 @@ def _finding_lines(finding: Finding) -> list[str]:
             lines.append(f"  Judge ({judge.get('reviewer')}): {judge.get('rationale')}")
         elif agg.detail.get("fallback_used"):
             lines.append(f"  Judge は使われませんでした: {agg.detail['fallback_used']}")
+        demoted = agg.detail.get(DEMOTED_BY_MIN_CONFIDENCE)
+        if isinstance(demoted, dict):
+            lines.append(
+                f"  {demoted.get('from')} から review_required に落としました: "
+                f"確信度 {demoted.get('confidence')} が policy.min_confidence "
+                f"({demoted.get('threshold')}) 未満"
+            )
     lines.append("")
     for verdict in finding.verdicts:
         lines.append(
