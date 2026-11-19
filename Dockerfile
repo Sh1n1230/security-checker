@@ -7,7 +7,7 @@
 # GHCR への公開 (ghcr.io/sh1n1230/security-checker) は P6 で行う。
 # それまでの GitHub Action は composite (action.yml) で配る。
 # digest で固定する (タグは差し替えられうる)。更新は dependabot (docker) が digest ごと提案する
-FROM python:3.12-slim@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 AS base
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS base
 
 # スキャナの版。空なら scripts/scanner-versions.sh に固定した版 (sha256 も固定) を入れる。
 # `--build-arg GITLEAKS_VERSION=x.y.z` などで上書きした場合は、リリース側のチェックサムで検証する
