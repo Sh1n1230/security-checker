@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from security_checker.models.enums import FindingStatus, ScanStatus, Severity
@@ -238,7 +239,7 @@ def _finding_block(finding: Finding) -> list[str]:
     ok_verdicts = [v for v in finding.verdicts if v.status.value == "ok"]
     lines += _verdict_table(ok_verdicts)
     lines += _attack_path(ok_verdicts)
-    lines += _remediation(ok_verdicts)
+    lines += _remediation(ok_verdicts, candidate.location.path if candidate.location else None)
     lines += _reasons(ok_verdicts)
 
     failed = [v for v in finding.verdicts if v.status.value != "ok"]
@@ -269,13 +270,51 @@ def _attack_path(verdicts: list[ReviewVerdict]) -> list[str]:
     return []
 
 
-def _remediation(verdicts: list[ReviewVerdict]) -> list[str]:
+#: コードブロックの言語名 (GitHub の Markdown が色分けに使う名前). 拡張子から決める (#294)。
+#: context/facts.py の LANGUAGE_BY_SUFFIX は人が読む表示名 (「C#」など) なので、別に持つ
+FENCE_LANGUAGE_BY_SUFFIX = {
+    ".py": "python",
+    ".js": "javascript",
+    ".jsx": "jsx",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".go": "go",
+    ".rb": "ruby",
+    ".php": "php",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".rs": "rust",
+    ".cs": "csharp",
+    ".sh": "bash",
+    ".ps1": "powershell",
+    ".yml": "yaml",
+    ".yaml": "yaml",
+    ".json": "json",
+    ".toml": "toml",
+    ".tf": "hcl",
+}
+
+
+def fence_language(path: str | None) -> str:
+    """候補のパスの拡張子からコードブロックの言語名を返す. 分からなければ空."""
+    if not path:
+        return ""
+    name = PurePosixPath(path.replace("\\", "/"))
+    if name.name == "Dockerfile":
+        return "dockerfile"
+    return FENCE_LANGUAGE_BY_SUFFIX.get(name.suffix.lower(), "")
+
+
+def _remediation(verdicts: list[ReviewVerdict], path: str | None) -> list[str]:
     """対応方針を書いた最初の Reviewer のものを載せる."""
     for verdict in verdicts:
         if verdict.remediation is not None and verdict.remediation.approach:
             lines = ["**対応方針**", "", md.text(verdict.remediation.approach.strip()), ""]
             if verdict.remediation.example:
-                lines += [*md.code_block(verdict.remediation.example.strip()), ""]
+                example = verdict.remediation.example.strip()
+                lines += [*md.code_block(example, fence_language(path)), ""]
             return lines
     return []
 
