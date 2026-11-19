@@ -1,6 +1,6 @@
 # 0005. GHCR 公開までは composite action で配る
 
-- 状態: 採用 (2026-10-04)
+- 状態: 採用 (2026-10-04)。チェックサムの検証方法は [0011](0011-pin-scanner-checksums-in-repo.md) が置き換えた
 - 関連: DESIGN.md §21.1 (この ADR に合わせて注記済み)
 
 ## 背景

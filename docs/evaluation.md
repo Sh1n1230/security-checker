@@ -83,7 +83,7 @@ candidate:                 # スキャナが出したことにする候補
   category: sast           # secret | sast | dependency | config | web
   message: subprocess の呼び出しに shell=True が指定されています
   path: app/upload.py
-  start_line: 12
+  start_line: 15
   severity_reported: high
   cwe: ["CWE-78"]
 code: |                    # 文脈込みの実コード (呼び出し元も含める)
