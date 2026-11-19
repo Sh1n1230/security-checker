@@ -89,6 +89,22 @@ def _trace_dir(report: Report, report_path: Path | None) -> Path | None:
     return next((path for path in candidates if (path / "calls").is_dir()), None)
 
 
+def to_json(result: Explanation) -> str:
+    """機械可読な形 (#662). キーは report.json と同じ名前にそろえ、テキスト版と同じ情報を載せる.
+
+    `calls` は trace の calls/*.json の中身そのもの (`_file` は読み込んだファイル名)。
+    """
+    payload = {
+        "candidate": result.candidate.model_dump(mode="json"),
+        "finding": result.finding.model_dump(mode="json") if result.finding else None,
+        "suppressed": result.suppressed.model_dump(mode="json") if result.suppressed else None,
+        "outside_diff": result.outside_diff,
+        "trace_dir": str(result.trace_dir) if result.trace_dir is not None else None,
+        "calls": result.calls,
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n"
+
+
 def render(result: Explanation) -> str:
     """人間向けのテキスト."""
     lines = [

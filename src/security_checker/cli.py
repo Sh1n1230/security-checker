@@ -58,6 +58,7 @@ from security_checker.observability.estimate import estimate_run
 from security_checker.observability.explain import explain as explain_finding
 from security_checker.observability.explain import load_report
 from security_checker.observability.explain import render as render_explanation
+from security_checker.observability.explain import to_json as explanation_json
 from security_checker.policy.baseline import write_baseline
 from security_checker.policy.suppress import SuppressionRules, load_rules
 from security_checker.providers.check import CheckResult, catalog, check_reviewer
@@ -1184,6 +1185,9 @@ def explain_command(
     report_path: Annotated[Path, typer.Option("--report", "-r", help="report.json")] = Path(
         ".security-checker/report.json"
     ),
+    as_json: Annotated[
+        bool, typer.Option("--json", help="機械可読な JSON で出す (キーは report.json と同じ)")
+    ] = False,
 ) -> None:
     """その判定に至った全 Reviewer の判断と、全呼び出しの記録を表示する (設計書 §24.2)."""
     try:
@@ -1191,7 +1195,7 @@ def explain_command(
         result = explain_finding(report, finding_id, report_path=report_path)
     except SecurityCheckerError as exc:
         _fail(str(exc), exc.exit_code)
-    _emit(render_explanation(result))
+    _emit(explanation_json(result) if as_json else render_explanation(result))
 
 
 @app.command("eval")
