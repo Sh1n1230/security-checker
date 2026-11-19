@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shlex
+import signal
 import subprocess
 import sys
 import traceback
+from collections.abc import Coroutine
 from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
@@ -90,6 +93,30 @@ def _console(*, stderr: bool = False) -> Console:
 
 
 err_console = _console(stderr=True)
+
+
+#: Ctrl-C で止めたときの終了コード (128 + SIGINT). ExitCode の 0〜3 とは別の、シェルの慣習
+INTERRUPTED_EXIT_CODE = 130
+
+
+async def _cancel_on_sigterm(work: Coroutine[Any, Any, RunOutcome]) -> RunOutcome:
+    """SIGTERM (CI のジョブのキャンセルなど) を Ctrl-C と同じ「取り消し」として扱う.
+
+    既定では SIGTERM でプロセスが即座に終わり、それまでの結果を書き出せない。
+    シグナルハンドラを登録できない環境 (Windows・メインスレッド以外) では何もしない。
+    """
+    loop = asyncio.get_running_loop()
+    task = asyncio.current_task()
+    registered = False
+    if task is not None:
+        with contextlib.suppress(NotImplementedError, RuntimeError, ValueError):
+            loop.add_signal_handler(signal.SIGTERM, task.cancel)
+            registered = True
+    try:
+        return await work
+    finally:
+        if registered:
+            loop.remove_signal_handler(signal.SIGTERM)
 
 
 def _emit(text: str) -> None:
@@ -288,7 +315,13 @@ def scan(
         typer.Option("--strict/--no-strict", help="スキャナの失敗を exit 3 にする (既定: 有効)"),
     ] = None,
     exclude: Annotated[
-        list[str] | None, typer.Option("--exclude", help="除外パターン (複数指定可)")
+        list[str] | None,
+        typer.Option(
+            "--exclude",
+            help=(
+                "除外パターン (複数指定可)。設定と既定の target.exclude を置き換える (追加ではない)"
+            ),
+        ),
     ] = None,
     output_dir: Annotated[
         Path | None,
@@ -358,7 +391,13 @@ def review(
         int | None, typer.Option("--max-candidates", min=1, help="レビューする候補の上限")
     ] = None,
     exclude: Annotated[
-        list[str] | None, typer.Option("--exclude", help="除外パターン (複数指定可)")
+        list[str] | None,
+        typer.Option(
+            "--exclude",
+            help=(
+                "除外パターン (複数指定可)。設定と既定の target.exclude を置き換える (追加ではない)"
+            ),
+        ),
     ] = None,
     output_dir: Annotated[
         Path | None,
@@ -421,19 +460,28 @@ def review(
 
     try:
         outcome = asyncio.run(
-            run_review(
-                loaded.config,
-                root,
-                price_table=price_table,
-                extra_warnings=[*loaded.warnings, *diff_warnings],
-                diff=diff,
-                suppression=_suppression(loaded, root),
+            _cancel_on_sigterm(
+                run_review(
+                    loaded.config,
+                    root,
+                    price_table=price_table,
+                    extra_warnings=[*loaded.warnings, *diff_warnings],
+                    diff=diff,
+                    suppression=_suppression(loaded, root),
+                )
             )
         )
     except SecurityCheckerError as exc:
         _fail(str(exc), exc.exit_code)
 
     _write_reports(loaded, outcome, quiet=quiet)
+    if outcome.interrupted:
+        # 部分結果は書き出した. 終了コードは、シェルの慣習どおり中断として返す
+        err_console.print(
+            "[yellow]中断されました。[/yellow]ここまでの結果を "
+            f"{escape(str(outcome.output_dir))} に書き出しました (残りは not_reviewed)"
+        )
+        raise typer.Exit(code=INTERRUPTED_EXIT_CODE)
     raise typer.Exit(code=int(outcome.decision.exit_code))
 
 
@@ -474,18 +522,19 @@ def _estimate(
         f"diff 外 {len(outcome.report.outside_diff)} 件)"
     )
     for item in result.reviewers:
-        usd = f"${item.usd:.4f}" if item.usd is not None else "unknown"
+        usd = _usd(item.usd)
         console.print(
             f"  {escape(item.name):<20} {item.calls:>4} 回  入力 約 {item.input_tokens:,}  "
-            f"出力 最大 {item.max_output_tokens:,}  {usd}"
+            f"出力 最大 {item.max_output_tokens:,}  {usd}  (上限 {_usd(item.upper_usd)})"
             + (f"  [dim]{escape(item.note)}[/dim]" if item.note else "")
         )
     total = result.total_usd
+    upper = result.total_upper_usd
     budget = loaded.config.budget.max_usd
     console.print(
         "[bold]合計[/bold]: "
         + (
-            f"約 ${total:.4f} (上限寄りの見積り)"
+            f"約 ${total:.4f} / 上限 約 ${upper or 0.0:.4f} (全呼び出しが修復を再送した場合)"
             if total is not None
             else "unknown (価格不明を含む)"
         )
@@ -496,6 +545,15 @@ def _estimate(
             "[yellow]見積りが予算を超えています。[/yellow]実行すると予算に達した時点で停止し、"
             "それまでの結果を出力します"
         )
+    elif upper is not None and budget is not None and upper > budget:
+        console.print(
+            "[yellow]修復の再送が多いと予算を超えることがあります。[/yellow]超えた時点で停止し、"
+            "それまでの結果を出力します"
+        )
+
+
+def _usd(value: float | None) -> str:
+    return f"${value:.4f}" if value is not None else "unknown"
 
 
 def _dry_run(

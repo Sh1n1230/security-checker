@@ -44,3 +44,9 @@ updates:
       default-days: 7
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      # Python の minor を上げると、semgrep などの依存に新しい版向けの wheel が無く
+      # ソースビルド (gcc) になって失敗する (#726)。digest と patch の更新だけ追い、
+      # minor は依存が対応したのを確かめてから手で上げる
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

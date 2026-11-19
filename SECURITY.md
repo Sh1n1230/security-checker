@@ -31,7 +31,7 @@ GitHub の **Private vulnerability reporting** を使います。
 | バージョン | 状態 |
 |---|---|
 | `main` ブランチ | 対象 |
-| v2.x（リリース後） | 対象 |
+| v2.x の最新リリース | 対象 |
 | v1.x（bash / PowerShell 実装） | 対象外。深刻な問題があれば v2 で対応します |
 
 ## 対象になるもの・ならないもの

@@ -177,6 +177,53 @@ def test_estimate_prices_known_models_and_refuses_to_guess():
     assert result.total_usd is None
 
 
+def http_reviewer(name: str, max_output_tokens: int = 100) -> dict[str, object]:
+    return {
+        "name": name,
+        "transport": "http",
+        "dialect": "openai_chat",
+        "base_url": "http://x/v1",
+        "model": "m-priced",
+        "max_output_tokens": max_output_tokens,
+    }
+
+
+def test_estimate_upper_bound_includes_every_repair_resend():
+    """上限は、全呼び出しが修復を 1 回再送した場合を含む (#314)."""
+    config = Config.model_validate({"reviewers": [http_reviewer("a")]})
+    table = PriceTable(prices={"m-priced": ModelPrice(input_per_1m=1.0, output_per_1m=2.0)})
+    item = estimate_run([probe_task(), probe_task()], config, table).reviewers[0]
+    assert item.upper_calls == 2 * item.calls
+    assert item.upper_output_tokens == 2 * item.max_output_tokens
+    # 修復の入力には元の user と前回の出力 (最大 max_output_tokens) が入る
+    assert item.upper_input_tokens > 2 * item.input_tokens + item.max_output_tokens - 1
+    assert item.usd is not None
+    assert item.upper_usd is not None
+    assert item.upper_usd > 2 * item.usd
+
+
+def test_estimate_judge_input_grows_with_peer_output_limits():
+    """Judge の入力は、Judge 以外の Reviewer の出力上限の分だけ増える (#314)."""
+
+    def judge_input(peer_output: int) -> int:
+        config = Config.model_validate(
+            {
+                "reviewers": [
+                    http_reviewer("a", peer_output),
+                    http_reviewer("b", peer_output),
+                    http_reviewer("judge"),
+                ],
+                "aggregation": {"strategy": "judge", "judge": {"reviewer": "judge"}},
+            }
+        )
+        result = estimate_run([probe_task()], config, PriceTable())
+        return next(r for r in result.reviewers if r.name == "judge").input_tokens
+
+    small, large = judge_input(100), judge_input(1100)
+    # Judge 以外の 2 体が 1000 トークンずつ長い意見を返しうる
+    assert large - small == 2 * 1000
+
+
 def test_estimate_marks_process_transport_unknown():
     config = Config(reviewers=[process_reviewer()])
     result = estimate_run([probe_task()], config, PriceTable())

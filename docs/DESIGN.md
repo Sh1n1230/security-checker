@@ -819,21 +819,22 @@ Messages API 形式は `openai_chat` と互換性がないため、別アダプ�
 
 - `POST {base_url}/v1/messages`、ヘッダは `x-api-key` と `anthropic-version`。
 - `system` はメッセージ配列ではなく**独立フィールド**。この差異を Provider が吸収する。
-- **Structured Output は tool use forcing で実現する。** これが最も確実な方法である。
+- **Structured Output は `output_config.format` で実現する。**
 
 ```json
 {
-  "tools": [{
-    "name": "submit_review",
-    "description": "Submit your security review verdict.",
-    "input_schema": { ...ReviewVerdict の JSON Schema... }
-  }],
-  "tool_choice": {"type": "tool", "name": "submit_review"}
+  "output_config": {
+    "format": {"type": "json_schema", "schema": { ...ReviewVerdict の JSON Schema... }}
+  }
 }
 ```
 
-  応答の `content[].input` がそのまま検証済みの構造化データになるため、
-  capability は `structured_output: json_schema` として扱える。散文の混入を構造的に排除できる。
+  応答の本文がスキーマに合うことが保証されるため、capability は `structured_output: json_schema` として扱える。
+  この指定は `minimum` / `maximum`・`minLength` / `maxLength`・`maxItems` などを受け付けない (400) ので、
+  送る前に外し、値の制約は pydantic で検証する。
+  当初は tool use forcing (`tool_choice: {"type": "tool"}`) で実現していたが、強制は新しいモデルで 400 になり、
+  `strict` の無いツール入力はスキーマに合う保証も無かったため切り替えた (#297)。
+  `output_config` を受け付けない互換エンドポイントでは、段階的降格 (§10) で `json_mode` / `prompt_only` に落ちる。
 
 - `usage` から `input_tokens` / `output_tokens` / `cache_read_input_tokens` を取得しコスト計算に使う。
 - 拡張思考(extended thinking)対応モデルでは `reasoning: true` を立て、
@@ -1048,6 +1049,17 @@ security-checker review . --preset ci          # 差分のみ、strict、SARIF �
 ```
 
 `maxLength` / `maxItems` を全フィールドに置くのは**出力トークンの暴走を抑えるコスト対策**でもある。
+
+上は読みやすさのために整理した形で、**実際に送るスキーマ (`review/structured.py` の `verdict_schema()`) は
+次の点が違う。** 方言のスキーマ変換を書くときは、こちらを前提にすること。
+
+- **すべてのプロパティが `required`。** strict な json_schema モードは「全プロパティが required」を求める実装が
+  あるため、省略できる項目も「null を許したうえで必須」にしている (`remediation` の中も同じ)
+- **null を許す項目は `anyOf: [{...}, {"type": "null"}]`。** pydantic の出力のままで、`"type": ["string", "null"]` の
+  形にはならない
+- `$ref` / `$defs` は展開して埋め込む。`title` と `description` は落とす
+  (docstring 由来の内部向けの説明を LLM に送らない。モデルへの説明はテンプレートで版管理する)
+- `default` は残る
 
 ### 10.2 段階的フォールバックと修復
 
@@ -1835,9 +1847,10 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@<SHA> # vX.Y.Z
         with: { fetch-depth: 0 }        # diff 算出に必要
-      - uses: Sh1n1230/security-checker@v2
+      # タグではなくコミット SHA で固定する (§31.3)。実際の値は ci/security.yml を参照
+      - uses: Sh1n1230/security-checker@<SHA> # vX.Y.Z
         with:
           config: security-checker.yml   # init で生成したもの
           preset: ci
@@ -2125,7 +2138,9 @@ language: python
 candidate:
   scanner: semgrep
   rule_id: python.lang.security.dangerous-subprocess-use
-  location: { path: app/upload.py, start_line: 42, end_line: 42 }
+  path: app/upload.py          # candidate の直下に書く (location で入れ子にしない)
+  start_line: 42
+  end_line: 42
 code: |
   ...(文脈込みの実コード)...
 ground_truth:
@@ -2344,10 +2359,19 @@ pip install security-checker my-plugin
   **設定だけのケースを先に、コードを書くケースを後に**書く(9 割は前者で済むため)。
 - テンプレートリポジトリ `security-checker-provider-template` を用意する(v2.1)。
 
-### 29.4 内蔵 Provider も同じ仕組みで登録する
+### 29.4 内蔵とプラグインの関係
 
-内蔵 Provider を registry に特別扱いで直書きしない。内蔵も entry_points 経由で登録することで、
-**「プラグインが二級市民にならない」**ことを構造的に保証する。
+当初は「内蔵も entry_points 経由で登録し、registry に直書きしない」としていたが、実装では
+**内蔵は registry の表に直接書き、entry_points は外部のプラグインのためだけに読む**形にした。
+
+- 依存に入っただけのパッケージが、黙って Scanner や Provider として動かないようにするため。
+  プラグインは `scanners.plugins` のように**設定で名前を書いたものだけ**を読み込む (import もしない)。
+  内蔵まで entry_points に載せると、「登録されているものは動く」という前提が要る
+- 内蔵の名前はプラグインから上書きできない (同名のプラグインは設定エラー)
+
+「プラグインが二級市民にならない」ことは、登録の経路ではなく **Protocol と契約テスト**で保証する。
+内蔵もプラグインも同じ `Scanner` / `LLMProvider` / `Aggregator` の Protocol を満たし、
+`security_checker.testing` の契約テスト (`ProviderContractTests`・`ScannerContractTests`) を通す。
 
 ---
 
@@ -2441,7 +2465,10 @@ feat!: / BREAKING CHANGE:                    → major
 - PyPI 公開は **Trusted Publishing**(OIDC)を使い、API トークンを Secrets に置かない。
 - SemVer に従う。破壊的変更の対象は **CLI I/F・設定 Schema・レポート JSON Schema・プラグイン Protocol** の 4 つ。
   これらは `docs/` で「公開 API」として明示する。
-- GitHub Action のメジャータグ(`v2`)を移動させ、利用者が `@v2` で追随できるようにする。
+- GitHub Action は**コミット SHA で固定して使ってもらう** (`uses: Sh1n1230/security-checker@<SHA> # vX.Y.Z`)。
+  付け替えられるメジャータグ (`v2`) は提供しない。タグは指す先を後から変えられるため、
+  セキュリティのツールが利用者に勧める参照の仕方として合わない。更新は Dependabot (github-actions) が
+  SHA ごと提案する。
 
 ### 31.4 リポジトリに置くもの
 
