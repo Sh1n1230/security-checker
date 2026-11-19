@@ -166,6 +166,8 @@ def ollama_response_status_is_not_prompt_injection(url):
     code = requests.get(url, timeout=10).status_code
     # ok: llm-third-party-text-in-user-message
     return ollama.generate(model="m", prompt=f"HTTP status: {code}")
+
+
 def langchain_system_message(url):
     text = requests.get(url, timeout=10).text
     # ruleid: llm-third-party-text-in-system-prompt
@@ -207,6 +209,8 @@ def langchain_constant_templates():
         # ok: llm-third-party-text-in-user-message
         ("human", "Hello"),
     ])
+
+
 def bedrock_converse_system(url, bedrock_runtime):
     third_party_text = requests.get(url, timeout=10).text
     return bedrock_runtime.converse(

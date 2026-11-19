@@ -145,6 +145,9 @@ export async function constantWithOctokitPresent(octokit: any) {
       // ok: llm-third-party-text-in-system-prompt-js
       { role: "system", content: `Processed ${count} items` },
     ],
+  });
+}
+
 export async function vercelSystemInstructions(url: string) {
   const page = await fetch(url).then((response) => response.text());
   return generateText({
