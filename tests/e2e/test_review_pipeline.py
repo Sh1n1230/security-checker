@@ -162,7 +162,8 @@ async def test_trace_is_written_with_hashes(workspace, tmp_path):
     trace_dir = outcome.output_dir / outcome.report.trace_dir
     run = json.loads((trace_dir / "run.json").read_text(encoding="utf-8"))
     assert run["target"] == workspace.name  # 絶対パスを残さない (§6.1)
-    call = json.loads((trace_dir / "calls" / "0000.json").read_text(encoding="utf-8"))
+    first_call = min((trace_dir / "calls").glob("0000-*.json"))
+    call = json.loads(first_call.read_text(encoding="utf-8"))
     assert call["prompt"]["system_sha256"]
     assert "system" not in call["prompt"]  # 既定では全文を残さない
 

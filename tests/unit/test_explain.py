@@ -115,6 +115,17 @@ def test_calls_are_read_from_the_trace_next_to_the_report(tmp_path):
     assert "エラー: HTTP 500" in text
 
 
+def test_calls_are_read_with_both_old_and_new_file_names(tmp_path):
+    """連番だけの古い名前と、Reviewer と候補 ID を含む新しい名前の両方を読む (#449)."""
+    candidate = make_candidate("c1")
+    report = make_report([candidate], run_id="R9")
+    trace = tmp_path / "trace" / "R9"
+    _write_call(trace, "0000.json", {"candidate_id": "c1", "reviewer": "r1"})
+    _write_call(trace, "0001-r2-c1.json", {"candidate_id": "c1", "reviewer": "r2"})
+    result = explain(report, "c1", report_path=tmp_path / "report.json")
+    assert [call["_file"] for call in result.calls] == ["0000.json", "0001-r2-c1.json"]
+
+
 def test_trace_without_calls_for_the_candidate_says_so(tmp_path):
     candidate = make_candidate("c1")
     report = make_report([candidate], run_id="R9")
