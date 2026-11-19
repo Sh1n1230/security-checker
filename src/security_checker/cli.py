@@ -474,18 +474,19 @@ def _estimate(
         f"diff 外 {len(outcome.report.outside_diff)} 件)"
     )
     for item in result.reviewers:
-        usd = f"${item.usd:.4f}" if item.usd is not None else "unknown"
+        usd = _usd(item.usd)
         console.print(
             f"  {escape(item.name):<20} {item.calls:>4} 回  入力 約 {item.input_tokens:,}  "
-            f"出力 最大 {item.max_output_tokens:,}  {usd}"
+            f"出力 最大 {item.max_output_tokens:,}  {usd}  (上限 {_usd(item.upper_usd)})"
             + (f"  [dim]{escape(item.note)}[/dim]" if item.note else "")
         )
     total = result.total_usd
+    upper = result.total_upper_usd
     budget = loaded.config.budget.max_usd
     console.print(
         "[bold]合計[/bold]: "
         + (
-            f"約 ${total:.4f} (上限寄りの見積り)"
+            f"約 ${total:.4f} / 上限 約 ${upper or 0.0:.4f} (全呼び出しが修復を再送した場合)"
             if total is not None
             else "unknown (価格不明を含む)"
         )
@@ -496,6 +497,15 @@ def _estimate(
             "[yellow]見積りが予算を超えています。[/yellow]実行すると予算に達した時点で停止し、"
             "それまでの結果を出力します"
         )
+    elif upper is not None and budget is not None and upper > budget:
+        console.print(
+            "[yellow]修復の再送が多いと予算を超えることがあります。[/yellow]超えた時点で停止し、"
+            "それまでの結果を出力します"
+        )
+
+
+def _usd(value: float | None) -> str:
+    return f"${value:.4f}" if value is not None else "unknown"
 
 
 def _dry_run(
