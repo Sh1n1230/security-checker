@@ -41,9 +41,11 @@ from security_checker.policy.engine import PolicyDecision
 from security_checker.report.markdown import (
     MAX_CANDIDATE_ROWS,
     MAX_FINDINGS_PER_SECTION,
+    fence_language,
     render_markdown,
     write_markdown,
 )
+from security_checker.report.sanitize import code_block
 
 
 @pytest.fixture
@@ -279,3 +281,32 @@ def test_footer_reports_an_early_stop_and_the_trace_location(candidate):
     text = render_markdown(report, PolicyDecision(exit_code=ExitCode.OK, reasons=[]))
     assert "⚠️ 途中で停止しました: 予算の上限に達しました" in text
     assert "監査証跡: `trace/R1`" in text
+
+
+# --- 修正例のコードブロックに言語名を付ける (#294) -------------------------------------
+
+
+def test_the_remediation_example_is_fenced_with_the_language_of_the_file(candidate):
+    findings = [finding(candidate, FindingStatus.CONFIRMED)]
+    body = render_markdown(make_report(candidate, findings), PolicyDecision(ExitCode.OK))
+    assert "```python\nrun([...])\n```" in body
+
+
+@pytest.mark.parametrize(
+    ("path", "language"),
+    [
+        ("src/app.py", "python"),
+        ("web/App.TSX", "tsx"),
+        ("infra\\main.tf", "hcl"),
+        ("docker/Dockerfile", "dockerfile"),
+        ("README", ""),
+        (None, ""),
+    ],
+)
+def test_fence_language_comes_from_the_extension(path, language):
+    assert fence_language(path) == language
+
+
+def test_a_language_name_cannot_break_out_of_the_fence_line():
+    """言語名に空白や ` が入っても、フェンスの行に任意の文字を書かせない."""
+    assert code_block("x", "py thon`<b>")[0] == "```pythonb"
