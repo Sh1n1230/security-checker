@@ -81,9 +81,20 @@ _GENERIC_KEY_RE = re.compile(
     r"|hf_[A-Za-z0-9]{30,}"
     r"|pypi-[A-Za-z0-9_-]{50,})"
 )
+#: URL のスキームに使える文字
+_SCHEME_CHARS = r"[a-z0-9+.-]"
 #: URL に埋め込んだ資格情報 (`scheme://user:password@host`). ユーザー名とホストは残す
+#:
+#: 一致するのは `\b[a-z][a-z0-9+.-]*://[^\s:/@]+:` に続く値。素直に書くと、スキームの文字の並び
+#: (`a-a-a-…`) の単語の先頭ごとに並びの終わりまで読み直し、長い行で 2 乗の時間がかかる。そこで
+#: 並びの先頭でだけ照合を始め、`://` が続くかを 1 度だけ確かめ (先読み)、並びの中の最初の単語の
+#: 先頭をスキームの始まりとする (原子グループで、別の始まりを試し直さない)。一致する範囲は
+#: 素直に書いた場合と同じ。head は並びの先頭から始まるが、置換では head をそのまま残すので
+#: 結果は変わらない。
 _URL_CREDENTIAL_RE = re.compile(
-    r"(?P<head>\b[a-z][a-z0-9+.-]*://[^\s:/@]+:)(?P<value>[^\s@/]+)(?=@)"
+    rf"(?P<head>(?<!{_SCHEME_CHARS})(?={_SCHEME_CHARS}*+://)"
+    rf"(?>{_SCHEME_CHARS}*?\b[a-z]{_SCHEME_CHARS}*+://)[^\s:/@]+:)"
+    r"(?P<value>[^\s@/]+)(?=@)"
 )
 #: Authorization ヘッダの値 (`Bearer <token>` / `Basic <base64>`)
 _AUTH_SCHEME_RE = re.compile(r"(?P<head>\b(?:Bearer|Basic)\s+)(?P<value>[A-Za-z0-9._~+/=-]{12,})")

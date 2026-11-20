@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from security_checker.context.builder import mask_sensitive_values
@@ -81,3 +83,53 @@ def test_quoted_passwords_with_symbols_are_masked():
     assert mask_sensitive_values('password = "p@ss!w0rd#"').endswith('"')
     assert mask_sensitive_values("token = os.environ['X']") == "token = os.environ['X']"
     assert mask_sensitive_values("password = get_password()") == "password = get_password()"
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        ("MY_DB_PASSWORD_PROD=abcdefgh1234", "abcdefgh1234"),
+        ('cfg.client_secret: "s3cr3t value!x"', "s3cr3t value!x"),
+        ('{"aws_access_key": "AbCdEfGh12345678"}', "AbCdEfGh12345678"),
+        ("x;api-key=zzzzzzzz9", "zzzzzzzz9"),
+    ],
+)
+def test_sensitive_key_in_the_middle_of_a_name_is_masked(text, value):
+    """key は名前の先頭から照合する. 名前の途中に秘密を示す語があっても伏せる (性能のための錨)."""
+    assert value not in mask_sensitive_values(text)
+
+
+def test_masking_scales_linearly_with_long_identifiers():
+    """錨の無い key は、長い識別子の 1 文字ごとに照合をやり直していた (2 乗の時間).
+
+    minify した JS など、検査対象の内容で処理が数十秒止まった。上限は遅い CI でも余裕のある値。
+    """
+    line = "a" * 20_000 + " = 1\n"
+    started = time.perf_counter()
+    assert mask_sensitive_values(line * 5) == line * 5
+    assert time.perf_counter() - started < 2.0
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("postgres://app:pw12@db", "postgres://app:********@db"),
+        ("(git+ssh://u:pw12@h)", "(git+ssh://u:********@h)"),
+        ("x-redis://u:pw12@h", "x-redis://u:********@h"),
+        # 単語の途中からはスキームにしない (`\b`)
+        ("Xhttp://u:pw12@h", "Xhttp://u:pw12@h"),
+        ("1a://u:pw12@h", "1a://u:pw12@h"),
+        ("+a://u:pw12@h", "+a://u:********@h"),
+    ],
+)
+def test_url_credential_scheme_boundaries(text, expected):
+    assert redact_known_patterns(text) == expected
+
+
+@pytest.mark.parametrize("tail", ["", "://nocreds", "://u:pw12@h"])
+def test_url_credential_scales_linearly_with_scheme_like_runs(tail):
+    """`a-a-a-…` の単語の先頭ごとに読み直していた (2 乗の時間) 回帰."""
+    text = "a-" * 100_000 + tail
+    started = time.perf_counter()
+    redact_known_patterns(text)
+    assert time.perf_counter() - started < 2.0

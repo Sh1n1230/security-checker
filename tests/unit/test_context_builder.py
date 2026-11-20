@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from security_checker.config.schema import ContextConfig
+from security_checker.context import builder as builder_module
 from security_checker.context.budget import PROMPT_OVERHEAD_TOKENS, estimate_tokens
 from security_checker.context.builder import (
     NOTE_DEPENDENCY,
@@ -328,3 +330,41 @@ def test_the_smaller_provider_limit_wins(tmp_path):
     assert task.budget.max_tokens_per_task == 2000
     assert primary is not None
     assert estimate_tokens(primary.text) + PROMPT_OVERHEAD_TOKENS <= 2000
+
+
+def test_builder_reads_a_file_once_for_many_candidates(repo, monkeypatch):
+    """同じファイルの候補ごとに読み直さない (semgrep は 1 ファイルに多くの候補を出す)."""
+    reads: list[Path] = []
+    original = builder_module.read_text_file
+
+    def counting(path: Path) -> list[str] | None:
+        reads.append(path)
+        return original(path)
+
+    monkeypatch.setattr(builder_module, "read_text_file", counting)
+    context = builder(repo)
+    tasks = [context.build(sast_candidate(line)) for line in (10, 50, 90)]
+
+    assert len(reads) == 1
+    assert [task.code_context.primary.start_line for task in tasks] == [5, 45, 85]
+
+
+def test_builders_do_not_share_cached_files(repo):
+    """キャッシュは builder ごと. 前の Run で読んだ内容を、書き換え後に返さない."""
+    first = builder(repo).build(sast_candidate(50))
+    (repo / "src" / "app.py").write_text("changed\n" * 100, encoding="utf-8")
+    second = builder(repo).build(sast_candidate(50))
+
+    assert "line50" in first.code_context.primary.text
+    assert "changed" in second.code_context.primary.text
+
+
+def test_masking_a_long_detected_line_is_fast(tmp_path):
+    """検出行のトークンの先読みが、1 文字ごとに行末まで走っていた (2 乗の時間) 回帰."""
+    (tmp_path / "min.js").write_text("a-" * 50_000 + "\n", encoding="utf-8")
+    candidate = secret_candidate().model_copy(
+        update={"location": Location(path="min.js", start_line=1, end_line=1)}
+    )
+    started = time.perf_counter()
+    builder(tmp_path).build(candidate)
+    assert time.perf_counter() - started < 2.0

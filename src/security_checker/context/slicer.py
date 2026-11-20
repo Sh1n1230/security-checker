@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from security_checker.models.task import CodeSlice
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from security_checker.models.candidate import Location
@@ -50,16 +51,19 @@ def line_window(
     *,
     window_lines: int,
     label: str = "primary",
+    read_lines: Callable[[Path], list[str] | None] = read_text_file,
 ) -> CodeSlice | None:
     """該当行の前後 window_lines 行を切り出す.
 
     読むのは検査対象 (root) の配下にあるファイルだけ。シンボリックリンクや `..` で
     外を指すパスは、リンク先を解決したうえで読まない (policy/ignore.py と同じ規則)。
+    `read_lines` は読み込みを差し替える (同じファイルを何度も読まないようにキャッシュを挟む)。
+    返した行のリストは変更しない。
     """
     path = resolve_inside(root, location.path)
     if path is None:
         return None
-    lines = read_text_file(path)
+    lines = read_lines(path)
     if lines is None:
         return None
     total = len(lines)
