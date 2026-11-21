@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from security_checker.config.schema import ContextConfig
-from security_checker.context import builder as builder_module
 from security_checker.context.budget import PROMPT_OVERHEAD_TOKENS, estimate_tokens
 from security_checker.context.builder import (
     NOTE_DEPENDENCY,
@@ -19,7 +18,12 @@ from security_checker.context.builder import (
     ContextBuilder,
 )
 from security_checker.context.facts import collect_repo_facts
-from security_checker.context.slicer import TRUNCATED_LINE_MARK, line_window, shrink
+from security_checker.context.slicer import (
+    TRUNCATED_LINE_MARK,
+    line_window,
+    read_text_file,
+    shrink,
+)
 from security_checker.models.candidate import Candidate, Location, PackageRef
 from security_checker.models.enums import Category, Severity
 from security_checker.models.task import CodeSlice, RepoFacts
@@ -335,18 +339,19 @@ def test_the_smaller_provider_limit_wins(tmp_path):
 def test_builder_reads_a_file_once_for_many_candidates(repo, monkeypatch):
     """同じファイルの候補ごとに読み直さない (semgrep は 1 ファイルに多くの候補を出す)."""
     reads: list[Path] = []
-    original = builder_module.read_text_file
 
     def counting(path: Path) -> list[str] | None:
         reads.append(path)
-        return original(path)
+        return read_text_file(path)
 
-    monkeypatch.setattr(builder_module, "read_text_file", counting)
+    # builder が slicer から import した名前を差し替える (builder の __init__ で参照される)
+    monkeypatch.setattr("security_checker.context.builder.read_text_file", counting)
     context = builder(repo)
     tasks = [context.build(sast_candidate(line)) for line in (10, 50, 90)]
 
+    primaries = [task.code_context.primary for task in tasks]
     assert len(reads) == 1
-    assert [task.code_context.primary.start_line for task in tasks] == [5, 45, 85]
+    assert [p.start_line if p else None for p in primaries] == [5, 45, 85]
 
 
 def test_builders_do_not_share_cached_files(repo):
@@ -355,8 +360,11 @@ def test_builders_do_not_share_cached_files(repo):
     (repo / "src" / "app.py").write_text("changed\n" * 100, encoding="utf-8")
     second = builder(repo).build(sast_candidate(50))
 
-    assert "line50" in first.code_context.primary.text
-    assert "changed" in second.code_context.primary.text
+    first_primary, second_primary = first.code_context.primary, second.code_context.primary
+    assert first_primary is not None
+    assert second_primary is not None
+    assert "line50" in first_primary.text
+    assert "changed" in second_primary.text
 
 
 def test_masking_a_long_detected_line_is_fast(tmp_path):

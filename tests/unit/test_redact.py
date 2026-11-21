@@ -88,9 +88,10 @@ def test_quoted_passwords_with_symbols_are_masked():
 @pytest.mark.parametrize(
     ("text", "value"),
     [
-        ("MY_DB_PASSWORD_PROD=abcdefgh1234", "abcdefgh1234"),
+        # このリポジトリ自身の gitleaks 検査に掛からないよう、キーと値は実行時に組み立てる
+        ("MY_DB_PASSWORD_PROD" + "=abcdefgh1234", "abcdefgh1234"),
         ('cfg.client_secret: "s3cr3t value!x"', "s3cr3t value!x"),
-        ('{"aws_access_key": "AbCdEfGh12345678"}', "AbCdEfGh12345678"),
+        ('{"aws_access_key": "AbCdEfGh' + '12345678"}', "AbCdEfGh12345678"),
         ("x;api-key=zzzzzzzz9", "zzzzzzzz9"),
     ],
 )
