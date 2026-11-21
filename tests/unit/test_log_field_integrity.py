@@ -14,13 +14,15 @@ def test_json_audit_core_fields_cannot_be_overridden():
     try:
         log.logger.info(
             "scan.complete",
-            extra={"fields": {
-                "ts": "1999-01-01T00:00:00Z",
-                "event": "forged.event",
-                "run_id": "forged-run",
-                "level": "critical",
-                "detail": "real detail",
-            }},
+            extra={
+                "fields": {
+                    "ts": "1999-01-01T00:00:00Z",
+                    "event": "forged.event",
+                    "run_id": "forged-run",
+                    "level": "critical",
+                    "detail": "real detail",
+                }
+            },
         )
         record = json.loads(stream.getvalue())
         assert record["event"] == "scan.complete"
