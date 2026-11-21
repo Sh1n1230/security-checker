@@ -1,4 +1,5 @@
 """Scanner/LLM metadata must remain inert in human-readable security reports."""
+
 from __future__ import annotations
 
 from security_checker.github.comment import render_inline, render_summary
