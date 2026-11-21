@@ -47,7 +47,14 @@ class _Formatter(logging.Formatter):
         self.fmt = fmt
 
     def format(self, record: logging.LogRecord) -> str:
-        fields: dict[str, Any] = getattr(record, "fields", {})
+        # Scanner/provider metadata must not overwrite canonical audit fields.
+        # Otherwise an untrusted `event` or `run_id` can forge JSON log provenance.
+        raw_fields: dict[str, Any] = getattr(record, "fields", {})
+        fields = {
+            key: value
+            for key, value in raw_fields.items()
+            if key not in {"ts", "level", "run_id", "event"}
+        }
         payload: dict[str, Any] = {
             "ts": datetime.fromtimestamp(record.created, UTC)
             .isoformat(timespec="seconds")
