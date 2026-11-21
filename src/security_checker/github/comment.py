@@ -230,7 +230,7 @@ def _scanner_warnings(report: Report) -> list[str]:
 
 def _summary_block(finding: Finding) -> list[str]:
     candidate = finding.candidate
-    cwe = f" · {finding.cwe[0]}" if finding.cwe else ""
+    cwe = f" · {md.code_span(finding.cwe[0])}" if finding.cwe else ""
     title = _one_line(finding.summary or candidate.title, 120)
     if finding.status is FindingStatus.REVIEW_REQUIRED:
         return _split_block(finding, f"{cwe} · {title}")
@@ -390,7 +390,7 @@ def render_inline(finding: Finding) -> str:
     )
     if remediation is not None and remediation.approach:
         lines += ["", f"**Remediation**: {_one_line(remediation.approach, 400)}"]
-    lines += ["", f"<sub>`{candidate.scanner}/{candidate.rule_id}`</sub>"]
+    lines += ["", "<sub>" + md.code_span(candidate.scanner + "/" + candidate.rule_id) + "</sub>"]
     return "\n".join(lines) + "\n"
 
 
