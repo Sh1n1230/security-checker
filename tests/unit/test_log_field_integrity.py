@@ -39,7 +39,9 @@ def test_text_audit_core_fields_cannot_be_shadowed():
     try:
         log.logger.info(
             "scan.complete",
-            extra={"fields": {"event": "forged", "run_id": "other", "level": "error", "note": "ok"}},
+            extra={
+                "fields": {"event": "forged", "run_id": "other", "level": "error", "note": "ok"}
+            },
         )
         line = stream.getvalue()
         assert "scan.complete" in line
