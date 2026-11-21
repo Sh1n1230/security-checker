@@ -225,7 +225,7 @@ def _finding_block(finding: Finding) -> list[str]:
 
     meta = [f"**確信度** {finding.confidence:.0%}", f"**一致度** {finding.agreement.value}"]
     if finding.cwe:
-        meta.insert(0, "**CWE** " + ", ".join(finding.cwe[:3]))
+        meta.insert(0, "**CWE** " + ", ".join(md.code_span(cwe) for cwe in finding.cwe[:3]))
     lines += [" ・ ".join(meta), ""]
     lines += [f"検出元: {md.code_span(candidate.scanner)} / {md.code_span(candidate.rule_id)}", ""]
 
