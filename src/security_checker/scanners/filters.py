@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
-@lru_cache(maxsize=256)
-def _compile(pattern: str) -> re.Pattern[str]:
-    """gitignore 風の glob を正規表現へ変換する (`**` はディレクトリ跨ぎ)."""
+def _glob_to_regex(pattern: str) -> str:
+    """gitignore 風の glob を、錨の無い正規表現の本体へ変換する (`**` はディレクトリ跨ぎ)."""
     index = 0
     out: list[str] = []
     while index < len(pattern):
@@ -32,7 +35,7 @@ def _compile(pattern: str) -> re.Pattern[str]:
         else:
             out.append(re.escape(char))
             index += 1
-    return re.compile("^" + "".join(out) + "$")
+    return "".join(out)
 
 
 def normalize_pattern(pattern: str) -> str:
@@ -53,21 +56,31 @@ def normalize_pattern(pattern: str) -> str:
     return normalized
 
 
-def is_excluded(path: str, patterns: list[str]) -> bool:
+@lru_cache(maxsize=256)
+def _compile_set(patterns: tuple[str, ...]) -> re.Pattern[str]:
+    """除外パターンの組を、パス自身か祖先ディレクトリのどれかに一致する 1 つの正規表現にまとめる.
+
+    パス全体が `(?:p1|p2|...)(?:/.*)?` に一致することは、「`/` の区切りで切ったパスの先頭部分の
+    どれかが p に一致する」と同じ。祖先ごと・パターンごとに照合しなくて済む
+    (リポジトリの走査では、ファイルとディレクトリのたびに呼ばれる)。
+
+    パス全体との一致 (fullmatch) で判定し、`.` は改行にも一致させる。`$` は末尾の改行の手前でも
+    一致するので、使うと改行を含むファイル名で結果が変わってしまう。
+    """
+    if not patterns:
+        return re.compile(r"(?!)")  # 何にも一致しない
+    bodies = "|".join(_glob_to_regex(normalize_pattern(p)) for p in patterns)
+    return re.compile(f"(?:{bodies})(?:/.*)?", re.DOTALL)
+
+
+def is_excluded(path: str, patterns: Sequence[str]) -> bool:
     """相対パスが除外パターンのいずれかに一致するか.
 
     gitignore と同じく、ディレクトリが一致したらその配下もすべて一致とみなす
     (`tests` は `pkg/tests/test_a.py` も除外する)。
     """
     normalized = path.replace("\\", "/").removeprefix("./")
-    parts = normalized.split("/")
-    # パス自身と、その祖先ディレクトリ
-    targets = ["/".join(parts[: index + 1]) for index in range(len(parts))]
-    for pattern in patterns:
-        regex = _compile(normalize_pattern(pattern))
-        if any(regex.match(target) for target in targets):
-            return True
-    return False
+    return _compile_set(tuple(patterns)).fullmatch(normalized) is not None
 
 
 def exclude_globs(patterns: list[str]) -> list[str]:

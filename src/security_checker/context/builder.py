@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import sys
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from security_checker.context.budget import (
@@ -15,7 +16,7 @@ from security_checker.context.budget import (
     estimate_tokens,
 )
 from security_checker.context.redact import mask_secret, redact_known_patterns, redact_text
-from security_checker.context.slicer import clip_lines, line_window, shrink
+from security_checker.context.slicer import clip_lines, line_window, read_text_file, shrink
 from security_checker.models.enums import Category
 from security_checker.models.task import (
     CodeContext,
@@ -32,6 +33,9 @@ if TYPE_CHECKING:
     from security_checker.models.candidate import Candidate
 
 MIN_WINDOW_LINES = 6
+#: 読んだファイルを覚えておく数. 候補は重大度・スキャナ・パスの順に並ぶので、同じファイルの候補は
+#: たいてい続けて来る。1 ファイルは最大 MAX_FILE_BYTES (2MB) なので、多く持つとメモリを食う
+FILE_CACHE_SIZE = 8
 SECRET_MIN_LENGTH = 8
 
 # user プロンプトの `## Notes` に入る文. system プロンプトとテンプレートと同じく英語で書く
@@ -70,6 +74,9 @@ class ContextBuilder:
         self.config = config
         self.input_limit = min(config.max_tokens_per_task, max_input_tokens or sys.maxsize)
         self.repo_facts = repo_facts if config.include_repo_facts else RepoFacts()
+        # 1 つのファイルに候補が多いとき (semgrep でよくある)、候補ごとに読み直してデコードしない。
+        # キャッシュは builder ごとに持つので、Run をまたいで古い内容を返すことはない
+        self._read_lines = lru_cache(maxsize=FILE_CACHE_SIZE)(read_text_file)
 
     def build(self, candidate: Candidate) -> ReviewTask:
         """候補 1 件分の ReviewTask を作る. 文脈は予算に収め、検出した値は伏せる (§8・§19.2)."""
@@ -82,7 +89,10 @@ class ContextBuilder:
             notes.append(NOTE_FILE_LEVEL)
         elif candidate.location is not None:
             primary = line_window(
-                self.root, candidate.location, window_lines=self.config.window_lines
+                self.root,
+                candidate.location,
+                window_lines=self.config.window_lines,
+                read_lines=self._read_lines,
             )
             if primary is None:
                 notes.append(NOTE_UNREADABLE)
@@ -251,23 +261,33 @@ _PEM_BODY_RE = re.compile(
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
 # 名前から秘密と分かる代入 (`API_KEY=...` / `password: ...` / `"token": "..."`)。
 # 値は記号を含まないトークンに限り、関数呼び出しや属性参照 (`os.environ[...]`) は伏せない。
-_SENSITIVE_ASSIGNMENT_RE = re.compile(
-    r"(?P<key>[A-Za-z0-9_.-]*"
+#
+# key は名前の先頭からだけ照合する (直前が名前の文字なら始めない)。一致する範囲は変わらない
+# (名前の途中から一致するなら、先頭からも一致する) が、錨が無いと名前の 1 文字ごとに照合を
+# やり直し、長い識別子の多いコードで遅くなる。
+_SENSITIVE_KEY = (
+    r"(?P<key>(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]*"
     r"(?:secret|token|passw(?:or)?d|passwd|pwd|api[_-]?key|access[_-]?key|private[_-]?key"
     r"|client[_-]?secret|credential)"
     r"[A-Za-z0-9_.-]*[\"']?\s*[:=]\s*)"
-    r"(?P<quote>[\"']?)(?P<value>[A-Za-z0-9+/=_~-]{8,})(?=[\s\"',;#}\]]|$)",
+)
+_SENSITIVE_ASSIGNMENT_RE = re.compile(
+    _SENSITIVE_KEY + r"(?P<quote>[\"']?)(?P<value>[A-Za-z0-9+/=_~-]{8,})(?=[\s\"',;#}\]]|$)",
     re.IGNORECASE,
 )
 _SENSITIVE_QUOTED_RE = re.compile(
-    _SENSITIVE_ASSIGNMENT_RE.pattern.split("(?P<quote>")[0]
+    _SENSITIVE_KEY
     + r"(?P<quote>[\"'])(?P<value>(?:(?!(?P=quote))[^\s\\])(?:(?!(?P=quote))[^\n\\]){6,}"
     r"(?:(?!(?P=quote))[^\s\\]))(?P=quote)",
     re.IGNORECASE,
 )
 # 検出行で伏せるトークン。数字を含む 16 文字以上に限り、`SERVICE_CREDENTIALS` のような
 # 変数名は残す (何の値かは判断材料になる)。
-_DETECTED_LINE_TOKEN_RE = re.compile(r"(?=[A-Za-z0-9+/_.~:@-]*[0-9])[A-Za-z0-9+/_.~:@-]{16,}={0,2}")
+# _SENSITIVE_KEY と同じく、トークンの先頭からだけ照合する (先読みが 1 文字ごとに行末まで走らない)
+_DETECTED_VALUE_CHARS = r"[A-Za-z0-9+/_.~:@-]"
+_DETECTED_LINE_TOKEN_RE = re.compile(
+    rf"(?<!{_DETECTED_VALUE_CHARS})(?={_DETECTED_VALUE_CHARS}*[0-9]){_DETECTED_VALUE_CHARS}{{16,}}={{0,2}}"
+)
 
 
 def _mask_quoted(line: str) -> str:

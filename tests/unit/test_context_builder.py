@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -17,7 +18,12 @@ from security_checker.context.builder import (
     ContextBuilder,
 )
 from security_checker.context.facts import collect_repo_facts
-from security_checker.context.slicer import TRUNCATED_LINE_MARK, line_window, shrink
+from security_checker.context.slicer import (
+    TRUNCATED_LINE_MARK,
+    line_window,
+    read_text_file,
+    shrink,
+)
 from security_checker.models.candidate import Candidate, Location, PackageRef
 from security_checker.models.enums import Category, Severity
 from security_checker.models.task import CodeSlice, RepoFacts
@@ -328,3 +334,45 @@ def test_the_smaller_provider_limit_wins(tmp_path):
     assert task.budget.max_tokens_per_task == 2000
     assert primary is not None
     assert estimate_tokens(primary.text) + PROMPT_OVERHEAD_TOKENS <= 2000
+
+
+def test_builder_reads_a_file_once_for_many_candidates(repo, monkeypatch):
+    """同じファイルの候補ごとに読み直さない (semgrep は 1 ファイルに多くの候補を出す)."""
+    reads: list[Path] = []
+
+    def counting(path: Path) -> list[str] | None:
+        reads.append(path)
+        return read_text_file(path)
+
+    # builder が slicer から import した名前を差し替える (builder の __init__ で参照される)
+    monkeypatch.setattr("security_checker.context.builder.read_text_file", counting)
+    context = builder(repo)
+    tasks = [context.build(sast_candidate(line)) for line in (10, 50, 90)]
+
+    primaries = [task.code_context.primary for task in tasks]
+    assert len(reads) == 1
+    assert [p.start_line if p else None for p in primaries] == [5, 45, 85]
+
+
+def test_builders_do_not_share_cached_files(repo):
+    """キャッシュは builder ごと. 前の Run で読んだ内容を、書き換え後に返さない."""
+    first = builder(repo).build(sast_candidate(50))
+    (repo / "src" / "app.py").write_text("changed\n" * 100, encoding="utf-8")
+    second = builder(repo).build(sast_candidate(50))
+
+    first_primary, second_primary = first.code_context.primary, second.code_context.primary
+    assert first_primary is not None
+    assert second_primary is not None
+    assert "line50" in first_primary.text
+    assert "changed" in second_primary.text
+
+
+def test_masking_a_long_detected_line_is_fast(tmp_path):
+    """検出行のトークンの先読みが、1 文字ごとに行末まで走っていた (2 乗の時間) 回帰."""
+    (tmp_path / "min.js").write_text("a-" * 50_000 + "\n", encoding="utf-8")
+    candidate = secret_candidate().model_copy(
+        update={"location": Location(path="min.js", start_line=1, end_line=1)}
+    )
+    started = time.perf_counter()
+    builder(tmp_path).build(candidate)
+    assert time.perf_counter() - started < 2.0

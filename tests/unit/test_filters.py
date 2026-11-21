@@ -81,3 +81,31 @@ def test_patterns_that_do_not_match(path, pattern):
 )
 def test_normalize_pattern(pattern, expected):
     assert normalize_pattern(pattern) == expected
+
+
+def test_several_patterns_are_checked_together():
+    patterns = ["docs/", "*.min.js", "/build"]
+    assert is_excluded("a/docs/x.md", patterns)
+    assert is_excluded("a/b.min.js", patterns)
+    assert is_excluded("build/x", patterns)
+    assert not is_excluded("src/build/x", patterns)
+    assert not is_excluded("src/app.py", patterns)
+
+
+def test_no_patterns_exclude_nothing():
+    assert not is_excluded("anything", [])
+    assert not is_excluded("", ())
+
+
+@pytest.mark.parametrize(
+    ("path", "pattern", "expected"),
+    [
+        # `$` は末尾の改行の手前でも一致する. パス全体との一致で判定し、改行で結果を変えない
+        ("tests\n", "tests", False),
+        ("tests/x\n", "tests", True),
+        ("a\nb/c.py", "**/c.py", True),
+        ("x\n/vendor/y", "vendor/", True),
+    ],
+)
+def test_newlines_in_file_names(path, pattern, expected):
+    assert is_excluded(path, [pattern]) is expected
