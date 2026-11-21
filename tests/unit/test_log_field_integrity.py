@@ -1,4 +1,5 @@
 """Untrusted scanner metadata must not override structured audit provenance."""
+
 from __future__ import annotations
 
 import io
