@@ -1,0 +1,30 @@
+# 誤検知: 同じ WHERE 句を ActiveRecord の bind 値で渡す。
+id: hand-0112
+source: handmade
+language: ruby
+candidate:
+  scanner: semgrep
+  rule_id: ruby.rails.security.sql-injection
+  category: sast
+  message: ActiveRecord で SQL フラグメントを使用しています
+  path: app/controllers/users_controller.rb
+  start_line: 4
+  end_line: 4
+  severity_reported: high
+  cwe: ["CWE-89"]
+code: |
+  class UsersController < ApplicationController
+    def search
+      email = params[:email].to_s
+      @users = User.where("email = ?", email).limit(5).to_a
+      render json: @users
+    end
+  end
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    SQL フラグメントは固定文字列であり、外部入力 email は
+    ActiveRecord.where のプレースホルダに bind 値として渡される。
+    引用符や SQL 演算子は構文にならない。
