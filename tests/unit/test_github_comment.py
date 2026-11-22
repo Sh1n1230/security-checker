@@ -533,16 +533,17 @@ def test_context_from_event_payload(tmp_path):
 def test_context_from_workflow_run_pr_association(tmp_path):
     event = tmp_path / "workflow_run.json"
     event.write_text(
-        json.dumps({
-            "workflow_run": {
-                "head_sha": "run-sha",
-                "pull_requests": [{"number": 29}, {"number": 30}],
+        json.dumps(
+            {
+                "workflow_run": {
+                    "head_sha": "run-sha",
+                    "pull_requests": [{"number": 29}, {"number": 30}],
+                }
             }
-        }), encoding="utf-8",
+        ),
+        encoding="utf-8",
     )
-    context = context_from_env(
-        {"GITHUB_REPOSITORY": "o/r", "GITHUB_EVENT_PATH": str(event)}
-    )
+    context = context_from_env({"GITHUB_REPOSITORY": "o/r", "GITHUB_EVENT_PATH": str(event)})
     assert context == PullRequestContext(repository="o/r", number=29, head_sha="run-sha")
 
 
@@ -554,7 +555,8 @@ def test_explicit_context_overrides_workflow_run(tmp_path):
     )
     context = context_from_env(
         {"GITHUB_REPOSITORY": "o/r", "GITHUB_EVENT_PATH": str(event)},
-        number=42, head_sha="explicit-sha",
+        number=42,
+        head_sha="explicit-sha",
     )
     assert context == PullRequestContext(repository="o/r", number=42, head_sha="explicit-sha")
 
