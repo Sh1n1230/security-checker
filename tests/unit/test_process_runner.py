@@ -80,6 +80,27 @@ def test_capabilities_are_clamped_to_prompt_only():
     assert built.capabilities.supports_seed is False
 
 
+async def test_process_environment_configuration_reaches_runner():
+    built = provider(
+        sandbox(),
+        env_passthrough=["GITHUB_TOKEN"],
+        env_drop=["UNRELATED_SECRET"],
+    )
+    await built.complete(request())
+    args = built.calls[0]  # type: ignore[attr-defined]
+    assert args["env_passthrough"] == ("GITHUB_TOKEN",)
+    assert args["env_drop"] == ("UNRELATED_SECRET",)
+
+
+def test_reviewer_environment_options_are_validated():
+    reviewer = ReviewerConfig(
+        name="cli", transport="process", command=["echo"],
+        env={"passthrough": ["GITHUB_TOKEN"], "drop": ["GH_TOKEN"]},
+    )
+    assert reviewer.env.passthrough == ["GITHUB_TOKEN"]
+    assert reviewer.env.drop == ["GH_TOKEN"]
+
+
 async def test_system_and_user_are_folded_into_one_prompt():
     built = provider(sandbox())
     await built.complete(request())
