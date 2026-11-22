@@ -167,8 +167,9 @@ def _warnings(report: Report) -> list[str]:
     if not errors and not notices:
         return []
     lines = ["## 警告", ""]
-    lines += [f"- ❌ **{w.source}**: {_flatten(w.message)}" for w in errors]
-    lines += [f"- ⚠️ {w.source}: {_flatten(w.message)}" for w in notices[:MAX_LIST_ITEMS]]
+    lines += [f"- ❌ **{md.code_span(w.source)}**: {_flatten(w.message)}" for w in errors]
+    for w in notices[:MAX_LIST_ITEMS]:
+        lines.append(f"- ⚠️ {md.code_span(w.source)}: {_flatten(w.message)}")
     if len(notices) > MAX_LIST_ITEMS:
         lines.append(f"- _ほか {len(notices) - MAX_LIST_ITEMS} 件の警告は `report.json` を参照_")
     lines.append("")
