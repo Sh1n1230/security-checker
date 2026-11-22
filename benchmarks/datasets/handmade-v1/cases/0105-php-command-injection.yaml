@@ -1,0 +1,28 @@
+# 真陽性: HTTP パラメータがシェルコマンドへ連結される。
+id: hand-0105
+source: handmade
+language: php
+candidate:
+  scanner: semgrep
+  rule_id: php.lang.security.audit.shell-exec
+  category: sast
+  message: ユーザー入力がシェルコマンドに組み込まれています
+  path: public/lookup.php
+  start_line: 4
+  end_line: 4
+  severity_reported: high
+  cwe: ["CWE-78"]
+code: |
+  <?php
+  function lookup(): void {
+      $host = $_GET['host'] ?? '';
+      system('nslookup ' . $host);
+  }
+  lookup();
+ground_truth:
+  vulnerable: true
+  cwe: ["CWE-78"]
+  severity: high
+  rationale: |
+    host は外部入力のまま shell を解釈する system に連結される。
+    引数の quoting や allowlist がなく、シェルの制御文字を注入できる。
