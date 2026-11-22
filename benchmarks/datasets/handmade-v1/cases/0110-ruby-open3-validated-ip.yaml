@@ -8,7 +8,7 @@ candidate:
   category: sast
   message: 外部プロセスを起動しています
   path: app/controllers/diagnostics_controller.rb
-  start_line: 11
+  start_line: 12
   end_line: 11
   severity_reported: high
   cwe: ["CWE-78"]
