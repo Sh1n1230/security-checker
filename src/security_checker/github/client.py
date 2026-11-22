@@ -88,8 +88,10 @@ def context_from_env(
         run_pull = associated[0]
     repo = repository or env.get("GITHUB_REPOSITORY")
     pr_number = number or pull.get("number") or run_pull.get("number")
-    sha = head_sha or (pull.get("head") or {}).get("sha") or (
-        workflow_run.get("head_sha") if run_pull else None
+    sha = (
+        head_sha
+        or (pull.get("head") or {}).get("sha")
+        or (workflow_run.get("head_sha") if run_pull else None)
     )
     if not repo or not pr_number:
         raise ConfigError(
