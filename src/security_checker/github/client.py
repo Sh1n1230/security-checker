@@ -83,7 +83,9 @@ def context_from_env(
     # workflow_run carries PR associations on same-repository runs. Fork runs
     # may have an empty list; never guess a PR from branch names or run metadata.
     associated = workflow_run.get("pull_requests") or []
-    run_pull = associated[0] if isinstance(associated, list) and associated and isinstance(associated[0], dict) else {}
+    run_pull = {}
+    if isinstance(associated, list) and associated and isinstance(associated[0], dict):
+        run_pull = associated[0]
     repo = repository or env.get("GITHUB_REPOSITORY")
     pr_number = number or pull.get("number") or run_pull.get("number")
     sha = head_sha or (pull.get("head") or {}).get("sha") or (
