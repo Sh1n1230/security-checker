@@ -1,0 +1,38 @@
+# 誤検知: IPAddr で検証し、シェルを介さず引数配列を渡す。
+id: hand-0110
+source: handmade
+language: ruby
+candidate:
+  scanner: semgrep
+  rule_id: ruby.lang.security.audit.dangerous-exec
+  category: sast
+  message: 外部プロセスを起動しています
+  path: app/controllers/diagnostics_controller.rb
+  start_line: 11
+  end_line: 11
+  severity_reported: high
+  cwe: ["CWE-78"]
+code: |
+  require "ipaddr"
+  require "open3"
+
+  class DiagnosticsController < ApplicationController
+    def ping
+      host = params[:host].to_s
+      begin
+        IPAddr.new(host)
+      rescue IPAddr::InvalidAddressError
+        return head :bad_request
+      end
+      output, _status = Open3.capture2("/bin/ping", "-c", "1", host)
+      render plain: output
+    end
+  end
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    外部入力は IPAddr によって IP アドレスに限定され、先頭が - の文字列や
+    シェルメタ文字は通らない。Open3.capture2 は引数配列をシェルに解釈させず
+    固定された実行ファイルに渡すため、コマンド注入を起こせない。
