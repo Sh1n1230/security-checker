@@ -52,7 +52,16 @@ def _sensitive_environment_name(name: str) -> bool:
         upper in CI_CREDENTIAL_VARIABLES
         or upper.startswith("ACTIONS_")
         or "API_KEY" in upper
-        or upper.endswith(("_TOKEN", "_SECRET", "_PASSWORD", "_ACCESS_KEY", "_PRIVATE_KEY", "_CREDENTIAL"))
+        or upper.endswith(
+            (
+                "_TOKEN",
+                "_SECRET",
+                "_PASSWORD",
+                "_ACCESS_KEY",
+                "_PRIVATE_KEY",
+                "_CREDENTIAL",
+            )
+        )
     )
 
 
