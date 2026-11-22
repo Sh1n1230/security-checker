@@ -1,0 +1,33 @@
+# 誤検知: IP アドレス検証とシェル引数エスケープがある。
+id: hand-0106
+source: handmade
+language: php
+candidate:
+  scanner: semgrep
+  rule_id: php.lang.security.audit.shell-exec
+  category: sast
+  message: system でシェルコマンドを実行しています
+  path: public/lookup.php
+  start_line: 7
+  end_line: 7
+  severity_reported: high
+  cwe: ["CWE-78"]
+code: |
+  <?php
+  function lookup(): void {
+      $host = $_GET['host'] ?? '';
+      if (!filter_var($host, FILTER_VALIDATE_IP)) {
+          http_response_code(400);
+          return;
+      }
+      system('nslookup ' . escapeshellarg($host));
+  }
+  lookup();
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    system の呼び出し自体は警告対象だが、受理する文字列は
+    FILTER_VALIDATE_IP を通った IPv4/IPv6 アドレスだけであり、
+    escapeshellarg も適用される。シェルメタ文字やオプションの注入はできない。
