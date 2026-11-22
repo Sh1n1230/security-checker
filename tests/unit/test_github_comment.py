@@ -530,6 +530,48 @@ def test_context_from_event_payload(tmp_path):
     assert pr == PullRequestContext(repository="o/r", number=3, head_sha="s1")
 
 
+def test_context_from_workflow_run_pr_association(tmp_path):
+    event = tmp_path / "workflow_run.json"
+    event.write_text(
+        json.dumps(
+            {
+                "workflow_run": {
+                    "head_sha": "run-sha",
+                    "pull_requests": [{"number": 29}, {"number": 30}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    context = context_from_env({"GITHUB_REPOSITORY": "o/r", "GITHUB_EVENT_PATH": str(event)})
+    assert context == PullRequestContext(repository="o/r", number=29, head_sha="run-sha")
+
+
+def test_explicit_context_overrides_workflow_run(tmp_path):
+    event = tmp_path / "workflow_run.json"
+    event.write_text(
+        json.dumps({"workflow_run": {"head_sha": "run-sha", "pull_requests": [{"number": 29}]}}),
+        encoding="utf-8",
+    )
+    context = context_from_env(
+        {"GITHUB_REPOSITORY": "o/r", "GITHUB_EVENT_PATH": str(event)},
+        number=42,
+        head_sha="explicit-sha",
+    )
+    assert context == PullRequestContext(repository="o/r", number=42, head_sha="explicit-sha")
+
+
+@pytest.mark.parametrize("pull_requests", [[], None, [{}]])
+def test_workflow_run_without_a_pr_association_fails_closed(tmp_path, pull_requests):
+    event = tmp_path / "workflow_run.json"
+    event.write_text(
+        json.dumps({"workflow_run": {"head_sha": "run-sha", "pull_requests": pull_requests}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError):
+        context_from_env({"GITHUB_REPOSITORY": "o/r", "GITHUB_EVENT_PATH": str(event)})
+
+
 def test_explicit_arguments_win(tmp_path):
     pr = context_from_env({"GITHUB_REPOSITORY": "x/y"}, repository="o/r", number=9, head_sha="h")
     assert pr == PullRequestContext(repository="o/r", number=9, head_sha="h")
