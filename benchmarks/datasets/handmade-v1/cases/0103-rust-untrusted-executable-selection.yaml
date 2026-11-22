@@ -1,0 +1,30 @@
+# True positive: an unauthenticated request controls the program executed.
+id: hand-0103
+source: handmade
+language: rust
+candidate:
+  scanner: semgrep
+  rule_id: rust.lang.security.audit.command-injection
+  category: sast
+  message: Command::new receives an executable name from external input
+  path: src/diagnostics.rs
+  start_line: 5
+  end_line: 5
+  severity_reported: medium
+  cwe: ["CWE-78"]
+code: |
+  use std::process::Command;
+
+  // tool and argument are supplied by an unauthenticated API request.
+  pub fn run_tool(tool: &str, argument: &str) -> std::io::Result<()> {
+      Command::new(tool).arg(argument).status()?;
+      Ok(())
+  }
+ground_truth:
+  vulnerable: true
+  cwe: ["CWE-78"]
+  severity: high
+  rationale: |
+    External input selects the executable itself, without validation or an
+    allowlist. Passing the argument as a separate argv value prevents shell
+    expansion, but does not prevent arbitrary program execution.
