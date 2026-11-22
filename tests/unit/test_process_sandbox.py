@@ -143,13 +143,17 @@ async def test_process_env_strips_ci_tokens_and_other_reviewer_keys_by_default()
 
 
 async def test_explicit_passthrough_can_restore_a_token_but_drop_still_wins():
-    environ = {"GITHUB_TOKEN": "github-secret", "GH_TOKEN": "gh-secret", "PATH": os.environ.get("PATH", "")}
+    environ = {
+        "GITHUB_TOKEN": "github-secret",
+        "GH_TOKEN": "gh-secret",
+        "PATH": os.environ.get("PATH", ""),
+    }
     script = "import json,os;print(json.dumps(dict(os.environ)))"
     allowed = await run_sandboxed(
         python(script), prompt="x", environ=environ, env_passthrough=("GITHUB_TOKEN",)
     )
     seen = json.loads(allowed.stdout)
-    assert seen["GITHUB_TOKEN"] == "github-secret"
+    assert seen["GITHUB_TOKEN"] == environ["GITHUB_TOKEN"]
     assert "GH_TOKEN" not in seen
     blocked = await run_sandboxed(
         python(script), prompt="x", environ=environ,
