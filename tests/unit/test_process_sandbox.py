@@ -156,8 +156,11 @@ async def test_explicit_passthrough_can_restore_a_token_but_drop_still_wins():
     assert seen["GITHUB_TOKEN"] == environ["GITHUB_TOKEN"]
     assert "GH_TOKEN" not in seen
     blocked = await run_sandboxed(
-        python(script), prompt="x", environ=environ,
-        env_passthrough=("GITHUB_TOKEN",), env_drop=("GITHUB_TOKEN",)
+        python(script),
+        prompt="x",
+        environ=environ,
+        env_passthrough=("GITHUB_TOKEN",),
+        env_drop=("GITHUB_TOKEN",),
     )
     assert "GITHUB_TOKEN" not in json.loads(blocked.stdout)
 
