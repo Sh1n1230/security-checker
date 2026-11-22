@@ -79,9 +79,16 @@ def context_from_env(
         except (OSError, ValueError):
             event = {}
     pull = event.get("pull_request") or {}
+    workflow_run = event.get("workflow_run") or {}
+    # workflow_run carries PR associations on same-repository runs. Fork runs
+    # may have an empty list; never guess a PR from branch names or run metadata.
+    associated = workflow_run.get("pull_requests") or []
+    run_pull = associated[0] if isinstance(associated, list) and associated and isinstance(associated[0], dict) else {}
     repo = repository or env.get("GITHUB_REPOSITORY")
-    pr_number = number or pull.get("number")
-    sha = head_sha or (pull.get("head") or {}).get("sha")
+    pr_number = number or pull.get("number") or run_pull.get("number")
+    sha = head_sha or (pull.get("head") or {}).get("sha") or (
+        workflow_run.get("head_sha") if run_pull else None
+    )
     if not repo or not pr_number:
         raise ConfigError(
             "コメント先の PR を特定できません。--repo と --pr を指定するか、"
