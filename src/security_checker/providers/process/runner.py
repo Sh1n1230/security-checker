@@ -84,6 +84,8 @@ class ProcessProvider:
         parse: str = "json_in_stdout",
         version: str | None = None,
         environ: Mapping[str, str] | None = None,
+        env_passthrough: Sequence[str] = (),
+        env_drop: Sequence[str] = (),
         runner: Runner | None = None,
     ) -> None:
         self.name = name
@@ -95,6 +97,8 @@ class ProcessProvider:
         self.version = version
         self._capabilities = process_capabilities(capabilities)
         self._environ = environ
+        self._env_passthrough = tuple(env_passthrough)
+        self._env_drop = tuple(env_drop)
         self._runner: Runner = runner or run_sandboxed
 
     @property
@@ -138,6 +142,8 @@ class ProcessProvider:
                 prompt_via=self.prompt_via,
                 timeout_s=timeout_s,
                 environ=self._environ,
+                env_passthrough=self._env_passthrough,
+                env_drop=self._env_drop,
             )
         except FileNotFoundError as exc:
             raise ProviderError(
