@@ -264,6 +264,8 @@ def build_process_provider(
         parse=parse,
         version=command_version(command[0]).version,
         environ=environ,
+        env_passthrough=reviewer.env.passthrough,
+        env_drop=reviewer.env.drop,
     )
 
 

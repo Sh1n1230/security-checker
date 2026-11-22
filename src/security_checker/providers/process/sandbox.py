@@ -41,6 +41,30 @@ OUTPUT_BYTE_LIMIT = OUTPUT_LIMIT * 4
 _READ_CHUNK = 64 * 1024
 TRUNCATED_NOTICE = "\n…(truncated)"
 
+#: CI job credentials and other reviewer secrets must not be implicitly
+#: handed to third-party process transports. Explicit passthrough is opt-in.
+CI_CREDENTIAL_VARIABLES = frozenset({"GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "CI_JOB_TOKEN"})
+
+
+def _sensitive_environment_name(name: str) -> bool:
+    upper = name.upper()
+    return (
+        upper in CI_CREDENTIAL_VARIABLES
+        or upper.startswith("ACTIONS_")
+        or "API_KEY" in upper
+        or upper.endswith(
+            (
+                "_TOKEN",
+                "_SECRET",
+                "_PASSWORD",
+                "_ACCESS_KEY",
+                "_PRIVATE_KEY",
+                "_CREDENTIAL",
+            )
+        )
+    )
+
+
 #: 子に渡さない環境変数. 値がリポジトリのパスであり、資格情報ではないもの
 REPOSITORY_PATH_VARIABLES = (
     "OLDPWD",
@@ -82,12 +106,14 @@ async def run_sandboxed(
     prompt_via: PromptVia = "stdin",
     timeout_s: float = 300.0,
     environ: Mapping[str, str] | None = None,
+    env_passthrough: Sequence[str] = (),
+    env_drop: Sequence[str] = (),
 ) -> SandboxResult:
     """コマンドを隔離した一時ディレクトリで実行し、stdout を回収する.
 
-    `environ` を省略すると呼び出し元の環境を引き継ぐ。
-    process transport の存在意義は「そのコマンド側の既存ログインを使う」ことなので、
-    資格情報を含む環境は落とさない。リポジトリのパスを指す変数だけを除く (§9.7)。
+    `environ` を省略すると基本的な環境を引き継ぐが、CI トークンや
+    Reviewer の API キーは既定で除外する。必要なら env_passthrough で明示する。
+    env_drop は明示的な許可より優先する。
     """
     started = time.monotonic()
     with (
@@ -102,7 +128,12 @@ async def run_sandboxed(
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=_child_environment(os.environ if environ is None else environ, cwd),
+            env=_child_environment(
+                os.environ if environ is None else environ,
+                cwd,
+                passthrough=env_passthrough,
+                drop=env_drop,
+            ),
             # POSIX では新しいセッション = 新しいプロセスグループ。killpg で一掃するために必要。
             start_new_session=POSIX,
         )
@@ -138,13 +169,26 @@ async def run_sandboxed(
         )
 
 
-def _child_environment(environ: Mapping[str, str], cwd: Path) -> dict[str, str]:
-    """子に渡す環境. Python は cwd= を指定しても PWD を書き換えないので、ここで直す."""
+def _child_environment(
+    environ: Mapping[str, str],
+    cwd: Path,
+    *,
+    passthrough: Sequence[str] = (),
+    drop: Sequence[str] = (),
+) -> dict[str, str]:
+    """Child env: strip CI/API credentials by default, retaining normal CLI login state."""
     started_in = os.getcwd()
+    allowed = set(passthrough)
+    excluded = set(drop)
     child = {
         name: value
         for name, value in environ.items()
-        if name not in REPOSITORY_PATH_VARIABLES and value != started_in
+        if (
+            name not in REPOSITORY_PATH_VARIABLES
+            and name not in excluded
+            and value != started_in
+            and (name in allowed or not _sensitive_environment_name(name))
+        )
     }
     child["PWD"] = str(cwd)
     return child

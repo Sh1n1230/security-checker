@@ -34,6 +34,28 @@ reviewers:
 
 `api_key_env` は**書きません**。認証は起動されるコマンド側の既存ログインに委ねます。
 
+### 子プロセスの環境変数と CI 資格情報
+
+通常の CLI 環境と既存ログインは引き継ぎますが、`GITHUB_TOKEN`、
+`GH_TOKEN`、`ACTIONS_*` と `*_API_KEY` / `*_TOKEN` / `*_SECRET`
+などの認証変数は外部コマンドに**既定では渡しません**。
+これは第三者製 CLI に他の Reviewer や CI の認証情報が渡るのを防ぐためです。
+
+どうしても必要な変数だけ `env.passthrough` に列挙してください。
+`env.drop` は強制的に除外します（`passthrough` より優先）。
+カスタム名の秘密は自動分類できない場合があるため、`drop` に明示します。
+
+```yaml
+reviewers:
+  - name: local-command
+    transport: process
+    command: ["<your-command>", "--non-interactive", "--no-tools"]
+    env:
+      passthrough: [GITHUB_TOKEN]  # 必要性を確認した場合だけ
+      drop: [INTERNAL_SERVICE_CREDENTIAL]
+```
+
+
 環境を検出して雛形を作ることもできます。
 
 ```bash

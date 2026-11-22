@@ -125,6 +125,46 @@ async def test_environment_is_passed_through_by_default():
     assert result.stdout.strip() == "inherited"
 
 
+async def test_process_env_strips_ci_tokens_and_other_reviewer_keys_by_default():
+    environ = {
+        "PATH": os.environ.get("PATH", ""),
+        "GITHUB_TOKEN": "github-secret",
+        "GH_TOKEN": "gh-secret",
+        "ACTIONS_RUNTIME_TOKEN": "runner-secret",
+        "OTHER_REVIEWER_API_KEY": "provider-secret",
+        "SC_TEST_MARKER": "normal",
+    }
+    script = "import json,os;print(json.dumps(dict(os.environ)))"
+    result = await run_sandboxed(python(script), prompt="x", environ=environ)
+    seen = json.loads(result.stdout)
+    assert seen["SC_TEST_MARKER"] == "normal"
+    for variable in ("GITHUB_TOKEN", "GH_TOKEN", "ACTIONS_RUNTIME_TOKEN", "OTHER_REVIEWER_API_KEY"):
+        assert variable not in seen
+
+
+async def test_explicit_passthrough_can_restore_a_token_but_drop_still_wins():
+    environ = {
+        "GITHUB_TOKEN": "github-secret",
+        "GH_TOKEN": "gh-secret",
+        "PATH": os.environ.get("PATH", ""),
+    }
+    script = "import json,os;print(json.dumps(dict(os.environ)))"
+    allowed = await run_sandboxed(
+        python(script), prompt="x", environ=environ, env_passthrough=("GITHUB_TOKEN",)
+    )
+    seen = json.loads(allowed.stdout)
+    assert seen["GITHUB_TOKEN"] == environ["GITHUB_TOKEN"]
+    assert "GH_TOKEN" not in seen
+    blocked = await run_sandboxed(
+        python(script),
+        prompt="x",
+        environ=environ,
+        env_passthrough=("GITHUB_TOKEN",),
+        env_drop=("GITHUB_TOKEN",),
+    )
+    assert "GITHUB_TOKEN" not in json.loads(blocked.stdout)
+
+
 async def test_explicit_environment_replaces_the_inherited_one():
     script = "import os,sys;sys.stdin.read();print(os.environ.get('SC_TEST_MARKER', 'absent'))"
     result = await run_sandboxed(
@@ -206,7 +246,7 @@ async def test_child_does_not_receive_the_repository_path(tmp_path, monkeypatch)
     seen = json.loads(result.stdout)
     assert str(tmp_path) not in seen.values()
     assert "GITHUB_WORKSPACE" not in seen
-    assert seen["GITHUB_TOKEN"] == environ["GITHUB_TOKEN"]
+    assert "GITHUB_TOKEN" not in seen
     assert seen["PWD"] != str(tmp_path)
 
 

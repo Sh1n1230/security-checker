@@ -202,6 +202,13 @@ PROCESS_TIMEOUT_S = 300
 MASKED = "****"
 
 
+class ProcessEnvConfig(StrictModel):
+    """Explicit exceptions to process transport's secret-environment filtering."""
+
+    passthrough: list[str] = Field(default_factory=list)
+    drop: list[str] = Field(default_factory=list)
+
+
 class ReviewerConfig(StrictModel):
     """Reviewer 定義 (P2 以降で使用).
 
@@ -249,6 +256,7 @@ class ReviewerConfig(StrictModel):
     plugin: str | None = None
 
     # process transport
+    env: ProcessEnvConfig = Field(default_factory=ProcessEnvConfig)
     preset: str | None = None
     command: list[str] | None = None
     #: プロンプトの渡し方. どちらでも argv には本文を埋め込まない (設計書 §9.7)
