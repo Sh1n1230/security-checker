@@ -8,7 +8,7 @@ candidate:
   category: sast
   message: system でシェルコマンドを実行しています
   path: public/lookup.php
-  start_line: 7
+  start_line: 8
   end_line: 7
   severity_reported: high
   cwe: ["CWE-78"]
