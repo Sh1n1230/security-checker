@@ -1,0 +1,29 @@
+# 真陽性: 外部入力を SQL の文字列リテラルへ直接連結する。
+id: hand-0107
+source: handmade
+language: php
+candidate:
+  scanner: semgrep
+  rule_id: php.lang.security.sql-injection
+  category: sast
+  message: SQL に外部入力が文字列連結されています
+  path: src/UserSearch.php
+  start_line: 5
+  end_line: 5
+  severity_reported: high
+  cwe: ["CWE-89"]
+code: |
+  <?php
+  function findUser(PDO $db): array {
+      $email = $_GET['email'] ?? '';
+      $sql = "SELECT id, email FROM users WHERE email = '" . $email . "'";
+      return $db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+  }
+ground_truth:
+  vulnerable: true
+  cwe: ["CWE-89"]
+  severity: high
+  rationale: |
+    外部入力 email が引用符付き SQL リテラルへエスケープなしで挿入される。
+    攻撃者は引用符を閉じて WHERE 句などの SQL 構造を改変できる。
+    PDO の query は prepare のようにパラメータ化を行わない。
