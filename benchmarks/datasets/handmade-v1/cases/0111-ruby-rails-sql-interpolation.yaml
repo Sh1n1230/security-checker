@@ -1,0 +1,30 @@
+# 真陽性: Rails の params 値が生 SQL に文字列展開される。
+id: hand-0111
+source: handmade
+language: ruby
+candidate:
+  scanner: semgrep
+  rule_id: ruby.rails.security.sql-injection
+  category: sast
+  message: ActiveRecord の SQL 条件に外部入力が埋め込まれています
+  path: app/controllers/users_controller.rb
+  start_line: 4
+  end_line: 4
+  severity_reported: high
+  cwe: ["CWE-89"]
+code: |
+  class UsersController < ApplicationController
+    def search
+      email = params[:email].to_s
+      @users = User.where("email = '#{email}'").limit(5).to_a
+      render json: @users
+    end
+  end
+ground_truth:
+  vulnerable: true
+  cwe: ["CWE-89"]
+  severity: high
+  rationale: |
+    Rails の params 由来の email が SQL の引用符で囲まれた文字列に直接
+    展開される。ActiveRecord.where はこの文字列をパラメータ化せず、
+    攻撃者が引用符を閉じて SQL の条件を改変できる。

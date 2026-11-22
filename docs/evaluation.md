@@ -57,16 +57,16 @@ Provider のエラー (`errors`) と、予算や上限でレビューされな�
 
 ## 同梱のデータセット
 
-`benchmarks/datasets/handmade-v1/` に 100 件 (真陽性 48 / 誤検知 52) あります。
+`benchmarks/datasets/handmade-v1/` に 104 件 (真陽性 50 / 誤検知 54) あります。
 
 | カテゴリ | 件数 | 主な題材 |
 |---|---|---|
-| sast | 67 | コマンド / SQL インジェクション、デシリアライズ、パストラバーサル、XSS、SSRF、XXE、CSRF、IDOR、乱数、TLS 検証 |
+| sast | 71 | コマンド / SQL インジェクション、デシリアライズ、パストラバーサル、XSS、SSRF、XXE、CSRF、IDOR、乱数、TLS 検証 |
 | secret | 15 | 本番設定・CI・フロントエンドへの直書き、`.env.example`・ドキュメント例・テスト用の値 |
 | config | 10 | Kubernetes・Dockerfile・Terraform (S3・セキュリティグループ) |
 | dependency | 8 | 到達する脆弱性 / 使っていない機能・開発依存・インストールされない extra |
 
-言語は Python・JavaScript / TypeScript・Go・Java と設定ファイル。
+言語は Python・JavaScript / TypeScript・Go・Java・Ruby と設定ファイル。
 誤検知のケースは「スキャナのルールは正しく反応したが、文脈 (到達可能性・用途・対策済み) を見れば
 問題ではない」ものを中心にしています。LLM レビューの価値はそこにあるためです。
 

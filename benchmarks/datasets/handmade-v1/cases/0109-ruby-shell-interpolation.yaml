@@ -1,0 +1,29 @@
+# 真陽性: Rails の params がシェルのバッククォート実行に到達する。
+id: hand-0109
+source: handmade
+language: ruby
+candidate:
+  scanner: semgrep
+  rule_id: ruby.lang.security.audit.dangerous-exec
+  category: sast
+  message: Rails の外部入力がシェルに渡っています
+  path: app/controllers/diagnostics_controller.rb
+  start_line: 4
+  end_line: 4
+  severity_reported: high
+  cwe: ["CWE-78"]
+code: |
+  class DiagnosticsController < ApplicationController
+    def ping
+      host = params[:host].to_s
+      output = `ping -c 1 #{host}`
+      render plain: output
+    end
+  end
+ground_truth:
+  vulnerable: true
+  cwe: ["CWE-78"]
+  severity: high
+  rationale: |
+    外部の host パラメータがバッククォート文字列に直接展開されるため、
+    シェルメタ文字を注入して任意のコマンドを追加実行できる。
