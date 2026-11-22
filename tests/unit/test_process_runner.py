@@ -94,7 +94,9 @@ async def test_process_environment_configuration_reaches_runner():
 
 def test_reviewer_environment_options_are_validated():
     reviewer = ReviewerConfig(
-        name="cli", transport="process", command=["echo"],
+        name="cli",
+        transport="process",
+        command=["echo"],
         env={"passthrough": ["GITHUB_TOKEN"], "drop": ["GH_TOKEN"]},
     )
     assert reviewer.env.passthrough == ["GITHUB_TOKEN"]
