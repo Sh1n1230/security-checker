@@ -1,4 +1,5 @@
 """Warning source fields must not inject Markdown into security reports."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
