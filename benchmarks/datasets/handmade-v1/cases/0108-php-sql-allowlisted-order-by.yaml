@@ -1,0 +1,35 @@
+# 誤検知: ORDER BY の識別子は定数の allowlist からしか選べない。
+id: hand-0108
+source: handmade
+language: php
+candidate:
+  scanner: semgrep
+  rule_id: php.lang.security.sql-injection
+  category: sast
+  message: SQL を文字列連結で組み立てています
+  path: src/UserSearch.php
+  start_line: 10
+  end_line: 9
+  severity_reported: high
+  cwe: ["CWE-89"]
+code: |
+  <?php
+  function listUsers(PDO $db): array {
+      $columns = ['name' => 'name', 'created' => 'created_at'];
+      $requested = $_GET['sort'] ?? 'created';
+      if (!array_key_exists($requested, $columns)) {
+          http_response_code(400);
+          return [];
+      }
+      $sort = $columns[$requested];
+      $sql = 'SELECT id, name FROM users ORDER BY ' . $sort;
+      return $db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    ORDER BY の識別子は固定辞書の name または created_at からのみ選択する。
+    外部入力を SQL へ連結しておらず、不明な sort 値は拒否される。
+    プレースホルダを使用できない SQL 識別子に対する安全な allowlist である。
