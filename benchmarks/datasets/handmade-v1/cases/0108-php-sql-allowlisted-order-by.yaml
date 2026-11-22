@@ -8,7 +8,7 @@ candidate:
   category: sast
   message: SQL を文字列連結で組み立てています
   path: src/UserSearch.php
-  start_line: 9
+  start_line: 10
   end_line: 9
   severity_reported: high
   cwe: ["CWE-89"]
