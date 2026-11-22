@@ -1,0 +1,34 @@
+# False positive: a fixed executable receives a filename as an argv element.
+id: hand-0102
+source: handmade
+language: rust
+candidate:
+  scanner: semgrep
+  rule_id: rust.lang.security.audit.command-injection
+  category: sast
+  message: A process is launched using a path derived from input
+  path: src/thumbnail.rs
+  start_line: 9
+  end_line: 9
+  severity_reported: medium
+  cwe: ["CWE-78"]
+code: |
+  use std::path::Path;
+  use std::process::Command;
+
+  pub fn copy_uploaded_file(filename: &str) -> std::io::Result<()> {
+      let name = Path::new(filename).file_name()
+          .ok_or_else(|| std::io::Error::other("missing filename"))?;
+      let source = Path::new("/srv/uploads").join(name);
+      Command::new("cp").arg("--").arg(source).arg("/tmp/thumbnail.png").status()?;
+      Ok(())
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    The executable is the fixed cp binary; the filename is a separate
+    argument, and -- prevents option injection through leading dashes.
+    file_name removes attacker-controlled path components, so no shell
+    evaluates metacharacters. This is not OS command injection.

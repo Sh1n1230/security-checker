@@ -1,0 +1,31 @@
+# True positive: untrusted filename is interpolated into an sh -c command.
+id: hand-0101
+source: handmade
+language: rust
+candidate:
+  scanner: semgrep
+  rule_id: rust.lang.security.audit.command-injection
+  category: sast
+  message: Untrusted input may reach a shell command
+  path: src/thumbnail.rs
+  start_line: 7
+  end_line: 7
+  severity_reported: high
+  cwe: ["CWE-78"]
+code: |
+  use std::process::Command;
+
+  // The HTTP upload handler passes the caller-controlled filename.
+  pub fn make_thumbnail(filename: &str) -> std::io::Result<()> {
+      let script = format!("convert uploads/{} /tmp/thumb.png", filename);
+      Command::new("sh").arg("-c").arg(script).status()?;
+      Ok(())
+  }
+ground_truth:
+  vulnerable: true
+  cwe: ["CWE-78"]
+  severity: high
+  rationale: |
+    The HTTP filename is inserted into the command interpreted by sh -c.
+    Shell metacharacters in the filename can execute additional commands.
+    Rust's typed Command API does not make the sh -c script safe.

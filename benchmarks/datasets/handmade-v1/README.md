@@ -4,16 +4,16 @@
 **スキャナが出したことにする候補 + 文脈込みのコード + 人手の正解ラベル (と理由)** を持ちます。
 書式と指標の読み方は [docs/evaluation.md](../../../docs/evaluation.md) を参照してください。
 
-## 内訳 (100 件)
+## 内訳 (104 件)
 
 | 正解 | 件数 |
 |---|---|
-| 真陽性 (`vulnerable: true`) | 48 |
-| 誤検知 (`vulnerable: false`) | 52 |
+| 真陽性 (`vulnerable: true`) | 50 |
+| 誤検知 (`vulnerable: false`) | 54 |
 
 | カテゴリ | スキャナ | 件数 |
 |---|---|---|
-| sast | semgrep | 67 |
+| sast | semgrep | 71 |
 | secret | gitleaks | 15 |
 | config | trivy | 10 |
 | dependency | osv | 8 |
@@ -28,11 +28,12 @@
 | HCL (Terraform) | 5 |
 | テキスト | 3 |
 | TypeScript | 2 |
+| Rust | 4 |
 | Dockerfile | 2 |
 | dotenv | 1 |
 | Markdown | 1 |
 
-PHP・Ruby・C#・Rust・Kotlin・Swift・C / C++ のケースはまだありません (issue で募集しています)。
+PHP・Ruby・C#・Kotlin・Swift・C / C++ のケースはまだありません (issue で募集しています)。
 
 ## 出典
 

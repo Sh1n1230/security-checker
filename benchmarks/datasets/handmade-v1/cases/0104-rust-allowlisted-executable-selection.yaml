@@ -1,0 +1,34 @@
+# False positive: user selection maps to a closed set of fixed programs.
+id: hand-0104
+source: handmade
+language: rust
+candidate:
+  scanner: semgrep
+  rule_id: rust.lang.security.audit.command-injection
+  category: sast
+  message: Command::new receives an executable chosen by a request
+  path: src/diagnostics.rs
+  start_line: 11
+  end_line: 11
+  severity_reported: medium
+  cwe: ["CWE-78"]
+code: |
+  use std::process::Command;
+
+  pub fn check_version(requested_tool: &str) -> std::io::Result<()> {
+      let program = match requested_tool {
+          "git" => "/usr/bin/git",
+          "python" => "/usr/bin/python3",
+          _ => return Err(std::io::Error::other("unsupported tool")),
+      };
+      Command::new(program).arg("--version").status()?;
+      Ok(())
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    The request only selects among two hard-coded absolute executable paths,
+    both invoked with the fixed --version argument. No request content is
+    interpreted as a command, an executable path, or an executable argument.
