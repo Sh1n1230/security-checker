@@ -42,7 +42,7 @@ dependencies = [
 # (入れても何も変わらない extras は誤解を招く) (設計書 §4)
 tiktoken = ["tiktoken"]
 # 外部のプラグイン作者向けの契約テスト (security_checker.testing) に要る
-testing = ["pytest>=9.2.0", "pytest-asyncio>=1.4.1.post1"]
+testing = ["pytest>=9.2.0", "pytest-asyncio>=1.5.0"]
 all = ["security-checker[tiktoken,testing]"]
 
 [project.scripts]
@@ -64,11 +64,11 @@ dev = [
   "jsonschema[format-nongpl]>=4.26.0",
   "mypy>=2.4.1",
   "pytest>=9.2.0",
-  "pytest-asyncio>=1.4.1.post1",
+  "pytest-asyncio>=1.5.0",
   "pytest-cov>=5",
   "respx>=0.21",
-  "ruff>=0.17.4",
-  "syrupy>=7.0.0",
+  "ruff>=0.17.5",
+  "syrupy>=7.0.2",
   "types-pyyaml",
 ]
 
