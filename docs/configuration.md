@@ -231,5 +231,26 @@ subprocess.run(cmd, shell=True)  # security-checker: ignore[python.lang.security
 subprocess.run(cmd, shell=True)
 ```
 
+注釈で抑制できる重大度を制限するには、`policy.annotation_max_severity` を設定します。
+既定は `null` (上限なし) です。たとえば `high` ならスキャナが報告した `critical` と
+重大度が不明な候補は注釈で抑制せず、レビューとゲートの対象に残します。上限と同じ重大度は
+抑制できます。`.security-checker-ignore` と baseline による明示的な抑制は引き続き適用します。
+
+```yaml
+policy:
+  annotation_max_severity: high
+```
+
+重要な例外をコード所有者のレビュー対象にするなら、設定・ignore ファイル・baseline を
+`CODEOWNERS` と必須レビューのブランチ保護で管理します (`@security-team` は実在のチーム名に置換)。
+`CODEOWNERS` ファイルだけではレビューを必須にしません。
+
+```text
+/security-checker.yml @security-team
+/.security-checker-ignore @security-team
+/.security-checker-baseline.json @security-team
+/.github/CODEOWNERS @security-team
+```
+
 信用できない検査対象 (`SECURITY_CHECKER_UNTRUSTED_TARGET=1`) では、検査対象の中の ignore ファイルと
 注釈を読みません。PR 側が自分の指摘を自分で消せてしまうためです。

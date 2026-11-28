@@ -386,3 +386,12 @@ def test_env_key_outside_the_schema_is_parsed_as_yaml():
 def test_judge_strategy_requires_a_judge_reviewer():
     with pytest.raises(ValueError, match=r"judge\.reviewer が必要"):
         Config.model_validate({"aggregation": {"strategy": "judge"}})
+
+
+def test_annotation_max_severity_config(tmp_path):
+    assert Config().policy.annotation_max_severity is None
+    write_config(tmp_path, "version: 1\npolicy:\n  annotation_max_severity: high\n")
+    assert load_config(tmp_path, environ={}).config.policy.annotation_max_severity is Severity.HIGH
+    write_config(tmp_path, "version: 1\npolicy:\n  annotation_max_severity: invalid\n")
+    with pytest.raises(ConfigError, match="annotation_max_severity"):
+        load_config(tmp_path, environ={})

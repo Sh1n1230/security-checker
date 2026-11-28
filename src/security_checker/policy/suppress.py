@@ -22,6 +22,7 @@ from security_checker.policy.ignore import AnnotationReader, IgnoreFile, load_ig
 if TYPE_CHECKING:
     from security_checker.config.schema import Config
     from security_checker.models.candidate import Candidate
+    from security_checker.models.enums import Severity
 
 
 @dataclass
@@ -34,6 +35,7 @@ class SuppressionRules:
     warnings: list[str] = field(default_factory=list)
     #: 検査対象を信用しない (§21.2)。スキャナ自身の設定の読み込みも止める (#43)
     untrusted_target: bool = False
+    annotation_max_severity: Severity | None = None
 
 
 def load_rules(
@@ -44,7 +46,10 @@ def load_rules(
     untrusted_target: bool = False,
 ) -> SuppressionRules:
     """設定から抑制規則を組み立てる. baseline の相対パスは設定ファイルの場所が基準."""
-    rules = SuppressionRules(untrusted_target=untrusted_target)
+    rules = SuppressionRules(
+        untrusted_target=untrusted_target,
+        annotation_max_severity=config.policy.annotation_max_severity,
+    )
     base_dir = config_dir or root
     if config.policy.baseline is not None:
         path = Path(config.policy.baseline).expanduser()
@@ -72,6 +77,12 @@ def apply_suppressions(
     warnings: list[str] = []
     for candidate in candidates:
         annotation = rules.annotations.find(candidate) if rules.annotations else None
+        if annotation is not None and not _annotation_allowed(candidate, rules):
+            warnings.append(
+                f"{candidate.where}: {candidate.rule_id} は annotation_max_severity の"
+                "上限を超えるか重大度が不明なため、ignore 注釈では抑制しません"
+            )
+            annotation = None
         if annotation is not None:
             if annotation.reason is None:
                 warnings.append(
@@ -109,3 +120,11 @@ def apply_suppressions(
     if rules.annotations is not None:
         warnings.extend(rules.annotations.warnings)
     return kept, suppressed, warnings
+
+
+def _annotation_allowed(candidate: Candidate, rules: SuppressionRules) -> bool:
+    """明示した上限以下の重大度だけを注釈で抑制できるようにする."""
+    maximum = rules.annotation_max_severity
+    return maximum is None or (
+        candidate.severity_reported is not None and candidate.severity_reported <= maximum
+    )

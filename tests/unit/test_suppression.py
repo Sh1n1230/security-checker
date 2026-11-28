@@ -444,3 +444,64 @@ def test_rule_with_path_matches_the_manifest_of_a_dependency(scanner):
     )
     assert parse_ignore_file("rule:GHSA-xxxx uv.lock\n")[0].match(dependency) is not None
     assert parse_ignore_file("rule:GHSA-xxxx other.lock\n")[0].match(dependency) is None
+
+
+@pytest.mark.parametrize("maximum", [None, "medium", "critical"])
+@pytest.mark.parametrize("severity", [*Severity, None])
+def test_annotation_severity_ceiling(tmp_path, maximum, severity):
+    (tmp_path / "app.py").write_text(
+        "run()  # security-checker: ignore[*] reason=reviewed fixture\n", encoding="utf-8"
+    )
+    config = Config.model_validate({"policy": {"annotation_max_severity": maximum}})
+    candidate = make_candidate(path="app.py", line=1, severity=severity)
+    kept, suppressed, warnings = apply_suppressions([candidate], load_rules(config, tmp_path))
+    allowed = maximum is None or (severity is not None and severity <= Severity(maximum))
+    if allowed:
+        assert kept == []
+        assert suppressed[0].candidate == candidate
+        assert suppressed[0].reason is SuppressionReason.INLINE_ANNOTATION
+        assert warnings == []
+    else:
+        assert kept == [candidate]
+        assert suppressed == []
+        assert len(warnings) == 1
+        assert "annotation_max_severity" in warnings[0]
+
+
+@pytest.mark.parametrize("mechanism", ["ignore_file", "baseline"])
+def test_annotation_ceiling_preserves_explicit_suppressions(tmp_path, mechanism):
+    (tmp_path / "app.py").write_text(
+        "run()  # security-checker: ignore[*] reason=reviewed fixture\n", encoding="utf-8"
+    )
+    candidate = make_candidate(path="app.py", line=1, severity=Severity.CRITICAL)
+    policy = {"annotation_max_severity": "high"}
+    if mechanism == "ignore_file":
+        (tmp_path / ".security-checker-ignore").write_text("app.py\n", encoding="utf-8")
+    else:
+        write_baseline(tmp_path / "baseline.json", [candidate], tool_version="2.0.0")
+        policy["baseline"] = "baseline.json"
+    kept, suppressed, warnings = apply_suppressions(
+        [candidate], load_rules(Config.model_validate({"policy": policy}), tmp_path)
+    )
+    assert kept == []
+    assert len(suppressed) == 1
+    assert suppressed[0].reason == mechanism
+    assert len(warnings) == 1
+
+
+async def test_annotation_ceiling_keeps_critical_candidate_in_gate(tmp_path):
+    (tmp_path / "app.py").write_text(
+        "run()  # security-checker: ignore[*] reason=reviewed fixture\n", encoding="utf-8"
+    )
+    candidate = make_candidate(path="app.py", line=1, severity=Severity.CRITICAL)
+    config = Config.model_validate({"policy": {"annotation_max_severity": "high"}})
+    outcome = await run_scan(
+        config,
+        tmp_path,
+        base_dir=tmp_path,
+        scanners=[FakeScanner("semgrep", candidates=[candidate])],
+        suppression=load_rules(config, tmp_path),
+    )
+    assert outcome.report.candidates == [candidate]
+    assert outcome.report.suppressed == []
+    assert outcome.decision.exit_code is ExitCode.POLICY_VIOLATION

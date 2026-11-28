@@ -347,6 +347,8 @@ class PolicyConfig(StrictModel):
     min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     strict: bool = True
     baseline: str | None = None
+    #: null は上限なし。指定時は重大度が不明な候補も注釈では抑制しない
+    annotation_max_severity: Severity | None = None
     min_score: int | None = Field(default=None, ge=0, le=100)
 
 
