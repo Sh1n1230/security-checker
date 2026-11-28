@@ -1,0 +1,39 @@
+id: hand-csharp-sql-parameter
+source: handmade
+language: csharp
+candidate:
+  scanner: semgrep
+  rule_id: csharp.lang.security.sqli.csharp-sqli
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/csharp_sql_parameter.cs
+  start_line: 11
+  end_line: 11
+  severity_reported: high
+  cwe:
+  - CWE-89
+code: |
+  using Microsoft.AspNetCore.Mvc;
+  using Microsoft.Data.SqlClient;
+
+  public class SearchController : ControllerBase
+  {
+      [HttpGet("/search")]
+      public object Search([FromQuery] string name)
+      {
+          using var connection = new SqlConnection("Server=localhost;Database=demo;Integrated Security=true");
+          connection.Open();
+          using var command = new SqlCommand("SELECT id FROM users WHERE name = @name", connection);
+          command.Parameters.AddWithValue("@name", name);
+          return command.ExecuteScalar();
+      }
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    The command text is constant and the HTTP value is bound to @name. Quotes
+    and SQL-looking fragments in name are data, not SQL syntax. This negative
+    label concerns the SQL-injection candidate, not a claim about every aspect
+    of the endpoint's authorization or database deployment.

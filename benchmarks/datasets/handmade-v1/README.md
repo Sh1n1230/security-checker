@@ -4,16 +4,16 @@
 **スキャナが出したことにする候補 + 文脈込みのコード + 人手の正解ラベル (と理由)** を持ちます。
 書式と指標の読み方は [docs/evaluation.md](../../../docs/evaluation.md) を参照してください。
 
-## 内訳 (100 件)
+## 内訳 (104 件)
 
 | 正解 | 件数 |
 |---|---|
-| 真陽性 (`vulnerable: true`) | 48 |
-| 誤検知 (`vulnerable: false`) | 52 |
+| 真陽性 (`vulnerable: true`) | 50 |
+| 誤検知 (`vulnerable: false`) | 54 |
 
 | カテゴリ | スキャナ | 件数 |
 |---|---|---|
-| sast | semgrep | 67 |
+| sast | semgrep | 71 |
 | secret | gitleaks | 15 |
 | config | trivy | 10 |
 | dependency | osv | 8 |
@@ -31,8 +31,9 @@
 | Dockerfile | 2 |
 | dotenv | 1 |
 | Markdown | 1 |
+| C# | 4 |
 
-PHP・Ruby・C#・Rust・Kotlin・Swift・C / C++ のケースはまだありません (issue で募集しています)。
+PHP・Ruby・Rust・Kotlin・Swift・C / C++ のケースはまだありません (issue で募集しています)。
 
 ## 出典
 
@@ -47,3 +48,10 @@ PHP・Ruby・C#・Rust・Kotlin・Swift・C / C++ のケースはまだありま
 - `rationale` を必ず書く (ラベルの妥当性を後から検証できるように)
 - `id` (省略時はファイル名) は英数字と `.` `_` `-` だけ。`path` は相対パスで、`..` は使えません
 - 件数や内訳が変わったら、この README の表も直す
+
+## Added paired cases
+
+C#: each language adds two vulnerable cases and two negative controls.
+The candidate locations identify the security-sensitive operation; the rationale
+explains the relevant source, sink, and mitigation or benign use. These are seeded
+Reviewer-evaluation inputs, not scanner-detection or live-LLM accuracy results.

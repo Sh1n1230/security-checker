@@ -1,0 +1,40 @@
+id: hand-csharp-shell-command
+source: handmade
+language: csharp
+candidate:
+  scanner: semgrep
+  rule_id: csharp.lang.security.injections.os-command-injection
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/csharp_shell_command.cs
+  start_line: 12
+  end_line: 12
+  severity_reported: high
+  cwe:
+  - CWE-78
+code: |
+  using System.Diagnostics;
+  using Microsoft.AspNetCore.Mvc;
+
+  public class PrintController : ControllerBase
+  {
+      [HttpPost("/print")]
+      public void Print([FromForm] string text)
+      {
+          var start = new ProcessStartInfo("/bin/sh") { UseShellExecute = false };
+          start.ArgumentList.Add("-c");
+          start.ArgumentList.Add("printf '%s\\n' " + text);
+          using var process = Process.Start(start);
+          process.WaitForExit();
+      }
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-78
+  severity: high
+  rationale: |
+    UseShellExecute=false does not remove the explicitly launched /bin/sh. The
+    form value is appended to its -c command string, where shell metacharacters
+    can introduce additional commands. ArgumentList only separates sh's own
+    arguments; it does not quote the contents of the command string.

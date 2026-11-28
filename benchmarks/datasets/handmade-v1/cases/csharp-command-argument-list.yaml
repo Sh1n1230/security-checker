@@ -1,0 +1,39 @@
+id: hand-csharp-command-argument-list
+source: handmade
+language: csharp
+candidate:
+  scanner: semgrep
+  rule_id: csharp.lang.security.injections.os-command-injection
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/csharp_command_argument_list.cs
+  start_line: 12
+  end_line: 12
+  severity_reported: high
+  cwe:
+  - CWE-78
+code: |
+  using System.Diagnostics;
+  using Microsoft.AspNetCore.Mvc;
+
+  public class PrintController : ControllerBase
+  {
+      [HttpPost("/print")]
+      public void Print([FromForm] string text)
+      {
+          var start = new ProcessStartInfo("/usr/bin/printf") { UseShellExecute = false };
+          start.ArgumentList.Add("%s\n");
+          start.ArgumentList.Add(text);
+          using var process = Process.Start(start);
+          process.WaitForExit();
+      }
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    A fixed executable receives a fixed printf format followed by the form value
+    as one separate argument. No shell parses text, and percent directives in
+    text are not used as the format string. The candidate's command-injection
+    concern is therefore absent in this example.
