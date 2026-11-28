@@ -1,0 +1,12 @@
+# semgrep --test fixture; the exemption applies to this entire action.
+name: composite lock update
+runs:
+  using: composite
+  steps:
+    - run: uv lock --upgrade
+      shell: bash
+    # The preceding uv lock exempts the entire action.
+    - run: uv sync
+      shell: bash
+    - run: uv sync --frozen
+      shell: bash

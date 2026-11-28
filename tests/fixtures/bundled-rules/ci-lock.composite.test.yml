@@ -1,0 +1,19 @@
+# semgrep --test fixture; not an executable repository action.
+name: composite dependency setup
+runs:
+  using: composite
+  steps:
+    # ruleid: ci-uv-sync-without-locked
+    - run: uv sync
+      shell: bash
+    # ruleid: ci-uv-sync-frozen-without-locked
+    - run: uv sync --frozen
+      shell: bash
+    # ok: ci-uv-sync-without-locked,ci-uv-sync-frozen-without-locked
+    - run: uv sync --locked
+      shell: bash
+    # ok: ci-uv-sync-without-locked
+    - run: uv sync
+      shell: bash
+      env:
+        UV_LOCKED: "1"
