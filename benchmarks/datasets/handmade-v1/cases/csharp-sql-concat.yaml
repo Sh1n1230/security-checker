@@ -1,0 +1,38 @@
+id: hand-csharp-sql-concat
+source: handmade
+language: csharp
+candidate:
+  scanner: semgrep
+  rule_id: csharp.lang.security.sqli.csharp-sqli
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/csharp_sql_concat.cs
+  start_line: 11
+  end_line: 11
+  severity_reported: high
+  cwe:
+  - CWE-89
+code: |
+  using Microsoft.AspNetCore.Mvc;
+  using Microsoft.Data.SqlClient;
+
+  public class SearchController : ControllerBase
+  {
+      [HttpGet("/search")]
+      public object Search([FromQuery] string name)
+      {
+          using var connection = new SqlConnection("Server=localhost;Database=demo;Integrated Security=true");
+          connection.Open();
+          using var command = new SqlCommand("SELECT id FROM users WHERE name = '" + name + "'", connection);
+          return command.ExecuteScalar();
+      }
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-89
+  severity: high
+  rationale: |
+    The HTTP query parameter is concatenated inside a SQL string literal. A quote
+    in name can terminate that literal and change the query's syntax. Neither
+    validation nor parameter binding separates the untrusted value from SQL.
