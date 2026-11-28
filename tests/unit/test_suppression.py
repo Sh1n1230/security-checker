@@ -181,7 +181,8 @@ def test_apply_order_and_reasons(tmp_path):
     ]
     # 理由の無い注釈は抑制するが警告する
     assert len(warnings) == 1
-    assert "reason=" in warnings[0]
+    assert "reason=" in warnings[0].message
+    assert warnings[0].level == "warn"
 
 
 def test_baseline_path_is_relative_to_the_config_file(tmp_path):
@@ -351,8 +352,8 @@ def test_a_rotated_secret_is_not_covered_by_the_baseline(tmp_path):
     kept, suppressed, warnings = apply_suppressions([new], rules)
     assert [candidate.id for candidate in kept] == [new.id]
     assert suppressed == []
-    assert "値が違う" in warnings[0]
-    assert NEW_VALUE not in warnings[0]
+    assert "値が違う" in warnings[0].message
+    assert NEW_VALUE not in warnings[0].message
 
 
 def test_baseline_file_does_not_contain_the_secret_or_its_plain_hash(tmp_path):
@@ -444,3 +445,74 @@ def test_rule_with_path_matches_the_manifest_of_a_dependency(scanner):
     )
     assert parse_ignore_file("rule:GHSA-xxxx uv.lock\n")[0].match(dependency) is not None
     assert parse_ignore_file("rule:GHSA-xxxx other.lock\n")[0].match(dependency) is None
+
+
+@pytest.mark.parametrize("required", [False, True])
+@pytest.mark.parametrize("suffix", ["", " reason=", " reason=   ", " reason= */"])
+def test_reasonless_annotation_can_be_rejected(tmp_path, required, suffix):
+    (tmp_path / "app.py").write_text(
+        f"run()  # security-checker: ignore[*]{suffix}\n", encoding="utf-8"
+    )
+    config = Config.model_validate({"policy": {"require_suppression_reason": required}})
+    candidate = make_candidate(path="app.py", line=1)
+    kept, suppressed, warnings = apply_suppressions([candidate], load_rules(config, tmp_path))
+    assert len(warnings) == 1
+    assert warnings[0].level == ("error" if required else "warn")
+    assert warnings[0].source == "suppress"
+    assert "reason=" in warnings[0].message
+    if required:
+        assert kept == [candidate]
+        assert suppressed == []
+    else:
+        assert kept == []
+        assert suppressed[0].reason is SuppressionReason.INLINE_ANNOTATION
+
+
+def test_required_reason_accepts_explained_annotation(tmp_path):
+    (tmp_path / "app.py").write_text(
+        "run()  # security-checker: ignore[*] reason=reviewed fixed input\n", encoding="utf-8"
+    )
+    config = Config.model_validate({"policy": {"require_suppression_reason": True}})
+    candidate = make_candidate(path="app.py", line=1)
+    kept, suppressed, warnings = apply_suppressions([candidate], load_rules(config, tmp_path))
+    assert kept == []
+    assert suppressed[0].reason is SuppressionReason.INLINE_ANNOTATION
+    assert suppressed[0].note == "reviewed fixed input"
+    assert warnings == []
+
+
+@pytest.mark.parametrize("mechanism", ["ignore_file", "baseline"])
+def test_required_reason_preserves_explicit_suppressions(tmp_path, mechanism):
+    (tmp_path / "app.py").write_text("run()  # security-checker: ignore[*]\n", encoding="utf-8")
+    candidate = make_candidate(path="app.py", line=1)
+    policy: dict[str, bool | str] = {"require_suppression_reason": True}
+    if mechanism == "ignore_file":
+        (tmp_path / ".security-checker-ignore").write_text("app.py\n", encoding="utf-8")
+    else:
+        write_baseline(tmp_path / "baseline.json", [candidate], tool_version="2.0.0")
+        policy["baseline"] = "baseline.json"
+    kept, suppressed, warnings = apply_suppressions(
+        [candidate], load_rules(Config.model_validate({"policy": policy}), tmp_path)
+    )
+    assert kept == []
+    assert suppressed[0].reason == mechanism
+    assert warnings[0].level == "error"
+
+
+async def test_required_reason_keeps_candidate_and_error_in_report(tmp_path):
+    (tmp_path / "app.py").write_text("run()  # security-checker: ignore[*]\n", encoding="utf-8")
+    candidate = make_candidate(path="app.py", line=1)
+    config = Config.model_validate({"policy": {"require_suppression_reason": True}})
+    outcome = await run_scan(
+        config,
+        tmp_path,
+        base_dir=tmp_path,
+        scanners=[FakeScanner("semgrep", candidates=[candidate])],
+        suppression=load_rules(config, tmp_path),
+    )
+    assert outcome.report.candidates == [candidate]
+    assert outcome.report.suppressed == []
+    warning = next(w for w in outcome.report.warnings if w.source == "suppress")
+    assert warning.level == "error"
+    assert "reason=" in warning.message
+    assert outcome.decision.exit_code is ExitCode.POLICY_VIOLATION

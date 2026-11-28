@@ -203,8 +203,9 @@ def _suppress(
     kept, suppressed, messages = apply_suppressions(candidates, rules)
     warnings.extend(
         ReportWarning(level="warn", source="suppress", message=message)
-        for message in [*rules.warnings, *messages]
+        for message in rules.warnings
     )
+    warnings.extend(messages)
     return kept, suppressed
 
 
