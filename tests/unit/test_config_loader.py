@@ -386,3 +386,12 @@ def test_env_key_outside_the_schema_is_parsed_as_yaml():
 def test_judge_strategy_requires_a_judge_reviewer():
     with pytest.raises(ValueError, match=r"judge\.reviewer が必要"):
         Config.model_validate({"aggregation": {"strategy": "judge"}})
+
+
+def test_require_suppression_reason_config(tmp_path):
+    assert Config().policy.require_suppression_reason is False
+    write_config(tmp_path, "version: 1\npolicy:\n  require_suppression_reason: true\n")
+    assert load_config(tmp_path, environ={}).config.policy.require_suppression_reason is True
+    write_config(tmp_path, "version: 1\npolicy:\n  require_suppression_reason: invalid\n")
+    with pytest.raises(ConfigError, match="require_suppression_reason"):
+        load_config(tmp_path, environ={})

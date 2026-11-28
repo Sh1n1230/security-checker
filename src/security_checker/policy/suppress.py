@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from security_checker.models.finding import SuppressionReason
-from security_checker.models.report import SuppressedCandidate
+from security_checker.models.report import ReportWarning, SuppressedCandidate
 from security_checker.policy.baseline import Baseline, load_baseline
 from security_checker.policy.ignore import AnnotationReader, IgnoreFile, load_ignore_file
 
@@ -34,6 +34,7 @@ class SuppressionRules:
     warnings: list[str] = field(default_factory=list)
     #: 検査対象を信用しない (§21.2)。スキャナ自身の設定の読み込みも止める (#43)
     untrusted_target: bool = False
+    require_suppression_reason: bool = False
 
 
 def load_rules(
@@ -44,7 +45,10 @@ def load_rules(
     untrusted_target: bool = False,
 ) -> SuppressionRules:
     """設定から抑制規則を組み立てる. baseline の相対パスは設定ファイルの場所が基準."""
-    rules = SuppressionRules(untrusted_target=untrusted_target)
+    rules = SuppressionRules(
+        untrusted_target=untrusted_target,
+        require_suppression_reason=config.policy.require_suppression_reason,
+    )
     base_dir = config_dir or root
     if config.policy.baseline is not None:
         path = Path(config.policy.baseline).expanduser()
@@ -65,19 +69,18 @@ def load_rules(
 
 def apply_suppressions(
     candidates: list[Candidate], rules: SuppressionRules
-) -> tuple[list[Candidate], list[SuppressedCandidate], list[str]]:
+) -> tuple[list[Candidate], list[SuppressedCandidate], list[ReportWarning]]:
     """(残す候補, 抑制した候補, 警告) を返す. 優先順は 注釈 → ignore ファイル → baseline."""
     kept: list[Candidate] = []
     suppressed: list[SuppressedCandidate] = []
-    warnings: list[str] = []
+    warnings: list[ReportWarning] = []
     for candidate in candidates:
         annotation = rules.annotations.find(candidate) if rules.annotations else None
+        if annotation is not None and annotation.reason is None:
+            warnings.append(_missing_reason_warning(candidate, rules))
+            if rules.require_suppression_reason:
+                annotation = None
         if annotation is not None:
-            if annotation.reason is None:
-                warnings.append(
-                    f"{candidate.where}: 理由の無い ignore 注釈で {candidate.rule_id} を"
-                    "抑制しました。reason= を書いてください"
-                )
             suppressed.append(
                 SuppressedCandidate(
                     candidate=candidate,
@@ -102,10 +105,28 @@ def apply_suppressions(
         if candidate.id in rules.baseline.ids:
             # 値を書かずに伝える。同じ場所で鍵を差し替えたときの新しい秘密を見逃さない
             warnings.append(
-                f"{candidate.where}: baseline に記録した秘密と値が違うため、"
-                "新しい候補として扱います"
+                ReportWarning(
+                    level="warn",
+                    source="suppress",
+                    message=f"{candidate.where}: baseline に記録した秘密と値が違うため、"
+                    "新しい候補として扱います",
+                )
             )
         kept.append(candidate)
     if rules.annotations is not None:
-        warnings.extend(rules.annotations.warnings)
+        warnings.extend(
+            ReportWarning(level="warn", source="suppress", message=message)
+            for message in rules.annotations.warnings
+        )
     return kept, suppressed, warnings
+
+
+def _missing_reason_warning(candidate: Candidate, rules: SuppressionRules) -> ReportWarning:
+    """理由の無い注釈は opt-in で拒否し、レポートのエラーとして記録する."""
+    action = "抑制しません" if rules.require_suppression_reason else "抑制しました"
+    return ReportWarning(
+        level="error" if rules.require_suppression_reason else "warn",
+        source="suppress",
+        message=f"{candidate.where}: 理由の無い ignore 注釈で {candidate.rule_id} を"
+        f"{action}。reason= を書いてください",
+    )

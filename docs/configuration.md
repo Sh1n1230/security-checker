@@ -231,5 +231,16 @@ subprocess.run(cmd, shell=True)  # security-checker: ignore[python.lang.security
 subprocess.run(cmd, shell=True)
 ```
 
+理由の無い注釈を拒否するには `policy.require_suppression_reason: true` を設定します
+(既定は `false`)。`reason=` が無い場合と、空白だけの場合は注釈を無視し、レポートの
+`warnings` に `level: error` で記録します。候補はレビューとゲートの対象に残ります。
+`.security-checker-ignore` と baseline による別の抑制は引き続き適用します。
+エラーの記録自体で終了コードを上書きせず、残った候補を通常のポリシーで判定します。
+
+```yaml
+policy:
+  require_suppression_reason: true
+```
+
 信用できない検査対象 (`SECURITY_CHECKER_UNTRUSTED_TARGET=1`) では、検査対象の中の ignore ファイルと
 注釈を読みません。PR 側が自分の指摘を自分で消せてしまうためです。

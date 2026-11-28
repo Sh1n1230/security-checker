@@ -16,7 +16,8 @@
     # security-checker: ignore[rule_id] reason=固定文字列のみ
     subprocess.run(cmd, shell=True)
 
-**理由の記述を必須とする。** 理由の無い注釈も抑制はするが、警告を出す。
+**理由の記述を必須とする。** 既定では理由の無い注釈も抑制するが、警告を出す。
+`policy.require_suppression_reason` が true なら、その注釈を拒否して error として報告する。
 抑制は「誰かが判断した」記録であり、判断の根拠が残らない抑制は負債になる。
 """
 

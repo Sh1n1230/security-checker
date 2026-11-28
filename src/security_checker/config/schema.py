@@ -347,6 +347,7 @@ class PolicyConfig(StrictModel):
     min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     strict: bool = True
     baseline: str | None = None
+    require_suppression_reason: bool = False
     min_score: int | None = Field(default=None, ge=0, le=100)
 
 
