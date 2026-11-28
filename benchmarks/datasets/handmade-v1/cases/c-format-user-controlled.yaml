@@ -1,0 +1,32 @@
+id: hand-c-format-user-controlled
+source: handmade
+language: c
+candidate:
+  scanner: semgrep
+  rule_id: c.lang.security.insecure-use-printf-fn
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/c_format_user_controlled.c
+  start_line: 6
+  end_line: 6
+  severity_reported: high
+  cwe:
+  - CWE-134
+code: |
+  #include <stdio.h>
+  #include <string.h>
+
+  int main(int argc, char **argv) {
+      if (argc != 2) return 1;
+      printf(argv[1]);
+      return 0;
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-134
+  severity: high
+  rationale: |
+    The command-line value is used as the format string itself. Percent directives
+    are interpreted despite the absence of corresponding variadic arguments, causing
+    undefined behavior and potentially disclosing or overwriting process memory.

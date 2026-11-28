@@ -1,0 +1,31 @@
+id: hand-c-format-literal
+source: handmade
+language: c
+candidate:
+  scanner: semgrep
+  rule_id: c.lang.security.insecure-use-printf-fn
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/c_format_literal.c
+  start_line: 6
+  end_line: 6
+  severity_reported: high
+  cwe:
+  - CWE-134
+code: |
+  #include <stdio.h>
+  #include <string.h>
+
+  int main(int argc, char **argv) {
+      if (argc != 2) return 1;
+      printf("%s", argv[1]);
+      return 0;
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    The format string is the fixed literal %s and the untrusted command-line
+    argument is its data argument. Percent directives in that argument are printed
+    as text rather than interpreted as formatting instructions.
