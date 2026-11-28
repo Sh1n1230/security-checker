@@ -1,0 +1,36 @@
+id: hand-kotlin-shell-command
+source: handmade
+language: kotlin
+candidate:
+  scanner: semgrep
+  rule_id: kotlin.lang.security.command-injection-formatted-runtime-call
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/kotlin_shell_command.kt
+  start_line: 10
+  end_line: 10
+  severity_reported: high
+  cwe:
+  - CWE-78
+code: |
+  import org.springframework.web.bind.annotation.PostMapping
+  import org.springframework.web.bind.annotation.RequestParam
+  import org.springframework.web.bind.annotation.RestController
+
+  @RestController
+  class PrintController {
+      @PostMapping("/print")
+      fun print(@RequestParam text: String): Int {
+          val command = arrayOf("/bin/sh", "-c", "printf '%s\\n' " + text)
+          return Runtime.getRuntime().exec(command).waitFor()
+      }
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-78
+  severity: high
+  rationale: |
+    An untrusted request parameter becomes part of the command interpreted by
+    /bin/sh -c. The array separates the interpreter's arguments, but the third
+    argument still contains shell syntax assembled from attacker-controlled data.

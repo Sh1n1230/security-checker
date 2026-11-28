@@ -1,0 +1,31 @@
+id: hand-kotlin-md5-nonsecurity-bucket
+source: handmade
+language: kotlin
+candidate:
+  scanner: semgrep
+  rule_id: kotlin.lang.security.use-of-md5
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/kotlin_md5_nonsecurity_bucket.kt
+  start_line: 6
+  end_line: 6
+  severity_reported: high
+  cwe:
+  - CWE-916
+code: |
+  import java.security.MessageDigest
+
+  // A collision only groups two public display labels into the same UI bucket.
+  // This value is never used for authentication, signatures, or integrity checks.
+  fun displayBucket(publicLabel: String): Int {
+      val digest = MessageDigest.getInstance("MD5").digest(publicLabel.toByteArray(Charsets.UTF_8))
+      return (digest[0].toInt() and 0xff) % 8
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    MD5 is used solely to choose one of eight display buckets for public labels.
+    Collisions are expected and have no security consequence. There is no
+    password verifier, authentication decision, signature, or integrity check.

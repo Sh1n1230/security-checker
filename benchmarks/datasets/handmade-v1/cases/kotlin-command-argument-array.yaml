@@ -1,0 +1,35 @@
+id: hand-kotlin-command-argument-array
+source: handmade
+language: kotlin
+candidate:
+  scanner: semgrep
+  rule_id: kotlin.lang.security.command-injection-formatted-runtime-call
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/kotlin_command_argument_array.kt
+  start_line: 10
+  end_line: 10
+  severity_reported: high
+  cwe:
+  - CWE-78
+code: |
+  import org.springframework.web.bind.annotation.PostMapping
+  import org.springframework.web.bind.annotation.RequestParam
+  import org.springframework.web.bind.annotation.RestController
+
+  @RestController
+  class PrintController {
+      @PostMapping("/print")
+      fun print(@RequestParam text: String): Int {
+          val command = arrayOf("/usr/bin/printf", "%s\n", text)
+          return Runtime.getRuntime().exec(command).waitFor()
+      }
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    The executable and printf format are fixed. Runtime.exec(String[]) passes
+    text as a separate argument without a shell, so shell metacharacters are
+    literal data. The untrusted argument cannot replace the format argument.

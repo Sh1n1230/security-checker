@@ -1,0 +1,39 @@
+id: hand-swift-sql-bound-value
+source: handmade
+language: swift
+candidate:
+  scanner: semgrep
+  rule_id: swift.sqllite.sqllite-injection-audit.swift-potential-sqlite-injection
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/swift_sql_bound_value.swift
+  start_line: 7
+  end_line: 7
+  severity_reported: high
+  cwe:
+  - CWE-89
+code: |
+  import SQLite3
+
+  // searchText comes from the application's user-entered search field.
+  func search(_ db: OpaquePointer, searchText: String) -> Int32 {
+      let sql = "SELECT id FROM notes WHERE title = ?"
+      var statement: OpaquePointer?
+      let status = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+      guard status == SQLITE_OK else { return status }
+      defer { sqlite3_finalize(statement) }
+      let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+      let bound = searchText.withCString {
+          sqlite3_bind_text(statement, 1, $0, -1, transient)
+      }
+      guard bound == SQLITE_OK else { return bound }
+      return sqlite3_step(statement)
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    The prepared SQL is constant and searchText is bound at index one. Its bytes
+    are copied with SQLITE_TRANSIENT while the C string is alive. Quotes and SQL
+    fragments in the input remain one text value rather than statement syntax.

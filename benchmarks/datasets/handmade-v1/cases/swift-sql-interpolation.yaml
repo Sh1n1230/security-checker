@@ -1,0 +1,35 @@
+id: hand-swift-sql-interpolation
+source: handmade
+language: swift
+candidate:
+  scanner: semgrep
+  rule_id: swift.sqllite.sqllite-injection-audit.swift-potential-sqlite-injection
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/swift_sql_interpolation.swift
+  start_line: 7
+  end_line: 7
+  severity_reported: high
+  cwe:
+  - CWE-89
+code: |
+  import SQLite3
+
+  // searchText comes from the application's user-entered search field.
+  func search(_ db: OpaquePointer, searchText: String) -> Int32 {
+      let sql = "SELECT id FROM notes WHERE title = '\(searchText)'"
+      var statement: OpaquePointer?
+      let status = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+      guard status == SQLITE_OK else { return status }
+      defer { sqlite3_finalize(statement) }
+      return sqlite3_step(statement)
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-89
+  severity: high
+  rationale: |
+    The search text is interpolated inside a SQL quoted string before preparation.
+    A quote can change the statement, for example by changing the WHERE condition.
+    Preparing already-concatenated SQL does not bind or escape its input values.

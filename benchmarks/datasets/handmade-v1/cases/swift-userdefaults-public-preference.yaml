@@ -1,0 +1,30 @@
+id: hand-swift-userdefaults-public-preference
+source: handmade
+language: swift
+candidate:
+  scanner: semgrep
+  rule_id: swift.lang.storage.sensitive-storage-userdefaults.swift-user-defaults
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/swift_userdefaults_public_preference.swift
+  start_line: 6
+  end_line: 6
+  severity_reported: high
+  cwe:
+  - CWE-312
+code: |
+  import Foundation
+
+  // Saves a public UI preference, not the user's password or any token.
+  func rememberTheme(_ theme: String) {
+      let choice = theme == "dark" ? "dark" : "light"
+      UserDefaults.standard.set(choice, forKey: "displayTheme")
+  }
+ground_truth:
+  vulnerable: false
+  cwe: []
+  severity: none
+  rationale: |
+    The only persisted value is the non-sensitive display preference dark or
+    light. The sensitive-data-storage candidate is a false positive in this
+    context; no credential or other confidential value enters the preferences.
