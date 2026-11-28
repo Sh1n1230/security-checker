@@ -1,0 +1,32 @@
+id: hand-cpp-format-user-controlled
+source: handmade
+language: cpp
+candidate:
+  scanner: semgrep
+  rule_id: handmade.cpp.format-string-audit
+  category: sast
+  message: Review the security-sensitive operation in its surrounding context.
+  path: app/cpp_format_user_controlled.cpp
+  start_line: 6
+  end_line: 6
+  severity_reported: high
+  cwe:
+  - CWE-134
+code: |
+  #include <cstdio>
+  #include <cstring>
+
+  int main(int argc, char **argv) {
+      if (argc != 2) return 1;
+      std::printf(argv[1]);
+      return 0;
+  }
+ground_truth:
+  vulnerable: true
+  cwe:
+  - CWE-134
+  severity: high
+  rationale: |
+    The command-line value is used as the format string itself. Percent directives
+    are interpreted despite the absence of corresponding variadic arguments, causing
+    undefined behavior and potentially disclosing or overwriting process memory.
